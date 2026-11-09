@@ -1,0 +1,5 @@
+{
+  "ios": {
+    "NSCameraUsageDescription": "DiasPayQR uses the camera to scan confirmation eQRs."
+  }
+}

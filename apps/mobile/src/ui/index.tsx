@@ -37,6 +37,7 @@ export const ICONS = {
   bell: 'M6 17V11a6 6 0 0 1 12 0v6l2 2H4zM10 21h4',
   user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
   back: 'M15 5l-7 7 7 7',
+  bolt: 'M13 2L5 14h6l-1 8 8-12h-6z',
   lock: 'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z',
   check: 'M5 12l5 5 9-10',
   chevron: 'M9 5l7 7-7 7',

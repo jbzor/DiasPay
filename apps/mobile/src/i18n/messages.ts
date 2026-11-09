@@ -98,7 +98,6 @@ export const fr = {
   err_DEVICE_TIME_INVALID: 'L’heure de votre téléphone est incorrecte. Corrigez-la puis réessayez.',
   err_NO_TOKEN: 'Le jeton n’est pas encore disponible pour cette tranche.',
   err_NOT_FOUND: 'Tranche introuvable.',
-  scanHint: 'x', providerOnly: 'x', scanOk: 'x',
   err_generic: 'Une erreur est survenue. Réessayez.',
 } as const;
 
@@ -201,7 +200,6 @@ export const en: Record<Key, string> = {
   err_DEVICE_TIME_INVALID: 'Your phone’s clock is wrong. Fix it and try again.',
   err_NO_TOKEN: 'The token is not yet available for this installment.',
   err_NOT_FOUND: 'Installment not found.',
-  scanHint: 'x', providerOnly: 'x', scanOk: 'x',
   err_generic: 'Something went wrong. Please try again.',
 };
 

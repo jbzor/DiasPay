@@ -14,7 +14,7 @@ export default function TabsLayout() {
       tabBarStyle: { height: 64, backgroundColor: palette.card, borderTopColor: palette.line },
       tabBarLabelStyle: { fontSize: 12 },
     }}>
-      <Tabs.Screen name="index" options={{ title: t('tabHome'), tabBarIcon: tab('home') }} />
+      <Tabs.Screen name="home" options={{ title: t('tabHome'), tabBarIcon: tab('home') }} />
       <Tabs.Screen name="transactions" options={{ title: t('tabTx'), tabBarIcon: tab('list') }} />
       <Tabs.Screen name="scan" options={{ title: t('tabScan'), tabBarIcon: tab('scan') }} />
       <Tabs.Screen name="alerts" options={{ title: t('tabAlerts'), tabBarIcon: tab('bell') }} />

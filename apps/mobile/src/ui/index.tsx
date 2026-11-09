@@ -5,9 +5,30 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { router } from 'expo-router';
 import { chips, fontSize, neutralTint, palette, radius, semantic, spacing, statusDot, touchTarget } from '@diaspay/ui-tokens';
-import { useI18n } from '../i18n';
+import { setLocale, useI18n } from '../i18n';
+import type { Locale } from '../i18n';
 
 export { Logo } from './Logo';
+export { IllustrationLock, IllustrationProof, IllustrationPurpose } from './Illustrations';
+
+/** Bascule de langue en boutons texte ; l’actif est gras et souligné en jaune (3 px). Appliquée et persistée immédiatement. */
+export function LangSwitch({ inverse = false }: { inverse?: boolean }) {
+  const { t, locale } = useI18n();
+  const items: Array<[Locale, string]> = [['fr', t('langFr')], ['en', t('langEn')]];
+  return (
+    <View style={s.lang} accessibilityRole="radiogroup" accessibilityLabel={t('language')}>
+      {items.map(([k, label]) => {
+        const on = k === locale;
+        return (
+          <Pressable key={k} accessibilityRole="radio" accessibilityState={{ selected: on }} onPress={() => setLocale(k)} style={s.langItem}>
+            <Text style={[s.langText, { color: inverse ? '#FFFFFF' : on ? semantic.text : semantic.textMuted }, on ? s.langOn : null]}>{label}</Text>
+            <View style={[s.langBar, on ? { backgroundColor: palette.yellow } : null]} />
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
 
 export const ICONS = {
   home: 'M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
@@ -225,6 +246,11 @@ const s = StyleSheet.create({
   dotOn: { width: 24, backgroundColor: palette.green },
   avatar: { backgroundColor: palette.green, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: '#fff', fontWeight: '700' },
+  lang: { flexDirection: 'row', justifyContent: 'center', gap: spacing.xl },
+  langItem: { minHeight: touchTarget, minWidth: touchTarget, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
+  langText: { fontSize: fontSize.body, fontWeight: '400' },
+  langOn: { fontWeight: '700' },
+  langBar: { height: 3, alignSelf: 'stretch', marginTop: 4, borderRadius: 2, backgroundColor: 'transparent' },
 });
 
 export const txStatusKind = (status: string): StatusKind =>

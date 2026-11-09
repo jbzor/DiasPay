@@ -4,6 +4,8 @@ import { currentTrancheIndex, lockedFunds, nextPayment, trancheCount } from '@di
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { txStatusKey, useI18n, verticalLabel } from '@/i18n';
 import { usePersona, useTransactions } from '@/state/api';
+import { useSession } from '@/state/auth';
+import { initials } from '@/lib/format';
 import { Avatar, Button, Card, H2, Icon, Screen, StatusLabel, txStatusKind } from '@/ui';
 
 export default function Home() {
@@ -12,15 +14,17 @@ export default function Home() {
   const persona = usePersona();
   const funds = lockedFunds(txs);
   const next = nextPayment(txs);
-  const name = persona === 'PAYER' ? 'Marie' : 'École Les Palmiers';
+  const { session } = useSession();
+  const fullName = session?.profile?.fullName ?? '';
+  const name = fullName.split(' ')[0] ?? '';
   return (
     <Screen>
       <View style={st.header}>
         <View>
           <Text style={st.hello} accessibilityRole="header">{t('hello', { name })}</Text>
-          <Text style={st.sub}>{persona === 'PAYER' ? t('payer') : t('provider')}</Text>
+          <Text style={st.sub}>{session?.profile ? t(`role_${session.profile.primaryRole}`) : persona === 'PAYER' ? t('payer') : t('provider')}</Text>
         </View>
-        <Avatar initials={name.slice(0, 1)} />
+        <Avatar initials={initials(fullName)} />
       </View>
 
       <View style={st.hero}>
@@ -34,7 +38,7 @@ export default function Home() {
       {next ? (
         <>
           <H2>{t('todo')}</H2>
-          <View>
+          <View style={{ gap: spacing.sm }}>
             <Card style={{ gap: 4 }}>
               <StatusLabel kind="pending" label={t('dueOn', { date: next.tranche.dueDate ? date(next.tranche.dueDate) : '' })} />
               <Text style={st.rowTitle}>{verticalLabel(next.tx.vertical, locale)} · {next.tx.providerName}</Text>

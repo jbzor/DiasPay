@@ -32,3 +32,23 @@ export const DIAL_CODES = ['+33', '+32', '+1', '+44', '+49', '+237'] as const;
 /** Clé de traduction d’un pays ; un code inconnu retombe sur « Autre ». */
 export const countryKey = (code: string): `country_${CountryCode}` =>
   `country_${(COUNTRIES as readonly string[]).includes(code) ? (code as CountryCode) : 'OTHER'}`;
+
+/**
+ * Saisie dans une case du code : un chiffre avance d’une case, un code complet (collage, saisie SMS)
+ * remplit toutes les cases, un effacement vide la case. Renvoie les chiffres et la case à activer.
+ */
+export function fillDigits(current: readonly string[], index: number, text: string): { digits: string[]; focus: number } {
+  const n = current.length;
+  const next = [...current];
+  let d = text.replace(/\D/g, '');
+  if (d === '') {
+    next[index] = '';
+    return { digits: next, focus: index };
+  }
+  if (d.length >= n) return { digits: d.slice(0, n).split(''), focus: n - 1 };
+  const prev = current[index];
+  // La case contenait déjà un chiffre (sélection non remplacée) : on garde le nouveau.
+  if (prev && d.length === 2) d = d.startsWith(prev) ? d.slice(1) : d.slice(0, 1);
+  for (let k = 0; k < d.length && index + k < n; k++) next[index + k] = d.charAt(k);
+  return { digits: next, focus: Math.min(n - 1, index + d.length) };
+}

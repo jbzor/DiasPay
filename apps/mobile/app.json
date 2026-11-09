@@ -19,7 +19,8 @@
           "imageWidth": 160,
           "resizeMode": "contain"
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

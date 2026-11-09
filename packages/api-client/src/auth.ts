@@ -62,6 +62,7 @@ export function normalizePhone(raw: string): string {
 /** Assemble indicatif et numéro local (le 0 de tête du numéro national est retiré : +33 06… → +336…). */
 export function composePhone(dialCode: string, local: string): string {
   const dial = dialCode.trim().replace(/^00/, '+');
+  if (!/^\+?[1-9]\d{0,3}$/.test(dial)) throw new AuthError('PHONE_INVALID', 'Indicatif invalide');
   const national = local.replace(/[\s.\-()]/g, '').replace(/^0+/, '');
   return normalizePhone(`${dial.startsWith('+') ? dial : `+${dial}`}${national}`);
 }

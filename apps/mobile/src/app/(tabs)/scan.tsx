@@ -28,7 +28,7 @@ export default function Scan() {
       {persona !== 'PROVIDER' ? <Banner text={t('providerOnly')} /> : (
         <>
           <Text style={st.hint}>{t('scanHint')}</Text>
-          <Field label={t('reference')} value={ref} onChangeText={setRef} autoCapitalize="characters" autoCorrect={false} placeholder="7B31-D0A9-C5E2" />
+          <Field label={t('reference')} value={ref} onChangeText={setRef} autoCapitalize="characters" autoCorrect={false} placeholder={t('referencePlaceholder')} />
           <Button label={t('confirmService')} onPress={confirm} disabled={ref.trim().length < 4} />
           {msg ? <Banner text={msg.text} tone={msg.ok ? 'active' : 'error'} /> : null}
         </>

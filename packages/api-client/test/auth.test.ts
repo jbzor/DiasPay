@@ -29,6 +29,8 @@ describe('normalisation du numéro', () => {
     expect(composePhone('237', '699001122')).toBe('+237699001122');
     expect(isValidPhone('+33', '0612345678')).toBe(true);
     expect(isValidPhone('+33', '12')).toBe(false);
+    expect(isValidPhone('', '0612345678')).toBe(false);
+    expect(isValidPhone('+3a', '0612345678')).toBe(false);
   });
   it('refuse un numéro invalide (PHONE_INVALID)', async () => {
     const { auth } = make();

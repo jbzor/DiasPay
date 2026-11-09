@@ -25,4 +25,12 @@ describe('parité i18n', () => {
     const diff = frKeys.filter((k) => placeholders(fr[k as keyof typeof fr]).join() !== placeholders(en[k as keyof typeof en]).join());
     expect(diff).toEqual([]);
   });
+
+  it('chaque erreur du scan et du jeton a un message localisé', () => {
+    const codes = ['EQR_MALFORMED', 'UNKNOWN_REFERENCE', 'TOKEN_EXPIRED', 'TOKEN_USED', 'NOT_PAID', 'WRONG_MODE', 'PROVIDER_ONLY', 'NOT_A_PARTY', 'DEVICE_TIME_INVALID', 'NO_TOKEN', 'NOT_FOUND'];
+    for (const c of codes) {
+      expect(fr).toHaveProperty(`err_${c}`);
+      expect(en).toHaveProperty(`err_${c}`);
+    }
+  });
 });

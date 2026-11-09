@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DomainError } from '@diaspay/domain';
+import { DomainError, decodeEqr, encodeEqr } from '@diaspay/domain';
 import { MockApi, currentTrancheIndex, seedTransactions, filterTransactions, lockedFunds, nextPayment } from '../src';
 
 const T0 = new Date('2026-11-08T10:00:00Z');
@@ -191,5 +191,47 @@ describe('MockApi — TrustToken et eQR', () => {
     const api = new MockApi(() => T0, undefined, { tokenValidityHours: 2 });
     const tx = await api.getTransaction('tx-school');
     expect((await api.getToken(tx.tranches[1]!.id)).expiresAt).toBe('2026-11-08T12:00:00.000Z');
+  });
+});
+
+describe('parcours complet du mock (démonstration)', () => {
+  it('payer, afficher le jeton, confirmer en prestataire, délai de contestation, usage unique', async () => {
+    let now = new Date(T0);
+    const api = new MockApi(() => now);
+    const tx = await api.getTransaction('tx-school');
+    const t2 = tx.tranches[1]!;
+
+    // 1. Payeur : le jeton existe déjà (tranche à payer), la tranche passe à « payée ».
+    const before = await api.getToken(t2.id);
+    expect(before.usedAt).toBeUndefined();
+    await api.payTranche(t2.id);
+    expect((await api.getTranche(t2.id)).tranche.status).toBe('PAID_LOCKED');
+    const token = await api.getToken(t2.id);
+    expect(token.reference).toBe(before.reference);
+
+    // Le contenu du QR ne porte que référence, kid et signature.
+    const qr = encodeEqr({ reference: token.reference, kid: token.kid, signature: token.signature });
+    expect(qr).toBe(`DPQ1:${token.reference}:${token.kid}:${token.signature}`);
+    expect(qr).not.toMatch(/300000|Scolarité|Aïcha|Palmiers/);
+
+    // 2. Prestataire : résolution puis confirmation, 5 minutes plus tard.
+    api.setPersona('PROVIDER');
+    const decoded = decodeEqr(qr);
+    const info = await api.resolveReference(decoded.reference);
+    expect(info).toMatchObject({ status: 'PAID_LOCKED', used: false, amountMinor: 300_000 });
+    now = new Date(now.getTime() + 5 * 60_000);
+    const confirmed = await api.confirmByReference(decoded.reference, now.toISOString());
+    const done = confirmed.tranches[1]!;
+    expect(done.status).toBe('CONFIRMED');
+    expect(done.contestEndsAt).toBe(new Date(now.getTime() + 72 * 3_600_000).toISOString());
+
+    // 3. Usage unique : un second scan est refusé, y compris avec le même QR.
+    expect(await code(api.confirmByReference(decoded.reference))).toBe('TOKEN_USED');
+    expect((await api.getToken(t2.id)).usedAt).toBe(now.toISOString());
+
+    // 4. À l’échéance du délai, la tranche est débloquée automatiquement.
+    now = new Date(now.getTime() + 73 * 3_600_000);
+    expect(api.runTimers()).toBeGreaterThanOrEqual(1);
+    expect((await api.getTranche(t2.id)).tranche.status).toBe('RELEASED');
   });
 });

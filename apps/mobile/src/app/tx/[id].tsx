@@ -4,9 +4,9 @@ import { canOpenDispute } from '@diaspay/domain';
 import type { TxRole } from '@diaspay/domain';
 import type { Tranche, Transaction } from '@diaspay/api-client';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
-import { txStatusKey, useI18n, verticalLabel } from '@/i18n';
+import { trancheStatusKey, txStatusKey, useI18n, verticalLabel } from '@/i18n';
 import { api, usePersona, useTransactions } from '@/state/api';
-import { Button, H2, Icon, Row, Screen, StatusLabel, TopBar, txStatusKind } from '@/ui';
+import { Banner, Button, H2, Icon, Row, Screen, StatusLabel, TopBar, txStatusKind } from '@/ui';
 
 const dotColor = (s: Tranche['status']) =>
   s === 'RELEASED' ? palette.green : s === 'AWAITING_PAYMENT' ? palette.yellow : s === 'DISPUTED' ? palette.red : s === 'PLANNED' ? palette.disabled : palette.green;
@@ -65,13 +65,16 @@ function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boo
 }
 
 export default function TransactionDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tr: linkedTranche } = useLocalSearchParams<{ id: string; tr?: string }>();
   const { t, locale, money } = useI18n();
   const tx = useTransactions().find((x) => x.id === id);
   if (!tx) return <Screen><TopBar title={t('notFound')} /></Screen>;
+  // Arrivée par un lien /t/<référence> sur une tranche qui n’appelle aucune action immédiate : on explique son état.
+  const linked = linkedTranche ? tx.tranches.find((x) => x.id === linkedTranche) : undefined;
   return (
     <Screen>
       <TopBar title={`${verticalLabel(tx.vertical, locale)} · ${tx.providerName}`} subtitle={t('trancheCount', { n: tx.tranches.length })} />
+      {linked ? <Banner tone="pending" text={t('linkNotice', { n: linked.seq, status: t(trancheStatusKey(linked.status)) })} /> : null}
       <View>
         <View style={st.statusRow}>
           <Text style={st.statusLabel}>{t('status')}</Text>

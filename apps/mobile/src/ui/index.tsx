@@ -48,7 +48,7 @@ export function TopBar({ title, subtitle, onBack }: { title: string; subtitle?: 
   return (
     <View style={s.topBar}>
       <Pressable accessibilityRole="button" accessibilityLabel={t('back')}
-        onPress={onBack ?? (() => (router.canGoBack() ? router.back() : router.replace('/')))} style={s.backBtn}>
+        onPress={onBack ?? (() => (router.canGoBack() ? router.back() : router.replace('/home')))} style={s.backBtn}>
         <Icon name="back" />
       </Pressable>
       <View style={{ flexShrink: 1 }}>

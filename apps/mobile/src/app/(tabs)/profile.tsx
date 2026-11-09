@@ -1,12 +1,13 @@
 import { StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
 import { fontSize, palette } from '@diaspay/ui-tokens';
 import type { Persona } from '@diaspay/api-client';
 import { setLocale, useI18n } from '@/i18n';
 import type { Locale } from '@/i18n';
 import { setPersona, usePersona } from '@/state/api';
-import { useSession } from '@/state/auth';
+import { signOut, useSession } from '@/state/auth';
 import { countryKey, initials } from '@/lib/format';
-import { Avatar, Banner, H2, Row, Screen, Segmented, Title } from '@/ui';
+import { Avatar, Banner, Button, H2, Row, Screen, Segmented, Title } from '@/ui';
 
 /** Sélecteur de profil de démonstration : développement, ou build de démonstration (EXPO_PUBLIC_DEMO=1). */
 const SHOW_DEMO = __DEV__ || process.env.EXPO_PUBLIC_DEMO === '1';
@@ -45,6 +46,7 @@ export default function Profile() {
         </>
       ) : null}
       <Banner text={t('demoNote')} />
+      <Button tone="danger" label={t('signOut')} onPress={async () => { await signOut(); router.replace('/login'); }} />
     </Screen>
   );
 }

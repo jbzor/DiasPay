@@ -27,13 +27,16 @@ export function useI18n() {
     if (params) for (const [k, v] of Object.entries(params)) s = s.replace(`{${k}}`, String(v));
     return s;
   };
+  const tag = loc === 'fr' ? 'fr-FR' : 'en-GB';
   const date = (iso: string) => new Intl.DateTimeFormat(loc === 'fr' ? 'fr-FR' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
   const dateTime = (iso: string) => new Intl.DateTimeFormat(loc === 'fr' ? 'fr-FR' : 'en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
   const money = (m: Money) => formatMoney(m, loc === 'fr' ? 'fr-FR' : 'en-GB');
   const errorText = (e: unknown): string => {
     const code = (e as { code?: string })?.code;
     const k = `err_${code}` as Key;
-    return code && k in fr ? t(k) : t('err_generic');
+    const d = (e as { details?: { remaining?: number; lockedUntil?: string } })?.details ?? {};
+    const time = d.lockedUntil ? new Intl.DateTimeFormat(tag, { hour: '2-digit', minute: '2-digit' }).format(new Date(d.lockedUntil)) : '';
+    return code && k in fr ? t(k, { remaining: d.remaining ?? '', time }) : t('err_generic');
   };
   return { t, locale: loc, date, dateTime, money, errorText };
 }

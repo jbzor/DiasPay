@@ -27,6 +27,8 @@ export default function RootLayout() {
         <Stack.Screen name="(onboarding)/slides" options={{ animation: 'fade' }} />
         <Stack.Screen name="(auth)/login" options={{ animation: 'fade' }} />
         <Stack.Screen name="(auth)/otp" />
+        {/* Lien profond : accessible sans session pour mémoriser la référence et la rejouer après la connexion. */}
+        <Stack.Screen name="t/[reference]" options={{ animation: 'fade' }} />
         <Stack.Protected guard={canSetup(session)}>
           <Stack.Screen name="(auth)/profile-setup" options={{ gestureEnabled: false }} />
           <Stack.Screen name="(auth)/biometrics" options={{ gestureEnabled: false }} />
@@ -35,6 +37,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
           <Stack.Screen name="tx/[id]" />
           <Stack.Screen name="pay/[trancheId]" />
+          <Stack.Screen name="token/[trancheId]" />
           <Stack.Screen name="dispute/[trancheId]" />
         </Stack.Protected>
       </Stack>

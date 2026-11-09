@@ -42,7 +42,10 @@ function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boo
         <Text style={st.itemTitle}>{tr.label} · {amount}</Text>
         <Text style={st.itemInfo}>{info}</Text>
         {persona === 'PAYER' && tr.status === 'AWAITING_PAYMENT' ? (
-          <View style={st.actions}><Button small tone="accent" label={t('pay')} onPress={() => router.push(`/pay/${tr.id}`)} /></View>
+          <View style={st.actions}>
+            <Button small tone="accent" label={t('pay')} onPress={() => router.push(`/pay/${tr.id}`)} />
+            <Button small tone="secondary" label={t('showQr')} onPress={() => router.push(`/token/${tr.id}`)} />
+          </View>
         ) : null}
         {persona === 'PAYER' && tr.status === 'CONFIRMED' ? (
           <View style={st.actions}>
@@ -50,8 +53,11 @@ function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boo
             <Button small label={t('release')} onPress={() => api.approveRelease(tr.id)} />
           </View>
         ) : null}
-        {persona === 'PAYER' && tr.status === 'PAID_LOCKED' && canDispute ? (
-          <View style={st.actions}><Button small tone="danger" label={t('openDispute')} onPress={() => router.push(`/dispute/${tr.id}`)} /></View>
+        {persona === 'PAYER' && tr.status === 'PAID_LOCKED' ? (
+          <View style={st.actions}>
+            {canDispute ? <Button small tone="danger" label={t('openDispute')} onPress={() => router.push(`/dispute/${tr.id}`)} /> : null}
+            <Button small tone="secondary" label={t('showQr')} onPress={() => router.push(`/token/${tr.id}`)} />
+          </View>
         ) : null}
       </View>
     </View>

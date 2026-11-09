@@ -1,23 +1,11 @@
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import * as LocalAuthentication from 'expo-local-authentication';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { useI18n, verticalLabel } from '@/i18n';
 import { api, useTransactions } from '@/state/api';
+import { biometric } from '@/lib/biometric';
 import { Banner, Button, Card, H2, Icon, Radio, Row, Screen, TopBar } from '@/ui';
-
-async function biometric(reason: string): Promise<boolean> {
-  try {
-    const hasHw = await LocalAuthentication.hasHardwareAsync();
-    const enrolled = await LocalAuthentication.isEnrolledAsync();
-    if (!hasHw || !enrolled) return true; // démonstration : pas de biométrie disponible (web, simulateur)
-    const r = await LocalAuthentication.authenticateAsync({ promptMessage: reason });
-    return r.success;
-  } catch {
-    return true;
-  }
-}
 
 export default function Pay() {
   const { trancheId } = useLocalSearchParams<{ trancheId: string }>();

@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { fontSize, palette, radius, spacing } from '@diaspay/ui-tokens';
+import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { useI18n, verticalLabel } from '@/i18n';
 import { api, useTransactions } from '@/state/api';
-import { Banner, Button, Card, Icon, Row, Screen, TopBar } from '@/ui';
+import { Banner, Button, Card, H2, Icon, Radio, Row, Screen, TopBar } from '@/ui';
 
 async function biometric(reason: string): Promise<boolean> {
   try {
@@ -53,38 +53,33 @@ export default function Pay() {
       </>
     }>
       <TopBar title={t('payTranche')} subtitle={`${verticalLabel(tx.vertical, locale)} · ${tx.providerName}`} />
-      <Card>
+      <View>
         <Text style={st.label}>{t('amountToPay')}</Text>
         <Text style={st.amount}>{money({ amountMinor: tr.amountMinor, currency: tx.amount.currency })}</Text>
         <Row label={t('purpose')} value={tx.purpose} />
         <Row label={t('beneficiary')} value={tx.beneficiaryName} />
         <Row label={t('fees')} value={t('feesTbd')} />
-      </Card>
-      <View accessibilityRole="radiogroup" style={{ gap: spacing.sm }}>
+      </View>
+      <H2>{t('payMethod')}</H2>
+      <View accessibilityRole="radiogroup" accessibilityLabel={t('payMethod')} style={{ gap: spacing.sm }}>
         {methods.map(([k, label]) => (
-          <Pressable key={k} accessibilityRole="radio" accessibilityState={{ selected: method === k }} onPress={() => setMethod(k)}
-            style={[st.method, method === k && st.methodOn]}>
-            <View style={[st.radio, method === k && st.radioOn]}>{method === k ? <View style={st.radioDot} /> : null}</View>
+          <Card key={k} variant="choice" selected={method === k} onPress={() => setMethod(k)} accessibilityLabel={label}>
+            <Radio on={method === k} />
             <Text style={st.methodText}>{label}</Text>
-          </Pressable>
+          </Card>
         ))}
       </View>
       <View style={st.lock}><Icon name="lock" size={20} color={palette.greenDark} /><Text style={st.lockText}>{t('lockedNote')}</Text></View>
-      {error ? <Banner text={error} /> : null}
+      {error ? <Banner text={error} tone="error" /> : null}
     </Screen>
   );
 }
 
 const st = StyleSheet.create({
   label: { fontSize: fontSize.small, color: palette.muted },
-  amount: { fontSize: 28, fontWeight: '700', color: palette.ink, marginBottom: spacing.sm },
-  method: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: palette.card, borderWidth: 1, borderColor: palette.line, borderRadius: 14, paddingHorizontal: 14 },
-  methodOn: { borderWidth: 2, borderColor: palette.green },
+  amount: { fontSize: 34, fontWeight: '700', color: palette.green, letterSpacing: -0.5, marginBottom: spacing.md },
   methodText: { fontSize: fontSize.body, fontWeight: '600', color: palette.ink },
-  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: palette.muted, alignItems: 'center', justifyContent: 'center' },
-  radioOn: { borderColor: palette.green },
-  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: palette.green },
-  lock: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: palette.greenTint, borderRadius: radius.md, padding: 10 },
+  lock: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: spacing.sm },
   lockText: { flex: 1, fontSize: fontSize.small, color: palette.greenDark, lineHeight: 18 },
   sim: { textAlign: 'center', fontSize: fontSize.caption, color: palette.muted },
 });

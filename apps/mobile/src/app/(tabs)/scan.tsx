@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { StyleSheet, Text, TextInput } from 'react-native';
-import { fontSize, palette, radius } from '@diaspay/ui-tokens';
+import { StyleSheet, Text } from 'react-native';
+import { fontSize, palette } from '@diaspay/ui-tokens';
 import { useI18n } from '@/i18n';
 import { api, usePersona } from '@/state/api';
-import { Banner, Button, Screen } from '@/ui';
+import { Banner, Button, Field, Screen, Title } from '@/ui';
 
 export default function Scan() {
   const { t, errorText } = useI18n();
@@ -24,15 +24,13 @@ export default function Scan() {
 
   return (
     <Screen>
-      <Text style={st.title}>{t('scanTitle')}</Text>
+      <Title>{t('scanTitle')}</Title>
       {persona !== 'PROVIDER' ? <Banner text={t('providerOnly')} /> : (
         <>
           <Text style={st.hint}>{t('scanHint')}</Text>
-          <Text style={st.label}>{t('reference')}</Text>
-          <TextInput accessibilityLabel={t('reference')} value={ref} onChangeText={setRef} autoCapitalize="characters" autoCorrect={false}
-            placeholder="7B31-D0A9-C5E2" placeholderTextColor={palette.muted} style={st.input} />
+          <Field label={t('reference')} value={ref} onChangeText={setRef} autoCapitalize="characters" autoCorrect={false} placeholder="7B31-D0A9-C5E2" />
           <Button label={t('confirmService')} onPress={confirm} disabled={ref.trim().length < 4} />
-          {msg ? <Banner text={msg.text} tone={msg.ok ? 'active' : 'pending'} /> : null}
+          {msg ? <Banner text={msg.text} tone={msg.ok ? 'active' : 'error'} /> : null}
         </>
       )}
     </Screen>
@@ -40,8 +38,5 @@ export default function Scan() {
 }
 
 const st = StyleSheet.create({
-  title: { fontSize: fontSize.headline, fontWeight: '600', color: palette.ink },
   hint: { fontSize: fontSize.small, color: palette.muted, lineHeight: 18 },
-  label: { fontSize: fontSize.small, fontWeight: '600', color: palette.ink },
-  input: { height: 48, borderWidth: 1, borderColor: palette.line, borderRadius: radius.md, paddingHorizontal: 14, fontSize: 16, backgroundColor: palette.card, color: palette.ink },
 });

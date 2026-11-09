@@ -6,7 +6,7 @@ import type { Tranche, Transaction } from '@diaspay/api-client';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { txStatusKey, useI18n, verticalLabel } from '@/i18n';
 import { api, usePersona, useTransactions } from '@/state/api';
-import { Button, Card, Chip, Icon, Row, Screen, TopBar, txChip } from '@/ui';
+import { Button, H2, Icon, Row, Screen, StatusLabel, TopBar, txStatusKind } from '@/ui';
 
 const dotColor = (s: Tranche['status']) =>
   s === 'RELEASED' ? palette.green : s === 'AWAITING_PAYMENT' ? palette.yellow : s === 'DISPUTED' ? palette.red : s === 'PLANNED' ? palette.disabled : palette.green;
@@ -65,14 +65,19 @@ export default function TransactionDetail() {
   if (!tx) return <Screen><TopBar title={t('notFound')} /></Screen>;
   return (
     <Screen>
-      <TopBar title={`${verticalLabel(tx.vertical, locale)} · ${tx.providerName}`} subtitle={`${money(tx.amount)} · ${tx.tranches.length}`} />
-      <Card>
+      <TopBar title={`${verticalLabel(tx.vertical, locale)} · ${tx.providerName}`} subtitle={t('trancheCount', { n: tx.tranches.length })} />
+      <View>
+        <View style={st.statusRow}>
+          <Text style={st.statusLabel}>{t('status')}</Text>
+          <StatusLabel kind={txStatusKind(tx.status)} label={t(txStatusKey(tx.status))} />
+        </View>
+        <Row label={t('total')} value={money(tx.amount)} />
         <Row label={t('beneficiary')} value={tx.beneficiaryName} />
         <Row label={t('providerLabel')} value={tx.providerName} />
         <Row label={t('purpose')} value={tx.purpose} />
-        <Chip kind={txChip(tx.status)} label={t(txStatusKey(tx.status))} />
-      </Card>
-      <View style={{ marginTop: spacing.sm }}>
+      </View>
+      <H2>{t('tranches')}</H2>
+      <View style={{ marginTop: spacing.xs }}>
         {tx.tranches.map((tr, i) => <TrancheItem key={tr.id} tx={tx} tr={tr} last={i === tx.tranches.length - 1} />)}
       </View>
     </Screen>
@@ -88,5 +93,7 @@ const st = StyleSheet.create({
   body: { flex: 1, paddingBottom: spacing.lg },
   itemTitle: { fontSize: fontSize.body, fontWeight: '600', color: palette.ink },
   itemInfo: { fontSize: fontSize.small, color: palette.muted, marginTop: 2, marginBottom: spacing.sm },
+  statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: palette.line },
+  statusLabel: { fontSize: 14, color: palette.muted },
   actions: { flexDirection: 'row', gap: spacing.sm },
 });

@@ -31,6 +31,9 @@ const fr = {
   trDisputed: 'Litige', trCancelled: 'Annulée', trExpired: 'Expirée', milestone: 'Jalon',
   err_REASON_TOO_SHORT: 'Décrivez le problème (10 caractères minimum)', err_UNKNOWN_REFERENCE: 'Référence inconnue',
   err_PROVIDER_ONLY: 'Réservé au prestataire', err_NOT_PAID: 'Tranche non payée ou déjà traitée', err_DISPUTE_NOT_ALLOWED: 'Litige impossible (état ou délai de contestation écoulé)',
+  filter: 'Filtrer les transactions', noTx: 'Aucune transaction.', status: 'Statut', tranches: 'Tranches',
+  trancheCount: '{n} tranche(s)', payMethod: 'Moyen de paiement', amount: 'Montant', contestEnds: 'Fin du délai de contestation',
+  langFr: 'Français', langEn: 'English',
   err_generic: 'Une erreur est survenue. Réessayez.',
 } as const;
 
@@ -63,6 +66,9 @@ const en: Record<Key, string> = {
   trDisputed: 'Dispute', trCancelled: 'Cancelled', trExpired: 'Expired', milestone: 'Milestone',
   err_REASON_TOO_SHORT: 'Describe the problem (at least 10 characters)', err_UNKNOWN_REFERENCE: 'Unknown reference',
   err_PROVIDER_ONLY: 'Providers only', err_NOT_PAID: 'Installment not paid or already handled', err_DISPUTE_NOT_ALLOWED: 'Dispute not possible (state or contest period over)',
+  filter: 'Filter transactions', noTx: 'No transactions.', status: 'Status', tranches: 'Installments',
+  trancheCount: '{n} installment(s)', payMethod: 'Payment method', amount: 'Amount', contestEnds: 'End of contest period',
+  langFr: 'Français', langEn: 'English',
   err_generic: 'Something went wrong. Please try again.',
 };
 

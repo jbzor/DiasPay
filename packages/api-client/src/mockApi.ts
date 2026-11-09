@@ -1,11 +1,30 @@
 import {
-  DomainError, RELEASE_RULES, canOpenDispute, isAutoReleasable, shouldCloseTransaction, transitionTranche,
+  DomainError, RELEASE_RULES, canOpenDispute, isAutoReleasable, normalizeReference, shouldCloseTransaction, transitionTranche,
 } from '@diaspay/domain';
 import type { Actor, TrancheStatus, TxRole } from '@diaspay/domain';
-import type { AuditEntry, Persona, Tranche, Transaction, TransactionApi } from './types';
+import type { AuditEntry, Persona, ReferenceInfo, Tranche, TrancheToken, Transaction, TransactionApi } from './types';
 
 type Listener = () => void;
 const HOUR = 3_600_000;
+/** Validité d'un TrustToken après l'activation de la tranche (configurable). */
+export const TOKEN_VALIDITY_HOURS = 7 * 24;
+/** Tolérance sur l'horloge de l'appareil, vers le futur. */
+export const MAX_DEVICE_SKEW_MS = 5 * 60_000;
+export const SIMULATED_KID = 'SIMULATED';
+
+/** Hachage non cryptographique (FNV-1a 32 bits ×N) : suffit pour des références et signatures de démonstration. */
+function hexDigest(input: string, hexLength: number): string {
+  let out = '';
+  let seed = 0x811c9dc5;
+  while (out.length < hexLength) {
+    let h = seed;
+    for (let i = 0; i < input.length; i++) { h ^= input.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    out += h.toString(16).padStart(8, '0');
+    seed = (h + 0x9e3779b9) >>> 0;
+  }
+  return out.slice(0, hexLength);
+}
+export interface MockApiOptions { tokenValidityHours?: number }
 
 function actorFor(p: Persona): Actor {
   const roles: TxRole[] = p === 'PAYER' ? ['PAYER'] : ['PROVIDER'];
@@ -33,8 +52,8 @@ export function seedTransactions(now: Date): Transaction[] {
     amount: { amountMinor: 900_000, currency: 'XAF' }, status: 'IN_PROGRESS',
     providerName: 'École Les Palmiers', beneficiaryName: 'Aïcha N.', createdAt: iso(-30 * 24 * HOUR),
     tranches: [
-      mkTranche(1, 'Inscription', 300_000, { vertical: 'EDUCATION', status: 'CONFIRMED', dueDate: '2026-10-15', contestEndsAt: iso(48 * HOUR), reference: '4F9A2C71B8E0' }),
-      mkTranche(2, 'Scolarité T1', 300_000, { vertical: 'EDUCATION', status: 'AWAITING_PAYMENT', dueDate: '2026-11-15', reference: '7B31D0A9C5E2' }),
+      mkTranche(1, 'Inscription', 300_000, { vertical: 'EDUCATION', status: 'CONFIRMED', dueDate: '2026-10-15', contestEndsAt: iso(48 * HOUR), reference: '4f9a2c71b8e01d3ca9' }),
+      mkTranche(2, 'Scolarité T1', 300_000, { vertical: 'EDUCATION', status: 'AWAITING_PAYMENT', dueDate: '2026-11-15', reference: '7b31d0a9c5e24f8a61' }),
       mkTranche(3, 'Scolarité T2', 300_000, { vertical: 'EDUCATION', status: 'PLANNED', dueDate: '2027-01-15' }),
     ],
   };
@@ -52,7 +71,7 @@ export function seedTransactions(now: Date): Transaction[] {
       mkTranche(i + 1, `Loyer ${i + 1}`, 150_000, {
         vertical: 'RENT', dueDate: `${2026 + Math.floor((8 + i) / 12)}-${String(((8 + i) % 12) + 1).padStart(2, '0')}-05`,
         status: i < 3 ? 'RELEASED' : i === 3 ? 'AWAITING_PAYMENT' : 'PLANNED',
-        reference: i === 3 ? 'A1C4E8F20B93' : undefined,
+        reference: i === 3 ? 'a1c4e8f20b937d52e6' : undefined,
       })),
   };
   const land: Transaction = {
@@ -79,8 +98,46 @@ export class MockApi implements TransactionApi {
   private listeners = new Set<Listener>();
   persona: Persona = 'PAYER';
 
-  constructor(private readonly clock: () => Date = () => new Date(), seed?: Transaction[]) {
+  private tokens = new Map<string, TrancheToken>();
+  private readonly validityMs: number;
+
+  constructor(private readonly clock: () => Date = () => new Date(), seed?: Transaction[], options: MockApiOptions = {}) {
     this.txs = seed ?? seedTransactions(clock());
+    this.validityMs = (options.tokenValidityHours ?? TOKEN_VALIDITY_HOURS) * HOUR;
+    for (const tx of this.txs) for (const tr of tx.tranches) if (tr.status !== 'PLANNED') this.ensureToken(tr);
+  }
+
+  /** Crée le jeton d'une tranche activée (idempotent). Expire 7 jours après l'activation ; les tranches déjà confirmées ou débloquées ont un jeton utilisé. */
+  private ensureToken(tr: Tranche): TrancheToken {
+    const existing = this.tokens.get(tr.id);
+    if (existing) return existing;
+    const taken = new Set(this.txs.flatMap((x) => x.tranches.map((r) => r.reference)).filter(Boolean));
+    let reference = tr.reference ? normalizeReference(tr.reference) : '';
+    for (let n = 0; !reference || (!tr.reference && taken.has(reference)); n++) reference = hexDigest(`${tr.id}#${n}`, 18);
+    tr.reference = reference;
+    const now = this.clock();
+    const token: TrancheToken = {
+      trancheId: tr.id, reference, kid: SIMULATED_KID, signature: `SIMULATED.${hexDigest(`sig:${reference}`, 32)}`, simulated: true,
+      expiresAt: new Date(now.getTime() + this.validityMs).toISOString(),
+      usedAt: tr.status === 'CONFIRMED' || tr.status === 'RELEASED' ? now.toISOString() : undefined,
+    };
+    this.tokens.set(tr.id, token);
+    return token;
+  }
+
+  private isParty(tx: Transaction): boolean { return !tx.parties || tx.parties.includes(this.persona); }
+
+  private byReference(reference: string): { tx: Transaction; tr: Tranche; token: TrancheToken } {
+    let ref: string;
+    try { ref = normalizeReference(reference); } catch { throw new DomainError('UNKNOWN_REFERENCE', 'Référence inconnue'); }
+    for (const tx of this.txs) {
+      for (const tr of tx.tranches) {
+        if (tr.status === 'PLANNED') continue;
+        const token = this.ensureToken(tr);
+        if (token.reference === ref) return { tx, tr, token };
+      }
+    }
+    throw new DomainError('UNKNOWN_REFERENCE', 'Référence inconnue');
   }
 
   subscribe = (l: Listener): (() => void) => {
@@ -134,13 +191,41 @@ export class MockApi implements TransactionApi {
     if (tr.status !== 'AWAITING_PAYMENT') throw new DomainError('NOT_PAYABLE', 'Cette tranche n’est pas à payer');
     return this.apply(trancheId, 'PAID_LOCKED', SYSTEM, 'PAYMENT_SIMULATED');
   }
-  async confirmByReference(reference: string) {
-    const clean = reference.replace(/[\s-]/g, '').toUpperCase();
-    const hit = this.txs.flatMap((tx) => tx.tranches.map((tr) => ({ tx, tr }))).find(({ tr }) => tr.reference === clean);
-    if (!hit) throw new DomainError('UNKNOWN_REFERENCE', 'Référence inconnue');
+  async getTranche(trancheId: string) {
+    const { tx, tr } = this.find(trancheId);
+    return { tx, tranche: tr };
+  }
+  async getToken(trancheId: string): Promise<TrancheToken> {
+    const { tr } = this.find(trancheId);
+    if (tr.status === 'PLANNED') throw new DomainError('NO_TOKEN', 'Aucun jeton : la tranche n’est pas encore active');
+    return { ...this.ensureToken(tr) };
+  }
+  async resolveReference(reference: string): Promise<ReferenceInfo> {
+    const { tx, tr, token } = this.byReference(reference);
+    if (!this.isParty(tx)) throw new DomainError('NOT_A_PARTY', 'Vous n’êtes pas partie à cette transaction');
+    return {
+      trancheId: tr.id, txId: tx.id, label: tr.label, amountMinor: tr.amountMinor, currency: tx.amount.currency,
+      status: tr.status, expiresAt: token.expiresAt, used: !!token.usedAt, providerName: tx.providerName,
+      beneficiaryName: tx.beneficiaryName, purpose: tx.purpose, seq: tr.seq, contestHours: tr.contestHours,
+    };
+  }
+  /** Miroir de confirm_by_reference(). */
+  async confirmByReference(reference: string, deviceTime?: string) {
+    const { tx, tr, token } = this.byReference(reference);
+    if (!this.isParty(tx)) throw new DomainError('NOT_A_PARTY', 'Vous n’êtes pas partie à cette transaction');
     if (this.persona !== 'PROVIDER') throw new DomainError('PROVIDER_ONLY', 'Réservé au prestataire');
-    if (hit.tr.status !== 'PAID_LOCKED') throw new DomainError('NOT_PAID', `Tranche non payée ou déjà traitée (${hit.tr.status})`);
-    return this.apply(hit.tr.id, 'CONFIRMED', actorFor('PROVIDER'), 'PROVIDER_SCAN');
+    if (token.usedAt) throw new DomainError('TOKEN_USED', 'Ce jeton a déjà été utilisé');
+    const now = this.clock();
+    const device = deviceTime === undefined ? now : new Date(deviceTime);
+    if (Number.isNaN(device.getTime()) || device.getTime() > now.getTime() + MAX_DEVICE_SKEW_MS) {
+      throw new DomainError('DEVICE_TIME_INVALID', 'L’heure de l’appareil est incorrecte');
+    }
+    if (device.getTime() > new Date(token.expiresAt).getTime()) throw new DomainError('TOKEN_EXPIRED', 'Ce jeton a expiré');
+    if (tr.status !== 'PAID_LOCKED') throw new DomainError('NOT_PAID', `Tranche non payée ou déjà traitée (${tr.status})`);
+    if (tr.releaseMode !== 'PROVIDER_CONFIRM') throw new DomainError('WRONG_MODE', 'Cette tranche ne se confirme pas par scan');
+    const res = this.apply(tr.id, 'CONFIRMED', actorFor('PROVIDER'), 'PROVIDER_SCAN');
+    token.usedAt = now.toISOString();
+    return res;
   }
   async approveRelease(trancheId: string) {
     return this.apply(trancheId, 'RELEASED', actorFor(this.persona), 'PAYER_APPROVAL');

@@ -88,3 +88,17 @@ export function canOpenDispute(tr: TrancheState, roles: readonly TxRole[], now: 
 export function shouldCloseTransaction(trancheStatuses: readonly TrancheStatus[]): boolean {
   return trancheStatuses.length > 0 && trancheStatuses.every((s) => TERMINAL_TRANCHE_STATUSES.includes(s));
 }
+
+export type DisputeOutcome = 'RELEASED' | 'REFUNDED';
+
+/**
+ * Décision d’un litige par un administrateur (miroir de resolve_dispute(), réservée au validateur non partie) :
+ * libération → RELEASED (fonds remis au prestataire), remboursement → CANCELLED (paiement remboursé au payeur).
+ */
+export function resolveDisputeTransition(tr: { status: TrancheStatus }, outcome: DisputeOutcome, actor: Actor): TrancheStatus {
+  if (tr.status !== 'DISPUTED') throw new DomainError('TR_NOT_DISPUTED', 'La tranche n’est pas en litige');
+  if (actor.kind !== 'USER' || !actor.isValidator || actor.roles.length > 0) {
+    throw new DomainError('TR_TRANSITION_FORBIDDEN', 'Seul un validateur non partie tranche un litige');
+  }
+  return outcome === 'RELEASED' ? 'RELEASED' : 'CANCELLED';
+}

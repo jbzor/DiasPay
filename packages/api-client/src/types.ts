@@ -26,6 +26,8 @@ export interface Transaction {
   beneficiaryName: string;
   tranches: Tranche[];
   createdAt: string;
+  /** Nom affiché du payeur (reçu). */
+  payerName?: string;
   /** Lot 3 : dossier créé dans l’application. */
   planType?: PlanType;
   documentCount?: number;
@@ -44,6 +46,37 @@ export interface AuditEntry {
   event: string;
   trancheId?: string;
   detail?: string;
+  /** Lot 3 bis : acteur et empreinte de la ligne dans le journal chaîné. */
+  actor?: string;
+  hash?: string;
+}
+
+// ——— Lot 3 bis : alertes, litiges, reçus ———
+
+/** Événement métier. Une alerte stocke l’événement, jamais un texte : la langue de l’interface fait le libellé. */
+export type NotificationEvent =
+  | { type: 'TX_VALIDATED'; txId: string }
+  | { type: 'TX_REJECTED'; txId: string; reason: string }
+  | { type: 'PAYMENT_READY'; txId: string; trancheId: string }
+  | { type: 'TRANCHE_CONFIRMED'; txId: string; trancheId: string; releaseAt?: string }
+  | { type: 'TRANCHE_RELEASED'; txId: string; trancheId: string }
+  | { type: 'DISPUTE_OPENED'; txId: string; trancheId: string }
+  | { type: 'DISPUTE_RESOLVED'; txId: string; trancheId: string; outcome: 'RELEASED' | 'REFUNDED' };
+export interface AppNotification { id: string; event: NotificationEvent; at: string; readAt?: string }
+
+/** Motif d’un litige : code stable, libellé traduit par l’application. */
+export type DisputeReason = 'NOT_DELIVERED' | 'INCOMPLETE' | 'WRONG_AMOUNT' | 'OTHER';
+export interface DisputeView {
+  id: string; txId: string; trancheId: string; reason: string; description: string;
+  openedBy: 'PAYER' | 'PROVIDER'; openedAt: string;
+  status: 'OPEN' | 'RELEASED_TO_PROVIDER' | 'REFUNDED_TO_PAYER';
+  resolvedAt?: string; resolutionNote?: string;
+}
+
+export interface Receipt {
+  trancheId: string; txId: string; label: string; amountMinor: number; currency: Currency;
+  releasedAt: string; payerName: string; providerName: string; purpose: string;
+  reference: string; lastHash: string; chainValid: boolean; entryCount: number;
 }
 
 export interface TrancheToken {
@@ -83,7 +116,7 @@ export interface TransactionApi {
   resolveReference(reference: string): Promise<ReferenceInfo>;            // miroir de resolve_tranche_reference
   confirmByReference(reference: string, deviceTime?: string): Promise<Transaction>; // prestataire (scan eQR), miroir de confirm_by_reference
   approveRelease(trancheId: string): Promise<Transaction>;                // payeur, déblocage anticipé
-  openDispute(trancheId: string, reason: string): Promise<Transaction>;
+  openDispute(trancheId: string, reason: string, description?: string): Promise<Transaction>;
   timeline(txId: string): Promise<AuditEntry[]>;
 
   // Lot 3 : création d’un besoin.
@@ -96,4 +129,12 @@ export interface TransactionApi {
   removeDocument(draftId: string, documentId: string): Promise<void>;
   submitNeed(draftId: string): Promise<Transaction>;
   reopenForCorrection(txId: string): Promise<NeedDraft>;       // REJECTED → DRAFT
+
+  // Lot 3 bis.
+  listNotifications(): Promise<AppNotification[]>;
+  markNotificationRead(id: string): Promise<void>;
+  markAllNotificationsRead(): Promise<void>;
+  getDispute(trancheId: string): Promise<DisputeView | null>;
+  getReceipt(trancheId: string): Promise<Receipt>;
+  abandonRejected(txId: string): Promise<Transaction>;         // REJECTED → CANCELLED (D4)
 }

@@ -155,7 +155,8 @@ describe('bureau de contrôle simulé', () => {
     expect(done.tranches[0]?.status).toBe('AWAITING_PAYMENT');
     const token = await api.getToken(done.tranches[0]!.id);
     expect(token.reference).toMatch(/^[0-9a-f]{18}$/);
-    expect(api.listEvents().map((e) => e.kind)).toEqual(['NEED_VALIDATED']);
+    const types = (await api.listNotifications()).filter((n) => n.event.txId === tx.id).map((n) => n.event.type);
+    expect(types.sort()).toEqual(['PAYMENT_READY', 'TX_VALIDATED']);
     // Le paiement du lot 2 s’enchaîne.
     expect((await api.payTranche(done.tranches[0]!.id)).tranches[0]?.status).toBe('PAID_LOCKED');
   });
@@ -190,7 +191,7 @@ describe('bureau de contrôle simulé', () => {
     expect(again.status).toBe('IN_REVIEW');
     expect(again.rejectionReason).toBeUndefined();
     expect((await api.timeline(tx.id)).map((e) => e.event)).toContain('NEED_RESUBMITTED');
-    expect(api.listEvents().map((e) => e.kind)).toEqual(['NEED_REJECTED']);
+    expect((await api.listNotifications()).filter((n) => n.event.txId === tx.id).map((n) => n.event.type)).toEqual(['TX_REJECTED']);
   });
   it('n’agit que sur un dossier en validation', async () => {
     const { api } = make();

@@ -87,3 +87,15 @@ describe('journal d’audit chaîné', () => {
     expect(shortHash('a3f9' + '0'.repeat(56) + 'c71b')).toBe('a3f9…c71b');
   });
 });
+
+import { resolveDisputeTransition } from '../src';
+describe('décision d’un litige', () => {
+  const validator: Actor = { kind: 'USER', roles: [], isValidator: true };
+  it('libère ou rembourse, uniquement par un validateur non partie', () => {
+    expect(resolveDisputeTransition({ status: 'DISPUTED' }, 'RELEASED', validator)).toBe('RELEASED');
+    expect(resolveDisputeTransition({ status: 'DISPUTED' }, 'REFUNDED', validator)).toBe('CANCELLED');
+    expect(() => resolveDisputeTransition({ status: 'DISPUTED' }, 'RELEASED', user('PAYER'))).toThrow(expect.objectContaining({ code: 'TR_TRANSITION_FORBIDDEN' }));
+    expect(() => resolveDisputeTransition({ status: 'DISPUTED' }, 'RELEASED', { kind: 'USER', roles: ['PAYER'], isValidator: true })).toThrow();
+    expect(() => resolveDisputeTransition({ status: 'CONFIRMED' }, 'RELEASED', validator)).toThrow(expect.objectContaining({ code: 'TR_NOT_DISPUTED' }));
+  });
+});

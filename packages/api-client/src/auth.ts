@@ -13,6 +13,8 @@ export interface Session {
   phone: string;
   profile?: Profile;
   biometricEnabled: boolean;
+  /** Préférence « Notifications push » (les vraies notifications viennent plus tard). */
+  pushEnabled?: boolean;
 }
 
 /** Contrat d’authentification. MockAuth l’implémente ; Supabase Auth le remplacera (lot 4). */
@@ -23,6 +25,8 @@ export interface AuthApi {
   setBiometric(enabled: boolean): Promise<Session>;
   getSession(): Promise<Session | null>;
   signOut(): Promise<void>;
+  /** Lot 3 bis : préférences de sécurité et de notification. */
+  setPreferences(p: { biometricEnabled?: boolean; pushEnabled?: boolean }): Promise<Session>;
 }
 
 /** Code OTP accepté par la simulation. Passer `code: null` à MockAuth pour le désactiver (code aléatoire). */
@@ -84,7 +88,7 @@ export class MockAuth implements AuthApi {
 
   private now(): number { return this.clock().getTime(); }
   private iso(ms: number): string { return new Date(ms).toISOString(); }
-  private remember(s: Session): void { this.users.set(s.phone, { profile: s.profile, biometricEnabled: s.biometricEnabled }); }
+  private remember(s: Session): void { this.users.set(s.phone, { profile: s.profile, biometricEnabled: s.biometricEnabled, pushEnabled: s.pushEnabled }); }
 
   private stateFor(phone: string): OtpState {
     let st = this.otps.get(phone);
@@ -144,6 +148,7 @@ export class MockAuth implements AuthApi {
       phone,
       profile: known?.profile,
       biometricEnabled: known?.biometricEnabled ?? false,
+      pushEnabled: known?.pushEnabled ?? true,
     };
     this.remember(this.session);
     return { ...this.session };
@@ -166,6 +171,17 @@ export class MockAuth implements AuthApi {
   async setBiometric(enabled: boolean) {
     const s = this.requireSession();
     this.session = { ...s, biometricEnabled: enabled };
+    this.remember(this.session);
+    return { ...this.session };
+  }
+
+  async setPreferences(p: { biometricEnabled?: boolean; pushEnabled?: boolean }) {
+    const s = this.requireSession();
+    this.session = {
+      ...s,
+      ...(p.biometricEnabled !== undefined ? { biometricEnabled: p.biometricEnabled } : {}),
+      ...(p.pushEnabled !== undefined ? { pushEnabled: p.pushEnabled } : {}),
+    };
     this.remember(this.session);
     return { ...this.session };
   }

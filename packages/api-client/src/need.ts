@@ -48,5 +48,17 @@ export const SEED_PROVIDERS: ProviderSummary[] = [
   { id: 'pv-mbarga', name: 'Étude notariale Mbarga', city: 'Yaoundé', verticals: ['LAND', 'REAL_ESTATE'], verified: true },
 ];
 
-/** Événement préparé pour les alertes (lot suivant). */
-export interface AppEvent { id: string; at: string; kind: 'NEED_VALIDATED' | 'NEED_REJECTED'; txId: string; reason?: string }
+/** Persistance de l’état du simulateur (instantané versionné). */
+export interface StateStore {
+  load(): Promise<unknown | null>;
+  save(snapshot: unknown): Promise<void>;
+  clear(): Promise<void>;
+}
+
+export class MemoryStateStore implements StateStore {
+  value: unknown | null = null;
+  saves = 0;
+  async load() { return this.value === null ? null : structuredClone(this.value); }
+  async save(snapshot: unknown) { this.value = structuredClone(snapshot); this.saves++; }
+  async clear() { this.value = null; }
+}

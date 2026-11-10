@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { ToastHost } from '@/ui/Toast';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { api } from '@/state/api';
 import { bootstrap, useSession } from '@/state/auth';
@@ -39,8 +40,11 @@ export default function RootLayout() {
           <Stack.Screen name="pay/[trancheId]" />
           <Stack.Screen name="token/[trancheId]" />
           <Stack.Screen name="dispute/[trancheId]" />
+          <Stack.Screen name="need" />
+          <Stack.Screen name="need-done/[txId]" options={{ animation: 'fade', gestureEnabled: false }} />
         </Stack.Protected>
       </Stack>
+      <ToastHost />
     </SafeAreaProvider>
   );
 }

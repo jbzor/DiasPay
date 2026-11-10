@@ -43,6 +43,10 @@ export const ICONS = {
   chevron: 'M9 5l7 7-7 7',
   face: 'M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M9 9v1M15 9v1M12 9v4h-1M9 16a4 4 0 0 0 6 0',
   fingerprint: 'M12 11v4M8.5 7.5A5 5 0 0 1 17 11v2M7 11a5 5 0 0 1 .5-2.2M7 13v1a5 5 0 0 0 2 4M17 15a8 8 0 0 1-1 4M12 7a4 4 0 0 0-4 4v2M4 9a8.5 8.5 0 0 1 16 1v3',
+  alert: 'M12 7v6M12 17v.01',
+  doc: 'M7 3h7l5 5v13H7zM14 3v5h5',
+  close: 'M6 6l12 12M18 6L6 18',
+  retry: 'M4 12a8 8 0 0 1 14-5.3M20 5v4h-4M20 12a8 8 0 0 1-14 5.3M4 19v-4h4',
 } as const;
 
 export function Icon({ name, size = 24, color = palette.ink, accessibilityLabel }: { name: keyof typeof ICONS; size?: number; color?: string; accessibilityLabel?: string }) {

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from './text';
 import type { StyleProp, TextInputProps, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
@@ -259,4 +260,4 @@ const s = StyleSheet.create({
 });
 
 export const txStatusKind = (status: string): StatusKind =>
-  status === 'IN_PROGRESS' ? 'active' : status === 'DRAFT' || status === 'CLOSED' ? 'draft' : status === 'DISPUTED' || status === 'REJECTED' ? 'error' : 'pending';
+  status === 'IN_PROGRESS' ? 'active' : status === 'DRAFT' || status === 'CLOSED' || status === 'CANCELLED' ? 'draft' : status === 'DISPUTED' || status === 'REJECTED' ? 'error' : 'pending';

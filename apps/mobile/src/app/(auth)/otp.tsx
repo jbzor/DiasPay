@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '@/ui/text';
 import type { TextInputInstance, TextInputKeyPressEvent } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { MOCK_OTP_CODE, OTP_LENGTH } from '@diaspay/api-client';

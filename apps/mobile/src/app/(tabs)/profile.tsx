@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '@/ui/text';
 import { router } from 'expo-router';
 import { fontSize, palette } from '@diaspay/ui-tokens';
 import type { Persona } from '@diaspay/api-client';

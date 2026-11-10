@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { Modal, StyleSheet, Text, View } from 'react-native';
+import { Modal, StyleSheet, View } from 'react-native';
+import { Text } from './text';
 import { fontSize, palette, radius, semantic, spacing } from '@diaspay/ui-tokens';
 import { Button } from './index';
 

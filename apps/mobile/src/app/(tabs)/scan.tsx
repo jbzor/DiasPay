@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
-import { Linking, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Linking, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Text } from '@/ui/text';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { useIsFocused, useLocalSearchParams } from 'expo-router';

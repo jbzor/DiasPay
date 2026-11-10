@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ComponentRef } from 'react';
-import { Platform, Share, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Platform, Share, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Text } from '@/ui/text';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as Sharing from 'expo-sharing';

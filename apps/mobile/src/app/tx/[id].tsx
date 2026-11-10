@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '@/ui/text';
 import { router, useLocalSearchParams } from 'expo-router';
 import { canOpenDispute } from '@diaspay/domain';
 import type { TxRole } from '@diaspay/domain';
@@ -16,6 +17,7 @@ import { DEMO_REVIEW } from '@/lib/env';
 function ReviewPanel({ tx }: { tx: Transaction }) {
   const { t, errorText } = useI18n();
   const [rejecting, setRejecting] = useState(false);
+  const [abandoning, setAbandoning] = useState(false);
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const inReview = tx.status === 'SUBMITTED' || tx.status === 'IN_REVIEW';
@@ -37,7 +39,10 @@ function ReviewPanel({ tx }: { tx: Transaction }) {
         <View style={st.rejected}>
           <Text style={st.statusLabel}>{t('rejectionReason')}</Text>
           <Text style={st.reason}>{tx.rejectionReason ?? ''}</Text>
-          <Button label={t('correct')} onPress={() => void correct()} />
+          <View style={st.actions}>
+            <Button small tone="secondary" label={t('abandon')} onPress={() => setAbandoning(true)} />
+            <Button small label={t('correct')} onPress={() => void correct()} />
+          </View>
         </View>
       ) : null}
       {DEMO_REVIEW && inReview ? (
@@ -47,6 +52,9 @@ function ReviewPanel({ tx }: { tx: Transaction }) {
         </View>
       ) : null}
       {error ? <Banner tone="error" text={error} /> : null}
+      <Dialog visible={abandoning} danger title={t('abandonTitle')} message={t('abandonConfirm')} confirmLabel={t('abandon')} cancelLabel={t('cancel')}
+        onCancel={() => setAbandoning(false)}
+        onConfirm={() => { setAbandoning(false); void run(() => api.abandonRejected(tx.id)); }} />
       <Dialog visible={rejecting} danger title={t('simReject')} confirmLabel={t('confirmReject')} cancelLabel={t('cancel')}
         confirmDisabled={reason.trim().length < 3} onCancel={() => setRejecting(false)}
         onConfirm={() => { setRejecting(false); void run(() => api.simulateReview(tx.id, { approved: false, reason })); }}>

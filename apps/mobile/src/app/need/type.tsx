@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '@/ui/text';
 import { VERTICALS, WAVE1_VERTICALS, toIsoDate } from '@diaspay/domain';
 import type { Vertical } from '@diaspay/domain';
 import { disabledSurface, fontSize, palette, spacing } from '@diaspay/ui-tokens';

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
+import { Text } from '@/ui/text';
 import { router } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';

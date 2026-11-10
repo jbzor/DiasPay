@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '@/ui/text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { ProviderSummary } from '@diaspay/api-client';
 import { isNormalizablePhone, normalizePhone } from '@diaspay/domain';

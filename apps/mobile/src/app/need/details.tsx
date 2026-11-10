@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '@/ui/text';
 import { CURRENCIES, toIsoDate } from '@diaspay/domain';
 import type { Currency, NeedDraft } from '@diaspay/domain';
 import { fontSize, palette } from '@diaspay/ui-tokens';

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet } from 'react-native';
+import { Text } from '@/ui/text';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { normalizeReference } from '@diaspay/domain';
 import { fontSize, palette } from '@diaspay/ui-tokens';

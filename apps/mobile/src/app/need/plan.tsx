@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '@/ui/text';
 import { PLAN_TYPES, RECURRING_MAX, RECURRING_MIN, INSTALLMENTS_MAX, INSTALLMENTS_MIN } from '@diaspay/domain';
 import type { PlanType, RecurrenceFreq, Vertical } from '@diaspay/domain';
 import { fontSize, palette, semantic, spacing, touchTarget } from '@diaspay/ui-tokens';
@@ -15,6 +16,10 @@ import { DateField } from '@/ui/DateField';
 /** Plan proposé à l’ouverture selon le type de besoin (modifiable). */
 const DEFAULT_PLAN: Partial<Record<Vertical, PlanType>> = { RENT: 'RECURRING', EDUCATION: 'INSTALLMENTS', HEALTH: 'SINGLE' };
 const FREQS: RecurrenceFreq[] = ['WEEKLY', 'MONTHLY', 'QUARTERLY'];
+/** Décision D3 : texte d’aide par type de plan. */
+const PLAN_HELP = {
+  SINGLE: 'plan_help_single', PARTIAL: 'plan_help_partial', INSTALLMENTS: 'plan_help_installments', RECURRING: 'plan_help_recurring',
+} as const satisfies Record<PlanType, string>;
 
 function Stepper({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (n: number) => void }) {
   const { t } = useI18n();
@@ -64,6 +69,7 @@ export default function NeedPlan() {
     <WizardFrame title={t('planTitle')}>
       <Segmented<PlanType> options={PLAN_TYPES.map((p) => [p, planName(p)] as const)} value={d.planType ?? 'SINGLE'}
         onChange={(p) => dispatch({ type: 'setPlanType', planType: p, labels: planLabels, today: ctx.today })} accessibilityLabel={t('planTitle')} />
+      {d.planType ? <Text style={st.note}>{t(PLAN_HELP[d.planType])}</Text> : null}
 
       <View style={st.totalBlock}>
         <Text style={st.totalLabel}>{t('totalAmount')}</Text>
@@ -134,12 +140,12 @@ export default function NeedPlan() {
           <Icon name={gap === 0 ? 'check' : 'alert'} size={14} color={gap === 0 ? palette.green : semantic.error} />
         </View>
         <Text style={[st.sumText, { color: gap === 0 ? palette.greenDark : semantic.error }]}>
-          {t('sumLine', { sum: m(total - gap), total: m(total) })}
-          {gap > 0 ? ` ${t('sumGapMissing', { gap: m(gap) })}` : gap < 0 ? ` ${t('sumGapOver', { gap: m(-gap) })}` : ''}
+          {t('plan_sum_ok', { sum: m(total - gap), total: m(total) })}
+          {gap > 0 ? ` ${t('plan_sum_under', { gap: m(gap) })}` : gap < 0 ? ` ${t('plan_sum_over', { gap: m(-gap) })}` : ''}
         </Text>
       </View>
       {planLevel.map((i) => <Text key={i.code} style={st.error}>{issueText(i)}</Text>)}
-      <Text style={st.note}>{t('planNote')}</Text>
+      <Text style={st.note}>{t('plan_note')}</Text>
     </WizardFrame>
   );
 }

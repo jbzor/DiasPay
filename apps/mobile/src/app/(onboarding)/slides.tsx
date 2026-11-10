@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import type { ComponentType } from 'react';
-import { FlatList, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { FlatList, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Text } from '@/ui/text';
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';

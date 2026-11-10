@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '@/ui/text';
 import { router, useLocalSearchParams } from 'expo-router';
 import { fontSize, palette, radius, spacing } from '@diaspay/ui-tokens';
 import { useI18n } from '@/i18n';

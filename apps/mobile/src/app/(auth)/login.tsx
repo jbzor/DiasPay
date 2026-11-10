@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
+import { Text } from '@/ui/text';
 import { router } from 'expo-router';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { composePhone, isValidPhone } from '@/lib/format';

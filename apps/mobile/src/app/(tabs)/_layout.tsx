@@ -19,7 +19,7 @@ export default function TabsLayout() {
     <Tabs screenOptions={{
       headerShown: false, tabBarActiveTintColor: palette.green, tabBarInactiveTintColor: palette.muted,
       tabBarStyle: { height: 64, backgroundColor: palette.card, borderTopColor: palette.line },
-      tabBarLabelStyle: { fontSize: 12 },
+      tabBarLabelStyle: { fontSize: 12, fontFamily: 'Inter', fontWeight: '500' },
     }}>
       <Tabs.Screen name="home" options={{ title: t('tabHome'), tabBarIcon: tab('home') }} />
       <Tabs.Screen name="transactions" options={{ title: t('tabTx'), tabBarIcon: tab('list') }} />

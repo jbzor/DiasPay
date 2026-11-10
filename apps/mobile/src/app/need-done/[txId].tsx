@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '@/ui/text';
 import { router, useLocalSearchParams } from 'expo-router';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { useI18n } from '@/i18n';

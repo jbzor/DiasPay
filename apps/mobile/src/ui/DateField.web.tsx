@@ -1,5 +1,6 @@
 import { createElement } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text } from './text';
 import { palette } from '@diaspay/ui-tokens';
 import { useI18n } from '../i18n';
 import { dateFieldStyles as st } from './DateField.styles';

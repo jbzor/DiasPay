@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '@/ui/text';
 import { router } from 'expo-router';
 import { currentTrancheIndex, lockedFunds, nextPayment, trancheCount } from '@diaspay/api-client';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';

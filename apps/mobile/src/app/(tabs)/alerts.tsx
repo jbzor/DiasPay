@@ -1,4 +1,4 @@
-import { Text } from 'react-native';
+import { Text } from '@/ui/text';
 import { fontSize, palette } from '@diaspay/ui-tokens';
 import { useI18n } from '@/i18n';
 import { Screen, Title } from '@/ui';

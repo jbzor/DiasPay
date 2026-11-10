@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '@/ui/text';
 import { router, useLocalSearchParams } from 'expo-router';
 import { currentTrancheIndex, filterTransactions } from '@diaspay/api-client';
 import type { TxFilter } from '@diaspay/api-client';
@@ -52,9 +53,12 @@ export default function Transactions() {
                   <StatusLabel kind="draft" label={d.correctionOf ? `${t('txDraft')} · ${t('correctionLabel')}` : t('txDraft')} />
                 </View>
               </Card>
-              <Pressable accessibilityRole="button" accessibilityLabel={`${t('deleteDraft')} : ${title}`} onPress={() => setToDelete(d)} style={st.trash}>
-                <Icon name="close" size={18} color={palette.muted} />
-              </Pressable>
+              {/* Décision D4 : seul un brouillon jamais soumis se supprime ; une correction appartient à un dossier audité. */}
+              {d.correctionOf ? null : (
+                <Pressable accessibilityRole="button" accessibilityLabel={`${t('deleteDraft')} : ${title}`} onPress={() => setToDelete(d)} style={st.trash}>
+                  <Icon name="close" size={18} color={palette.muted} />
+                </Pressable>
+              )}
             </View>
           );
         }) : null}
@@ -78,7 +82,7 @@ export default function Transactions() {
       </View>
 
       <Dialog visible={toDelete !== null} danger title={t('deleteDraft')}
-        message={toDelete?.correctionOf ? t('deleteCorrectionConfirm') : t('deleteDraftConfirm')}
+        message={t('deleteDraftConfirm')}
         confirmLabel={t('delete')} cancelLabel={t('cancel')} onCancel={() => setToDelete(null)}
         onConfirm={() => { if (toDelete) void api.deleteDraft(toDelete.id); setToDelete(null); }} />
     </Screen>

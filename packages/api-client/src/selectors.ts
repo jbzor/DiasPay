@@ -38,7 +38,8 @@ export function filterTransactions(txs: readonly Transaction[], f: TxFilter): Tr
   switch (f) {
     case 'ACTIVE': return txs.filter((t) => t.status === 'IN_PROGRESS');
     case 'REVIEW': return txs.filter((t) => ['SUBMITTED', 'IN_REVIEW'].includes(t.status) || t.tranches.some((r) => r.status === 'EVIDENCE_SUBMITTED'));
-    case 'CLOSED': return txs.filter((t) => t.status === 'CLOSED');
+    // Clôturées : terminées, et dossiers rejetés abandonnés (décision D4).
+    case 'CLOSED': return txs.filter((t) => t.status === 'CLOSED' || t.status === 'CANCELLED');
     default: return [...txs];
   }
 }

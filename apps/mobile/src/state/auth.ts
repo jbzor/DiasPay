@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { MockAuth } from '@diaspay/api-client';
 import type { AuthApi, Persona, PrimaryRole, Profile, Session } from '@diaspay/api-client';
 import { applyLocale } from '../i18n';
-import { setPersona } from './api';
+import { api, setPersona } from './api';
 import { loadLocale, loadOnboardingSeen, loadSession, saveOnboardingSeen, saveSession } from './storage';
 
 export interface AuthState {
@@ -27,6 +27,9 @@ function set(patch: Partial<AuthState>) {
   state = { ...state, ...patch };
   const role = state.session?.profile?.primaryRole;
   if (role) setPersona(personaForRole(role));
+  // La simulation filtre les brouillons par utilisateur : à la déconnexion, plus aucun brouillon n’est visible.
+  const s = state.session;
+  if (s?.userId !== api.user?.id || (role && role !== api.user?.role)) api.setUser(s ? { id: s.userId, role: role ?? 'PAYER' } : null);
   listeners.forEach((f) => f());
 }
 

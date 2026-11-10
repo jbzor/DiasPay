@@ -132,6 +132,12 @@ export function seedTransactions(now: Date): Transaction[] {
     status: 'DRAFT', payerName: 'Marie N.', providerName: 'Coopérative Agri-Plus', beneficiaryName: 'Paul T.', createdAt: iso(-2 * HOUR),
     tranches: [mkTranche(1, 'Livraison', 450_000, { vertical: 'AGRO' })],
   };
+  // Une tranche débloquée du jeu de démonstration a sa date de déblocage (nécessaire au reçu).
+  for (const tx of [school, health, rent, land, agro]) {
+    for (const tr of tx.tranches) {
+      if (tr.status === 'RELEASED' && !tr.releasedAt) tr.releasedAt = tr.dueDate ? `${tr.dueDate}T14:00:00.000Z` : iso(-20 * 24 * HOUR);
+    }
+  }
   return [school, health, rent, land, agro];
 }
 

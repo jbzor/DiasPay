@@ -90,6 +90,10 @@ export default function RootLayout() {
           <Stack.Screen name="pay/[trancheId]" />
           <Stack.Screen name="token/[trancheId]" />
           <Stack.Screen name="dispute/[trancheId]" />
+          <Stack.Screen name="dispute/view/[trancheId]" />
+          <Stack.Screen name="receipt/[trancheId]" />
+          <Stack.Screen name="profile/security" />
+          <Stack.Screen name="profile/edit" />
           <Stack.Screen name="need" />
           <Stack.Screen name="need-done/[txId]" options={{ animation: 'fade', gestureEnabled: false }} />
         </Stack.Protected>

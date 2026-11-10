@@ -8,7 +8,7 @@ import type { Tranche, Transaction } from '@diaspay/api-client';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { trancheStatusKey, txStatusKey, useI18n, verticalLabel } from '@/i18n';
 import { api, usePersona, useTransactions } from '@/state/api';
-import { Banner, Button, Field, H2, Icon, Row, Screen, StatusLabel, TopBar, txStatusKind } from '@/ui';
+import { Banner, Button, Divider, Field, Icon, Row, Screen, StatusLabel, TopBar, txStatusKind } from '@/ui';
 import { Dialog } from '@/ui/Dialog';
 import { openDraft } from '@/state/needWizard';
 import { DEMO_REVIEW } from '@/lib/env';
@@ -68,7 +68,7 @@ const dotColor = (s: Tranche['status']) =>
   s === 'RELEASED' ? palette.green : s === 'AWAITING_PAYMENT' ? palette.yellow : s === 'DISPUTED' ? palette.red : s === 'PLANNED' ? palette.disabled : palette.green;
 
 function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boolean }) {
-  const { t, date, dateTime, money } = useI18n();
+  const { t, shortDate: date, dateTime, money } = useI18n();
   const persona = usePersona();
   const roles: TxRole[] = persona === 'PAYER' ? ['PAYER'] : ['PROVIDER'];
   const canDispute = canOpenDispute({
@@ -82,7 +82,7 @@ function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boo
     : tr.status === 'PLANNED' ? (tr.dueDate ? t('plannedOn', { date: date(tr.dueDate) }) : t('milestone'))
     : tr.status === 'AWAITING_PAYMENT' ? (tr.dueDate ? t('payBefore', { date: date(tr.dueDate) }) : '')
     : tr.status === 'PAID_LOCKED' ? t('awaitingProvider')
-    : tr.status === 'CONFIRMED' ? t('confirmedAuto', { date: tr.contestEndsAt ? dateTime(tr.contestEndsAt) : '' })
+    : tr.status === 'CONFIRMED' ? t('confirmedAutoBy', { provider: tx.providerName, date: tr.contestEndsAt ? dateTime(tr.contestEndsAt) : '' })
     : tr.status === 'EVIDENCE_SUBMITTED' ? t('evidencePending')
     : tr.status === 'DISPUTED' ? t('disputed') : '';
 
@@ -95,7 +95,7 @@ function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boo
         {last ? null : <View style={st.line} />}
       </View>
       <View style={st.body}>
-        <Text style={st.itemTitle}>{tr.label} · {amount}</Text>
+        <Text style={st.itemTitle}>{t('trancheTitle', { n: tr.seq, amount })}</Text>
         <Text style={st.itemInfo}>{info}</Text>
         {persona === 'PAYER' && tr.status === 'AWAITING_PAYMENT' ? (
           <View style={st.actions}>
@@ -115,6 +115,12 @@ function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boo
             <Button small tone="secondary" label={t('showQr')} onPress={() => router.push(`/token/${tr.id}`)} />
           </View>
         ) : null}
+        {tr.status === 'DISPUTED' || tr.status === 'CANCELLED' ? (
+          <View style={st.actions}><Button small tone="secondary" label={t('viewDispute')} onPress={() => router.push(`/dispute/view/${tr.id}`)} /></View>
+        ) : null}
+        {tr.status === 'RELEASED' ? (
+          <View style={st.actions}><Button small tone="secondary" label={t('viewReceipt')} onPress={() => router.push(`/receipt/${tr.id}`)} /></View>
+        ) : null}
       </View>
     </View>
   );
@@ -129,20 +135,17 @@ export default function TransactionDetail() {
   const linked = linkedTranche ? tx.tranches.find((x) => x.id === linkedTranche) : undefined;
   return (
     <Screen>
-      <TopBar title={`${verticalLabel(tx.vertical, locale)} · ${tx.providerName}`} subtitle={t('trancheCount', { n: tx.tranches.length })} />
+      <TopBar title={`${verticalLabel(tx.vertical, locale)} · ${tx.providerName}`}
+        subtitle={`${money(tx.amount)} · ${tx.tranches.length > 1 ? t('tranchesMany', { n: tx.tranches.length }) : t('tranchesOne')}`} />
+      <Divider />
       {linked ? <Banner tone="pending" text={t('linkNotice', { n: linked.seq, status: t(trancheStatusKey(linked.status)) })} /> : null}
       <View>
-        <View style={st.statusRow}>
-          <Text style={st.statusLabel}>{t('status')}</Text>
-          <StatusLabel kind={txStatusKind(tx.status)} label={t(txStatusKey(tx.status))} />
-        </View>
-        <Row label={t('total')} value={money(tx.amount)} />
         <Row label={t('beneficiary')} value={tx.beneficiaryName} />
         <Row label={t('providerLabel')} value={tx.providerName} />
         <Row label={t('purpose')} value={tx.purpose} />
+        <View style={{ paddingTop: spacing.xs }}><StatusLabel kind={txStatusKind(tx.status)} label={t(txStatusKey(tx.status))} /></View>
       </View>
       <ReviewPanel tx={tx} />
-      <H2>{t('tranches')}</H2>
       <View style={{ marginTop: spacing.xs }}>
         {tx.tranches.map((tr, i) => <TrancheItem key={tr.id} tx={tx} tr={tr} last={i === tx.tranches.length - 1} />)}
       </View>

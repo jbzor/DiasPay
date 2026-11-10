@@ -10,3 +10,7 @@ export const LINK_BASE: string = process.env.EXPO_PUBLIC_LINK_BASE || 'links.dia
 
 /** Actions « Simuler : valider / rejeter » du bureau de contrôle : uniquement avec EXPO_PUBLIC_DEMO=1 (pas en simple développement). */
 export const DEMO_REVIEW = process.env.EXPO_PUBLIC_DEMO === '1';
+
+/** Adresses du centre d’aide et des conditions : jamais en dur ; vides → « Bientôt disponible ». */
+export const HELP_URL = (process.env.EXPO_PUBLIC_HELP_URL ?? '').trim();
+export const TERMS_URL = (process.env.EXPO_PUBLIC_TERMS_URL ?? '').trim();

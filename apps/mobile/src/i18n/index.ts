@@ -32,6 +32,11 @@ export function useI18n() {
   };
   const tag = loc === 'fr' ? 'fr-FR' : 'en-GB';
   const date = (iso: string) => new Intl.DateTimeFormat(loc === 'fr' ? 'fr-FR' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(parseLocalDate(iso));
+  const shortDate = (iso: string) => {
+    const d = parseLocalDate(iso);
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    return new Intl.DateTimeFormat(loc === 'fr' ? 'fr-FR' : 'en-GB', sameYear ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
+  };
   const dateTime = (iso: string) => new Intl.DateTimeFormat(loc === 'fr' ? 'fr-FR' : 'en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
   const money = (m: Money) => formatMoney(m, loc === 'fr' ? 'fr-FR' : 'en-GB');
   const errorText = (e: unknown): string => {
@@ -41,7 +46,7 @@ export function useI18n() {
     const time = d.lockedUntil ? new Intl.DateTimeFormat(tag, { hour: '2-digit', minute: '2-digit' }).format(new Date(d.lockedUntil)) : '';
     return code && k in fr ? t(k, { remaining: d.remaining ?? '', time }) : t('err_generic');
   };
-  return { t, locale: loc, date, dateTime, money, errorText };
+  return { t, locale: loc, date, shortDate, dateTime, money, errorText };
 }
 
 export const txStatusKey = (s: TxStatus): Key => ({

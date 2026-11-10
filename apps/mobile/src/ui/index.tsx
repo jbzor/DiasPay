@@ -10,7 +10,7 @@ import { setLocale, useI18n } from '../i18n';
 import type { Locale } from '../i18n';
 
 export { Logo } from './Logo';
-export { IllustrationLock, IllustrationProof, IllustrationPurpose } from './Illustrations';
+export { IllustrationBellCheck, IllustrationLock, IllustrationProof, IllustrationPurpose } from './Illustrations';
 
 /** Bascule de langue en boutons texte ; l’actif est gras et souligné en jaune (3 px). Appliquée et persistée immédiatement. */
 export function LangSwitch({ inverse = false }: { inverse?: boolean }) {
@@ -22,8 +22,8 @@ export function LangSwitch({ inverse = false }: { inverse?: boolean }) {
         const on = k === locale;
         return (
           <Pressable key={k} accessibilityRole="radio" accessibilityState={{ selected: on }} onPress={() => setLocale(k)} style={s.langItem}>
-            <Text style={[s.langText, { color: inverse ? '#FFFFFF' : on ? semantic.text : semantic.textMuted }, on ? s.langOn : null]}>{label}</Text>
-            <View style={[s.langBar, on ? { backgroundColor: palette.yellow } : null]} />
+            <Text style={[s.langText, { color: inverse ? '#FFFFFF' : on ? palette.green : semantic.textMuted }, on ? s.langOn : null]}>{label}</Text>
+            {inverse ? <View style={[s.langBar, on ? { backgroundColor: palette.yellow } : null]} /> : null}
           </Pressable>
         );
       })}
@@ -47,6 +47,8 @@ export const ICONS = {
   alert: 'M12 7v6M12 17v.01',
   doc: 'M7 3h7l5 5v13H7zM14 3v5h5',
   close: 'M6 6l12 12M18 6L6 18',
+  search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4',
+  plus: 'M12 5v14M5 12h14',
   retry: 'M4 12a8 8 0 0 1 14-5.3M20 5v4h-4M20 12a8 8 0 0 1-14 5.3M4 19v-4h4',
 } as const;
 
@@ -111,7 +113,7 @@ export function Radio({ on }: { on: boolean }) {
   return <View style={[s.radio, on ? { borderColor: palette.green } : null]}>{on ? <View style={s.radioDot} /> : null}</View>;
 }
 
-type Tone = 'primary' | 'secondary' | 'accent' | 'danger' | 'text' | 'disabled';
+type Tone = 'primary' | 'secondary' | 'accent' | 'danger' | 'destructive' | 'neutral' | 'text' | 'disabled';
 export function Button({ label, onPress, tone = 'primary', disabled, small, accessibilityLabel }: {
   label: string; onPress?: () => void; tone?: Tone; disabled?: boolean; small?: boolean; accessibilityLabel?: string;
 }) {
@@ -128,10 +130,12 @@ const btnBg: Record<Tone, ViewStyle> = {
   secondary: { borderWidth: 1.5, borderColor: palette.green },
   accent: { backgroundColor: palette.yellow },
   danger: { borderWidth: 1.5, borderColor: palette.red },
+  destructive: { backgroundColor: palette.red },
+  neutral: { borderWidth: 1.5, borderColor: palette.line },
   text: {},
   disabled: { backgroundColor: neutralTint },
 };
-const btnFg: Record<Tone, string> = { primary: '#fff', secondary: palette.green, accent: palette.ink, danger: palette.red, text: palette.green, disabled: palette.muted };
+const btnFg: Record<Tone, string> = { primary: '#fff', secondary: palette.green, accent: palette.ink, danger: palette.red, destructive: '#FFFFFF', neutral: palette.ink, text: palette.green, disabled: palette.muted };
 
 export type StatusKind = keyof typeof chips;
 /** Libellé de statut : point de 7 px + texte 12 px gras, sans pastille. */
@@ -160,6 +164,19 @@ export function Row({ label, value }: { label: string; value: string }) {
       <Text style={s.rowLabel}>{label}</Text>
       <Text style={s.rowValue}>{value}</Text>
     </View>
+  );
+}
+
+/** Filet de séparation (sous un en-tête, comme la maquette). */
+export const Divider = () => <View style={s.divider} />;
+
+/** Interrupteur de la maquette (pilule verte, bouton blanc), identique sur toutes les plateformes ; zone tactile de 44 px. */
+export function Toggle({ value, onChange, accessibilityLabel, disabled }: { value: boolean; onChange: (v: boolean) => void; accessibilityLabel: string; disabled?: boolean }) {
+  return (
+    <Pressable accessibilityRole="switch" accessibilityLabel={accessibilityLabel} accessibilityState={{ checked: value, disabled: !!disabled }}
+      disabled={disabled} onPress={() => onChange(!value)} hitSlop={6} style={[s.toggle, value ? s.toggleOn : null, disabled ? { opacity: 0.5 } : null]}>
+      <View style={[s.knob, value ? { alignSelf: 'flex-end' } : null]} />
+    </Pressable>
   );
 }
 
@@ -235,7 +252,11 @@ const s = StyleSheet.create({
   statusDot: { width: 7, height: 7, borderRadius: 3.5 },
   statusText: { fontSize: fontSize.caption, fontWeight: '700' },
   banner: { borderRadius: radius.md, padding: 10 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: palette.line },
+  row: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, paddingVertical: 7 },
+  divider: { height: 1, backgroundColor: palette.line, alignSelf: 'stretch' },
+  toggle: { width: 52, height: 32, borderRadius: 16, padding: 3, backgroundColor: palette.line, justifyContent: 'center' },
+  toggleOn: { backgroundColor: palette.green },
+  knob: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#FFFFFF' },
   rowLabel: { fontSize: 14, color: semantic.textMuted },
   rowValue: { fontSize: 14, fontWeight: '500', color: semantic.text, flexShrink: 1, textAlign: 'right' },
   h2: { fontSize: 16, fontWeight: '600', color: semantic.text, marginTop: spacing.sm },

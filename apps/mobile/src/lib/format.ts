@@ -58,3 +58,15 @@ export function parseLocalDate(iso: string): Date {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso);
 }
+
+/**
+ * Numéro international pour l’affichage : « +33612345678 » → « +33 6 12 34 56 78 ».
+ * L’indicatif est reconnu parmi DIAL_CODES (le plus long d’abord) ; le reste est groupé : un chiffre, puis par deux.
+ */
+export function formatPhoneDisplay(e164: string): string {
+  if (!/^\+\d{6,15}$/.test(e164)) return e164;
+  const code = [...DIAL_CODES].sort((a, b) => b.length - a.length).find((c) => e164.startsWith(c)) ?? e164.slice(0, 3);
+  const rest = e164.slice(code.length);
+  const groups = [rest.slice(0, 1), ...(rest.slice(1).match(/.{1,2}/g) ?? [])].filter(Boolean);
+  return `${code} ${groups.join(' ')}`;
+}

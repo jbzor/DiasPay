@@ -22,7 +22,7 @@ export const fr = {
  
   noAlerts: 'Aucune alerte pour le moment.', demoProfile: 'Profil de démonstration', language: 'Langue',
   demoNote: 'Données simulées. Aucun paiement réel n’est effectué.', notFound: 'Introuvable',
-  txReview: 'En validation', txActive: 'En cours', txDraft: 'Brouillon', txClosed: 'Clôturée', txRejected: 'Rejetée', txDisputed: 'Litige',
+  txReview: 'En validation', txActive: 'En cours', txDraft: 'Brouillon', txClosed: 'Clôturée', txCancelled: 'Abandonné', txRejected: 'Rejetée', txDisputed: 'Litige',
   txValidated: 'Validée', txToken: 'Jeton émis', txSubmitted: 'Soumise', evidenceToValidate: 'Preuve à valider',
   trPlanned: 'Prévue', trAwaiting: 'À payer', trPaid: 'Payée', trEvidence: 'Preuve soumise', trConfirmed: 'Confirmée', trReleased: 'Débloquée',
   trDisputed: 'Litige', trCancelled: 'Annulée', trExpired: 'Expirée', milestone: 'Jalon',
@@ -291,7 +291,7 @@ export const en: Record<Key, string> = {
  
   noAlerts: 'No alerts for now.', demoProfile: 'Demo profile', language: 'Language',
   demoNote: 'Simulated data. No real payment is made.', notFound: 'Not found',
-  txReview: 'In review', txActive: 'Active', txDraft: 'Draft', txClosed: 'Closed', txRejected: 'Rejected', txDisputed: 'Dispute',
+  txReview: 'In review', txActive: 'Active', txDraft: 'Draft', txClosed: 'Closed', txCancelled: 'Abandoned', txRejected: 'Rejected', txDisputed: 'Dispute',
   txValidated: 'Validated', txToken: 'Token issued', txSubmitted: 'Submitted', evidenceToValidate: 'Evidence to review',
   trPlanned: 'Planned', trAwaiting: 'To pay', trPaid: 'Paid', trEvidence: 'Evidence sent', trConfirmed: 'Confirmed', trReleased: 'Released',
   trDisputed: 'Dispute', trCancelled: 'Cancelled', trExpired: 'Expired', milestone: 'Milestone',

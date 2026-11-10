@@ -46,7 +46,7 @@ export function useI18n() {
 
 export const txStatusKey = (s: TxStatus): Key => ({
   DRAFT: 'txDraft', SUBMITTED: 'txSubmitted', IN_REVIEW: 'txReview', REJECTED: 'txRejected', VALIDATED: 'txValidated',
-  TOKEN_ISSUED: 'txToken', IN_PROGRESS: 'txActive', CLOSED: 'txClosed', DISPUTED: 'txDisputed',
+  TOKEN_ISSUED: 'txToken', IN_PROGRESS: 'txActive', CLOSED: 'txClosed', DISPUTED: 'txDisputed', CANCELLED: 'txCancelled',
 } as const)[s];
 
 export const trancheStatusKey = (s: TrancheStatus): Key => ({

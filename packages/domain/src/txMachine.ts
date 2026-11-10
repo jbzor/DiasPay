@@ -11,6 +11,8 @@ const TX_TRANSITIONS: ReadonlyArray<readonly [TxStatus, TxStatus, readonly Who[]
   ['IN_REVIEW', 'VALIDATED', ['VALIDATOR']],
   ['IN_REVIEW', 'REJECTED', ['VALIDATOR']],
   ['REJECTED', 'DRAFT', ['REQUESTER', 'PAYER']],
+  // Décision D4 : abandon d’un dossier rejeté (aucune autre transition vers CANCELLED).
+  ['REJECTED', 'CANCELLED', ['REQUESTER', 'PAYER']],
   ['VALIDATED', 'TOKEN_ISSUED', ['SYSTEM']],
   ['TOKEN_ISSUED', 'IN_PROGRESS', ['SYSTEM']],
   ['IN_PROGRESS', 'CLOSED', ['SYSTEM']],

@@ -6,6 +6,8 @@
 export const TX_STATUSES = [
   'DRAFT', 'SUBMITTED', 'IN_REVIEW', 'REJECTED', 'VALIDATED',
   'TOKEN_ISSUED', 'IN_PROGRESS', 'CLOSED', 'DISPUTED',
+  // Lot 3 bis (décision D4) : dossier rejeté abandonné par son créateur. Trace et journal conservés.
+  'CANCELLED',
 ] as const;
 export type TxStatus = (typeof TX_STATUSES)[number];
 

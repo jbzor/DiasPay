@@ -14,21 +14,21 @@ export type DocumentKind =
 
 export interface RequiredDocument { kind: DocumentKind; required: boolean }
 
-// À CONFIRMER avec le client : listes de départ proposées au lot 3 (cahier des charges v1.0, FR-07).
-// Agro, Immobilier et Terrain : valeurs provisoires, à définir en vague 2 (jalons et preuves).
+// Vague 1 (Santé, Scolarité, Loyer) : Décision D2, 10/11/2026 (docs/decisions.md).
+// Agro, Immobilier et Terrain : À CONFIRMER, valeurs provisoires à définir en vague 2 (jalons et preuves).
 export const REQUIRED_DOCUMENTS: Record<Vertical, RequiredDocument[]> = {
   HEALTH: [
-    { kind: 'QUOTE', required: true },               // À CONFIRMER
-    { kind: 'BENEFICIARY_ID', required: true },      // À CONFIRMER
-    { kind: 'MEDICAL_CERTIFICATE', required: false }, // À CONFIRMER
+    { kind: 'QUOTE', required: true }, // Décision D2, 10/11/2026
+    { kind: 'BENEFICIARY_ID', required: true }, // Décision D2, 10/11/2026
+    { kind: 'MEDICAL_CERTIFICATE', required: false }, // Décision D2, 10/11/2026
   ],
   EDUCATION: [
-    { kind: 'ENROLMENT_CERTIFICATE', required: true }, // À CONFIRMER
-    { kind: 'SCHOOL_SCHEDULE', required: false },      // À CONFIRMER
+    { kind: 'ENROLMENT_CERTIFICATE', required: true }, // Décision D2, 10/11/2026
+    { kind: 'SCHOOL_SCHEDULE', required: false }, // Décision D2, 10/11/2026
   ],
   RENT: [
-    { kind: 'LEASE', required: true },          // À CONFIRMER
-    { kind: 'LAST_RECEIPT', required: false },  // À CONFIRMER
+    { kind: 'LEASE', required: true }, // Décision D2, 10/11/2026
+    { kind: 'LAST_RECEIPT', required: false }, // Décision D2, 10/11/2026
   ],
   AGRO: [{ kind: 'SUPPORTING_DOCUMENT', required: true }],        // À CONFIRMER (provisoire, vague 2)
   REAL_ESTATE: [{ kind: 'SUPPORTING_DOCUMENT', required: true }], // À CONFIRMER (provisoire, vague 2)
@@ -38,6 +38,13 @@ export const REQUIRED_DOCUMENTS: Record<Vertical, RequiredDocument[]> = {
 export const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'application/pdf'] as const;
 export type AllowedMimeType = (typeof ALLOWED_MIME_TYPES)[number];
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
+/** Décision D2 : jusqu’à 3 fichiers par type de pièce (recto et verso d’une pièce d’identité, par exemple). */
+export const MAX_FILES_PER_KIND = 3;
+
+/** Refuse un fichier de plus pour ce type de pièce (TOO_MANY_FILES au-delà de 3). */
+export function checkFileCount(existingForKind: number): void {
+  if (existingForKind >= MAX_FILES_PER_KIND) throw new DomainError('TOO_MANY_FILES', `Au plus ${MAX_FILES_PER_KIND} fichiers par pièce`);
+}
 
 const BY_EXTENSION: Record<string, AllowedMimeType> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', pdf: 'application/pdf' };
 
@@ -59,7 +66,7 @@ export function checkFile(file: { name: string; mimeType?: string; sizeBytes: nu
   return mime as AllowedMimeType;
 }
 
-/** Pièces obligatoires de la verticale sans document envoyé. */
+/** Pièces obligatoires de la verticale sans aucun fichier envoyé (une pièce est « fournie » dès le premier fichier ; le validateur juge de la suffisance). */
 export function missingRequiredDocuments(vertical: Vertical, documents: ReadonlyArray<{ kind: string; status: string }>): DocumentKind[] {
   return REQUIRED_DOCUMENTS[vertical]
     .filter((d) => d.required && !documents.some((x) => x.kind === d.kind && x.status === 'UPLOADED'))

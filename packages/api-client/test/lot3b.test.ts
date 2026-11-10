@@ -252,3 +252,17 @@ describe('préférences de l’utilisateur', () => {
     expect(await auth.setPreferences({ biometricEnabled: true })).toMatchObject({ pushEnabled: false, biometricEnabled: true });
   });
 });
+
+describe('parcours complet du simulateur', () => {
+  it('créer, valider, payer, confirmer, débloquer : alertes attendues, reçu valide, falsification détectée', async () => {
+    const { api } = make({ seedNotifications: false });
+    const { tx, trId } = await fullFlow(api);
+    expect(await types(api, tx.id)).toEqual(['TX_VALIDATED', 'PAYMENT_READY', 'TRANCHE_CONFIRMED', 'TRANCHE_RELEASED']);
+    expect((await api.getTransaction(tx.id)).status).toBe('CLOSED');
+    const ok = await api.getReceipt(trId);
+    expect(ok.chainValid).toBe(true);
+    expect(ok.entryCount).toBeGreaterThanOrEqual(8);
+    api.tamperAuditForTest(tx.id, 1, { actor: 'quelqu’un d’autre' });
+    expect((await api.getReceipt(trId)).chainValid).toBe(false);
+  });
+});

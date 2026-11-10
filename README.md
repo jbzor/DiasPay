@@ -30,22 +30,26 @@ pnpm --filter @diaspay/mobile exec expo export --platform web
 - Les onglets et les écrans de transaction sont protégés (`Stack.Protected`) : un utilisateur déconnecté est renvoyé au lancement, y compris par lien profond.
 - La langue choisie sur le lancement, la connexion ou le profil s'applique à tous les écrans et survit au redémarrage.
 
-## Variable `EXPO_PUBLIC_DEMO`
-En développement (`__DEV__`), ou si `EXPO_PUBLIC_DEMO=1` au moment du build, l'application affiche :
-- le sélecteur de profil de démonstration (payeur / prestataire) dans l'onglet Profil ;
-- le rappel du code de simulation sur l'écran de saisie du code.
+## Mode démonstration (`EXPO_PUBLIC_DEMO`)
+- En développement (`__DEV__`) ou avec `EXPO_PUBLIC_DEMO=1` : rappel du code OTP de simulation sur l’écran de saisie du code.
+- Avec `EXPO_PUBLIC_DEMO=1` seulement : en bas de l’onglet Profil, sélecteur de profil de démonstration (payeur / prestataire) et bouton **« Réinitialiser les données de démonstration »** ; boutons « Simuler : valider / rejeter » sur un dossier en validation ; « Simuler : remettre au prestataire / rembourser le payeur » sur un litige en cours.
+- **Garde de production** : un build de production (`!__DEV__`) avec `EXPO_PUBLIC_DEMO=1` affiche un écran bloquant « Build non conforme » et journalise l’anomalie. Un build interne de démonstration ou de captures le déclare explicitement avec `EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE=1` (jamais pour les stores : voir `docs/release-checklist.md`).
 
 ```
-EXPO_PUBLIC_DEMO=1 pnpm --filter @diaspay/mobile exec expo export --platform web
+EXPO_PUBLIC_DEMO=1 EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE=1 pnpm --filter @diaspay/mobile exec expo export --platform web
 ```
+
+**Réinitialisation** : « Réinitialiser les données de démonstration » remplace transactions, alertes, journal, litiges et brouillons par le jeu initial et efface l’instantané enregistré.
 
 En dehors de ces cas, le profil de démonstration suit le rôle choisi à l'inscription : payeur → payeur, prestataire → prestataire, demandeur → payeur (en attendant les écrans dédiés).
 
 ## Variables d’environnement
 | Variable | Rôle | Défaut |
 |---|---|---|
-| `EXPO_PUBLIC_DEMO` | `1` : affiche le sélecteur de profil et le code OTP de simulation (voir plus haut) | `__DEV__` seulement |
-| `EXPO_PUBLIC_DEMO` (strictement `1`) | Lot 3 : boutons « Simuler : valider » et « Simuler : rejeter (motif) » sur un dossier en validation (absents en simple développement) | absent |
+| `EXPO_PUBLIC_DEMO` | `1` : outils de démonstration (voir « Mode démonstration ») ; le rappel du code OTP s’affiche aussi en développement | absent |
+| `EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE` | `1` : autorise le mode démonstration dans un build de production interne (démonstration, captures). Jamais pour les stores | absent |
+| `EXPO_PUBLIC_HELP_URL` | Adresse du centre d’aide (Profil › Centre d’aide) ; vide → « Bientôt disponible » | vide |
+| `EXPO_PUBLIC_TERMS_URL` | Adresse des conditions et de la confidentialité (Profil) ; vide → « Bientôt disponible » | vide |
 | `EXPO_PUBLIC_UPLOAD_FAILURE_RATE` | Probabilité (0 à 1) d’échec simulé de l’envoi d’une pièce, pour tester la reprise | `0` (désactivé) |
 | `EXPO_PUBLIC_LINK_BASE` | Hôte (ou URL de base) des DiasPay Links `https://<hôte>/t/<référence>` ; aucun domaine n’est figé dans le code | `links.diaspay.example` (domaine réservé, sans site réel : lien de développement) |
 
@@ -106,9 +110,23 @@ Les deux appareils ont chacun leur propre jeu de données simulé : pour que l�
 | Loyer | Bail | Dernière quittance |
 | Agro, Immobilier, Terrain | Pièce justificative (provisoire, vague 2) | — |
 
-**Démonstration** (build avec `EXPO_PUBLIC_DEMO=1`) : créer un besoin de santé daté de cette semaine, le soumettre, ouvrir le dossier « En validation », « Simuler : valider » → la tranche passe « À payer » et le parcours de paiement et d’eQR du lot 2 s’enchaîne. Pour le rejet : « Simuler : rejeter (motif) », puis « Corriger » et « Soumettre le dossier ». Les dossiers soumis vivent dans la simulation en mémoire (perdus au redémarrage) ; seuls les brouillons sont persistés.
+**Démonstration** (build avec `EXPO_PUBLIC_DEMO=1`) : créer un besoin de santé daté de cette semaine, le soumettre, ouvrir le dossier « En validation », « Simuler : valider » → la tranche passe « À payer » et le parcours de paiement et d’eQR du lot 2 s’enchaîne. Pour le rejet : « Simuler : rejeter (motif) », puis « Corriger » et « Soumettre le dossier ». Depuis le lot 3 bis, les dossiers soumis et leur historique survivent au redémarrage (voir plus bas).
+
+## Lot 3 bis : décisions, alertes, litiges, reçus
+- **Décisions** : `docs/decisions.md` (D1 téléphone du payeur, D2 pièces requises et jusqu’à 3 fichiers par pièce, D3 textes d’aide du plan, D4 abandon d’un dossier). Liste de contrôle avant publication : `docs/release-checklist.md`.
+- **Abandon (D4)** : un dossier rejeté se corrige ou s’abandonne (`CANCELLED`, visible sous « Clôturées » avec le libellé « Abandonné », journal conservé). Un brouillon jamais soumis se supprime ; une correction ou un dossier soumis, non.
+- **Alertes** : chaque étape (validation, rejet, paiement prêt, confirmation, déblocage, litige ouvert ou résolu) crée une alerte et une ligne du journal. L’alerte stocke l’événement, pas un texte : changer de langue traduit les alertes déjà reçues.
+- **Journal d’audit chaîné** : SHA-256 (`@noble/hashes`), une chaîne par transaction (`packages/domain/src/audit.ts`, format documenté dans le fichier). Le reçu affiche « Journal d’audit vérifié » seulement si la chaîne se vérifie réellement.
+- **Reçu** : « Exporter en PDF » génère le PDF depuis un modèle HTML aux couleurs de la charte (`expo-print`) puis le partage (`expo-sharing`). Sur le web, le reçu s’ouvre dans un onglet et la boîte d’impression du navigateur propose « Enregistrer en PDF ».
+- **Persistance de la simulation** : transactions, alertes, journal et litiges sont enregistrés (AsyncStorage, anti-rebond de 500 ms) dans un instantané versionné, rechargé au démarrage ; un instantané d’une autre version est ignoré.
+- **Photos** : toute image est réencodée avant l’envoi (redessinée dans un nouveau fichier), ce qui retire ses métadonnées EXIF, dont les coordonnées GPS. Vérifié sur l’export web ; à vérifier sur téléphone (voir `docs/release-checklist.md`).
+- **Conformité au design** : `docs/design-conformity.md` et `pnpm capture` (captures de tous les écrans mobiles dans `docs/captures/`).
+
+## Police
+**Inter** (graisses 400, 500, 600, 700), chargée avec `expo-font` depuis `@expo-google-fonts/inter` ; l’écran de lancement reste affiché tant qu’elle n’est pas prête. Licence : **SIL Open Font License 1.1** (copyright The Inter Project Authors), compatible avec une application commerciale ; le paquet `@expo-google-fonts/inter` est sous licence MIT. Le texte de la licence est fourni dans `node_modules/@expo-google-fonts/inter/LICENSE_FONT`. Sur Android 9 et antérieur, seule la graisse normale est chargée (limite de la plateforme).
 
 ## Écrans livrés
+- **Lot 3 bis** : Alertes (liste groupée par jour et état vide), Profil, Sécurité, Suivi de litige (en cours et résolu), Reçu (PDF et partage), modification du profil ; écrans des lots 1 à 3 alignés sur la maquette v5.
 - **Lot 3** : assistant « Nouveau besoin » en six étapes, brouillons, confirmation d’envoi, suivi du dossier (examen, rejet et correction), revue simulée.
 - **Lot 2** : écran TrustToken (eQR, DiasPay Link, partage, copie, enregistrement de l’image), scan par caméra avec feuille de confirmation, liens profonds.
 - **Lot 1** : lancement, présentation (3 pages), connexion par téléphone, code OTP, profil initial, activation de la biométrie, déconnexion. Refonte visuelle : listes à filets, libellés de statut à point, contrôle segmenté.
@@ -120,10 +138,11 @@ Les deux appareils ont chacun leur propre jeu de données simulé : pour que l�
 - `packages/ui-tokens` : contraste WCAG de chaque paire texte/fond.
 - `apps/mobile` : parité des dictionnaires FR/EN (mêmes clés, aucune valeur vide, aucune apostrophe droite, messages d’erreur du scan), minuteur `m:ss`, numéro, initiales, saisie du code, orientation au démarrage, machine d’états du scan (anti-rebond, chaque erreur, succès), décompte d’expiration, matrice du QR, destination des liens profonds.
 - Lot 3 : `packages/domain` (schémas par étape, montants, plans et fins de mois, pièces requises, limites de fichier, RG-12), `packages/api-client` (prestataires, brouillons par utilisateur, envoi de pièces, soumission et chaque erreur, revue simulée, correction et nouvelle soumission), `apps/mobile` (réducteur de l’assistant, reprise, sauvegarde différée, pièces au rechargement).
+- Lot 3 bis : `packages/domain` (statut `CANCELLED`, 3 fichiers par pièce, journal chaîné : chaîne valide, ligne modifiée, ligne supprimée, chaîne vide ; décision de litige), `packages/api-client` (alertes par événement, litiges, reçus, abandon, suppression, pièces multiples, persistance et instantané périmé, préférences, parcours complet avec reçu valide puis falsification détectée), `apps/mobile` (regroupement des alertes, libellés et parité, état du litige, formateur et modèle du reçu, garde de production).
 - `packages/domain` : codec eQR. `packages/api-client` : jetons, `resolveReference`, `confirmByReference` (chaque erreur, usage unique) et parcours complet payer → jeton → confirmer.
 
 ## À venir
-Authentification réelle (Supabase Auth), stockage réel des pièces et code de secours (lot 4), jalons et preuves pour Agro, Immobilier et Terrain (vague 2), photo de profil, dépôt de preuve, reçu, notifications, back-office (lot 5).
+Authentification réelle (Supabase Auth), stockage réel des pièces et code de secours (lot 4), jalons et preuves pour Agro, Immobilier et Terrain (vague 2), photo de profil, dépôt de preuve, ajout de pièces à un litige, vraies notifications push, back-office (lot 5).
 
 ## Règle d'or
 Tout changement de statut passe par les fonctions de `@diaspay/domain`. Le serveur (SQL puis TrustEngine) applique les mêmes règles.

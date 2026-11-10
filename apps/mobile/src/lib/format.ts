@@ -52,3 +52,9 @@ export function fillDigits(current: readonly string[], index: number, text: stri
   for (let k = 0; k < d.length && index + k < n; k++) next[index + k] = d.charAt(k);
   return { digits: next, focus: Math.min(n - 1, index + d.length) };
 }
+
+/** Une date seule (AAAA-MM-JJ) est un jour du calendrier local : `new Date('2026-11-15')` la lirait en UTC et décalerait d’un jour à l’ouest de Greenwich. */
+export function parseLocalDate(iso: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso);
+}

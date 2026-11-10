@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chips, contrastRatio, neutralTint, palette, semantic } from '../src';
+import { chips, contrastRatio, disabledSurface, neutralTint, palette, semantic } from '../src';
 
 describe('contraste WCAG AA (4,5 minimum pour le texte courant)', () => {
   const pairs: Array<[string, string, string]> = [
@@ -27,6 +27,13 @@ describe('contraste WCAG AA (4,5 minimum pour le texte courant)', () => {
     ['saisie (encre sur blanc)', semantic.text, semantic.surface],
     ['message d’erreur de champ sur ivoire', semantic.error, palette.ivory],
     ['bouton désactivé (atténué sur beige)', palette.muted, neutralTint],
+    // Lot 3 : création d’un besoin.
+    ['choix indisponible (atténué sur beige clair)', palette.muted, disabledSurface],
+    ['somme exacte (vert foncé sur ivoire)', palette.greenDark, palette.ivory],
+    ['écart de somme (erreur sur ivoire)', semantic.error, palette.ivory],
+    ['bandeau d’envoi (vert foncé sur vert pâle)', chips.active.fg, chips.active.bg],
+    ['message bref (ivoire sur encre)', palette.ivory, palette.ink],
+    ['retirer une pièce (rouge de marque sur ivoire)', palette.red, palette.ivory],
   ];
   it.each(pairs)('%s', (_name, fg, bg) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(4.5);

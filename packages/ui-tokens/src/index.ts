@@ -46,6 +46,9 @@ export const statusDot = {
   error: semantic.error,
 } as const;
 
+/** Fond d’un choix indisponible (« Bientôt disponible »). */
+export const disabledSurface = '#F1EEE3';
+
 /** Fond du contrôle segmenté et des surfaces neutres. */
 export const neutralTint = '#ECE8D8';
 

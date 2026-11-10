@@ -45,6 +45,8 @@ En dehors de ces cas, le profil de démonstration suit le rôle choisi à l'insc
 | Variable | Rôle | Défaut |
 |---|---|---|
 | `EXPO_PUBLIC_DEMO` | `1` : affiche le sélecteur de profil et le code OTP de simulation (voir plus haut) | `__DEV__` seulement |
+| `EXPO_PUBLIC_DEMO` (strictement `1`) | Lot 3 : boutons « Simuler : valider » et « Simuler : rejeter (motif) » sur un dossier en validation (absents en simple développement) | absent |
+| `EXPO_PUBLIC_UPLOAD_FAILURE_RATE` | Probabilité (0 à 1) d’échec simulé de l’envoi d’une pièce, pour tester la reprise | `0` (désactivé) |
 | `EXPO_PUBLIC_LINK_BASE` | Hôte (ou URL de base) des DiasPay Links `https://<hôte>/t/<référence>` ; aucun domaine n’est figé dans le code | `links.diaspay.example` (domaine réservé, sans site réel : lien de développement) |
 
 ```
@@ -82,7 +84,32 @@ Le codec (`encodeEqr`, `decodeEqr`, `formatReference`, `normalizeReference`, `pa
 
 Les deux appareils ont chacun leur propre jeu de données simulé : pour que l’étape 3 trouve la tranche payée, il faut que le téléphone ait lui aussi payé la tranche 2 (profil payeur, puis profil prestataire), car le mock vit dans l’application et non sur un serveur partagé. Le serveur (lot 4) supprimera cette contrainte.
 
+## Création d’un besoin (lot 3)
+**Parcours** : Accueil → « Nouveau besoin » (payeur ou demandeur ; caché pour un prestataire) → six étapes, chacune bloquée tant qu’elle est invalide :
+1. **Type** : Scolarité, Santé, Loyer (vague 1). Agro, Immobilier et Terrain sont visibles mais « Bientôt disponible ».
+2. **Détails** : montant (séparateurs selon la langue ; FCFA sans décimale, EUR et USD 2 au plus), devise, objectif (3 à 500 caractères), bénéficiaire, date souhaitée (facultative, pas dans le passé). Un **demandeur** indique aussi le **téléphone du payeur** (ajout absent de la maquette G2, à valider par le client).
+3. **Prestataire** : recherche (insensible à la casse et aux accents) parmi les prestataires vérifiés de la verticale, ou invitation par téléphone.
+4. **Plan de paiement** : unique, partiel (acompte et solde, au moins 2 tranches), échelonné (2 à 12 tranches, montants égaux, reste sur la dernière), récurrent (hebdomadaire, mensuel ou trimestriel, 2 à 60 échéances). La somme est contrôlée à l’écran et par le serveur simulé.
+5. **Justificatifs** : appareil photo, galerie ou document ; JPG, PNG ou PDF, 10 Mo maximum ; images compressées (côté long 2000 px, JPEG 0,8) ; progression, reprise après échec, suppression.
+6. **Récapitulatif** : règle de déblocage en clair, « Soumettre le dossier » ou « Enregistrer le brouillon ».
+
+**Brouillons** : enregistrés automatiquement (500 ms après chaque saisie, immédiatement à chaque changement d’étape) avec AsyncStorage, y compris sur le web. Ils apparaissent en tête de « Transactions » (« Brouillon », étape atteinte), se rouvrent à la dernière étape et se suppriment après confirmation. Un brouillon appartient à l’utilisateur connecté. Une pièce dont le fichier local a disparu au rechargement est marquée « à rajouter ».
+
+**Suivi** : un dossier soumis passe « En validation » (non modifiable). Rejeté, il affiche son motif et un bouton « Corriger » qui le rouvre en brouillon (RG : `REJECTED → DRAFT`), puis se soumet à nouveau. Validé, il émet son jeton et active la première tranche si son échéance tombe dans les 7 jours (RG-12), sinon elle reste « Prévue ». Les événements « dossier validé » et « dossier rejeté » sont préparés dans le simulateur (`MockApi.listEvents()`) pour les alertes du lot suivant.
+
+**Pièces requises — à confirmer avec le client** (`packages/domain/src/documents.ts`, marquées `À CONFIRMER`) :
+
+| Verticale | Obligatoire | Facultatif |
+|---|---|---|
+| Santé | Devis ou facture proforma ; pièce d’identité du bénéficiaire | Certificat médical |
+| Scolarité | Attestation d’inscription | Échéancier de l’école |
+| Loyer | Bail | Dernière quittance |
+| Agro, Immobilier, Terrain | Pièce justificative (provisoire, vague 2) | — |
+
+**Démonstration** (build avec `EXPO_PUBLIC_DEMO=1`) : créer un besoin de santé daté de cette semaine, le soumettre, ouvrir le dossier « En validation », « Simuler : valider » → la tranche passe « À payer » et le parcours de paiement et d’eQR du lot 2 s’enchaîne. Pour le rejet : « Simuler : rejeter (motif) », puis « Corriger » et « Soumettre le dossier ». Les dossiers soumis vivent dans la simulation en mémoire (perdus au redémarrage) ; seuls les brouillons sont persistés.
+
 ## Écrans livrés
+- **Lot 3** : assistant « Nouveau besoin » en six étapes, brouillons, confirmation d’envoi, suivi du dossier (examen, rejet et correction), revue simulée.
 - **Lot 2** : écran TrustToken (eQR, DiasPay Link, partage, copie, enregistrement de l’image), scan par caméra avec feuille de confirmation, liens profonds.
 - **Lot 1** : lancement, présentation (3 pages), connexion par téléphone, code OTP, profil initial, activation de la biométrie, déconnexion. Refonte visuelle : listes à filets, libellés de statut à point, contrôle segmenté.
 - **v0.1** : accueil, transactions (filtres), détail avec tranches, paiement (biométrie si disponible), litige, confirmation prestataire (saisie de la référence), profil (langue FR/EN), alertes (vide).
@@ -92,10 +119,11 @@ Les deux appareils ont chacun leur propre jeu de données simulé : pour que l�
 - `packages/api-client` : `MockApi`, `MockAuth` (numéro invalide, bon et mauvais code, verrouillage puis déverrouillage, expiration, renvoi trop tôt, profil, biométrie, déconnexion).
 - `packages/ui-tokens` : contraste WCAG de chaque paire texte/fond.
 - `apps/mobile` : parité des dictionnaires FR/EN (mêmes clés, aucune valeur vide, aucune apostrophe droite, messages d’erreur du scan), minuteur `m:ss`, numéro, initiales, saisie du code, orientation au démarrage, machine d’états du scan (anti-rebond, chaque erreur, succès), décompte d’expiration, matrice du QR, destination des liens profonds.
+- Lot 3 : `packages/domain` (schémas par étape, montants, plans et fins de mois, pièces requises, limites de fichier, RG-12), `packages/api-client` (prestataires, brouillons par utilisateur, envoi de pièces, soumission et chaque erreur, revue simulée, correction et nouvelle soumission), `apps/mobile` (réducteur de l’assistant, reprise, sauvegarde différée, pièces au rechargement).
 - `packages/domain` : codec eQR. `packages/api-client` : jetons, `resolveReference`, `confirmByReference` (chaque erreur, usage unique) et parcours complet payer → jeton → confirmer.
 
 ## À venir
-Authentification réelle (Supabase Auth) et code de secours (lot 4), création d'un besoin (lot 3), photo de profil, dépôt de preuve, reçu, notifications, back-office (lot 5).
+Authentification réelle (Supabase Auth), stockage réel des pièces et code de secours (lot 4), jalons et preuves pour Agro, Immobilier et Terrain (vague 2), photo de profil, dépôt de preuve, reçu, notifications, back-office (lot 5).
 
 ## Règle d'or
 Tout changement de statut passe par les fonctions de `@diaspay/domain`. Le serveur (SQL puis TrustEngine) applique les mêmes règles.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { composePhone, countryKey, fillDigits, formatCountdown, initials, isValidPhone } from '../src/lib/format';
+import { parseLocalDate, composePhone, countryKey, fillDigits, formatCountdown, initials, isValidPhone } from '../src/lib/format';
 import { bioIcon, bioKind, capitalize } from '../src/lib/biometry';
 import { canSetup, canUseApp, startRoute } from '../src/lib/flow';
 
@@ -80,5 +80,13 @@ describe('biométrie', () => {
   it('retombe sur « Autre » pour un pays inconnu', () => {
     expect(countryKey('FR')).toBe('country_FR');
     expect(countryKey('ZZ')).toBe('country_OTHER');
+  });
+});
+
+describe('dates du calendrier', () => {
+  it('lit AAAA-MM-JJ comme un jour local, sans décalage de fuseau', () => {
+    const d = parseLocalDate('2026-11-15');
+    expect([d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()]).toEqual([2026, 10, 15, 0]);
+    expect(parseLocalDate('2026-11-15T10:00:00Z').toISOString()).toBe('2026-11-15T10:00:00.000Z');
   });
 });

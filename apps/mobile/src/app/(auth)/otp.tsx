@@ -8,7 +8,7 @@ import { fontSize, palette, radius, semantic, spacing } from '@diaspay/ui-tokens
 import { useI18n } from '@/i18n';
 import { requestOtp, verifyOtp } from '@/state/auth';
 import { startRoute } from '@/lib/flow';
-import { fillDigits, formatCountdown } from '@/lib/format';
+import { fillDigits, formatCountdown, formatPhoneDisplay } from '@/lib/format';
 import { SHOW_DEMO } from '@/lib/env';
 import { Banner, Button, Screen, TopBar } from '@/ui';
 
@@ -85,9 +85,8 @@ export default function Otp() {
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <Screen footer={<Button label={t('validate')} onPress={submit} disabled={!complete || busy} />}>
-        <TopBar title="" onBack={() => router.replace('/login')} />
-        <Text style={st.title} accessibilityRole="header">{t('otpTitle')}</Text>
-        <Text style={st.text}>{t('otpText', { phone })}</Text>
+        <TopBar title={t('otpTitle')} onBack={() => router.replace('/login')} />
+        <Text style={st.text}>{t('otpText', { phone: formatPhoneDisplay(phone) })}</Text>
 
         <View style={st.boxes} accessibilityLabel={t('otpCode')}>
           {digits.map((d, i) => (
@@ -128,15 +127,15 @@ export default function Otp() {
 const st = StyleSheet.create({
   title: { fontSize: 28, fontWeight: '700', color: palette.ink },
   text: { fontSize: fontSize.body, lineHeight: 22, color: palette.muted },
-  boxes: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm, marginVertical: spacing.md },
+  boxes: { flexDirection: 'row', justifyContent: 'flex-start', gap: spacing.sm, marginVertical: spacing.xs },
   box: {
     flex: 1, maxWidth: 52, height: 56, borderWidth: 1, borderColor: palette.line, borderRadius: radius.md,
     backgroundColor: semantic.surface, textAlign: 'center', fontSize: 22, fontWeight: '700', color: palette.ink,
   },
   boxFilled: { borderColor: palette.green, borderWidth: 1.5 },
   boxError: { borderColor: semantic.error, borderWidth: 1.5 },
-  wait: { fontSize: fontSize.small, color: palette.muted, textAlign: 'center', paddingVertical: spacing.md },
-  link: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  linkText: { fontSize: fontSize.body, color: palette.green, fontWeight: '600', textDecorationLine: 'underline' },
+  wait: { fontSize: fontSize.small + 1, color: palette.muted },
+  link: { minHeight: 44, alignItems: 'flex-start', justifyContent: 'center', alignSelf: 'flex-start' },
+  linkText: { fontSize: fontSize.small + 1, color: palette.green, fontWeight: '600' },
   demo: { fontSize: fontSize.caption, color: palette.muted, textAlign: 'center' },
 });

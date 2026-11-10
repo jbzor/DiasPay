@@ -23,7 +23,7 @@ const SOURCES: PickSource[] = ['camera', 'library', 'document'];
  * envoi simulé avec progression, reprise après échec, retrait d’un fichier précis.
  */
 export default function NeedDocuments() {
-  const { t, locale, errorText } = useI18n();
+  const { t, locale, money, errorText } = useI18n();
   const { docLabel, fileSize } = useNeedText();
   const wiz = useWizard();
   const [sheetFor, setSheetFor] = useState<DocumentKind | null>(null);
@@ -75,13 +75,16 @@ export default function NeedDocuments() {
     if (doc.status === 'UPLOADED') await api.removeDocument(draft.id, doc.id).catch(() => undefined);
   }
 
-  const footer = missing.length > 0 ? <Banner text={t('missingDocs', { n: missing.length })} /> : null;
+  const footer = missing.length > 0 ? <Banner text={missing.length === 1 ? t('missingDocsOne') : t('missingDocs', { n: missing.length })} /> : null;
 
   return (
     <WizardFrame detail={t('documentsTitle')} extraFooter={footer}>
       <View style={st.summary}>
-        <Text style={st.summaryLabel}>{t('needType')}</Text>
+        <Text style={st.summaryLabel}>{t('typeOfNeed')}</Text>
         <Text style={st.summaryTitle}>{verticalLabel(vertical, locale)}{draft.purpose ? ` · ${draft.purpose}` : ''}</Text>
+        <Text style={st.summaryLabel}>
+          {[draft.amountMinor ? money({ amountMinor: draft.amountMinor, currency: draft.currency ?? 'XAF' }) : '', draft.provider?.name ?? ''].filter(Boolean).join(' · ')}
+        </Text>
       </View>
       <Text style={st.h}>{t('requiredDocs')}</Text>
       <View>

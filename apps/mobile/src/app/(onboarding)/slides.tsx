@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import type { ComponentType } from 'react';
-import { FlatList, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { FlatList, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Text } from '@/ui/text';
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,6 +22,8 @@ export default function Slides() {
   const { width } = useWindowDimensions();
   const list = useRef<FlatList<(typeof SLIDES)[number]>>(null);
   const [index, setIndex] = useState(0);
+  // Hauteur mesurée de la liste : une page de liste horizontale ne s’étire pas d’elle-même (contenu centré verticalement).
+  const [pageHeight, setPageHeight] = useState(0);
   const last = index === SLIDES.length - 1;
 
   async function finish() {
@@ -40,20 +42,22 @@ export default function Slides() {
   return (
     <SafeAreaView style={st.screen}>
       <View style={st.top}>
-        <Button tone="text" label={t('skip')} onPress={() => void finish()} />
+        <Pressable accessibilityRole="button" onPress={() => void finish()} style={st.skip}><Text style={st.skipText}>{t('skip')}</Text></Pressable>
       </View>
       <FlatList
         ref={list}
         data={SLIDES}
         keyExtractor={(s) => s.title}
         horizontal
+        style={{ flex: 1 }}
+        onLayout={(e) => setPageHeight(e.nativeEvent.layout.height)}
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={onScrollEnd}
         onScrollEndDrag={onScrollEnd}
         getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
         renderItem={({ item: { title, text, Art } }) => (
-          <View style={[st.page, { width }]}>
+          <View style={[st.page, { width, height: pageHeight || undefined }]}>
             <Art />
             <Text style={st.title} accessibilityRole="header">{t(title)}</Text>
             <Text style={st.text}>{t(text)}</Text>
@@ -70,8 +74,10 @@ export default function Slides() {
 
 const st = StyleSheet.create({
   screen: { flex: 1, backgroundColor: semantic.background },
+  skip: { minHeight: 44, minWidth: 44, justifyContent: 'center', paddingHorizontal: spacing.md },
+  skipText: { fontSize: fontSize.small + 1, color: palette.muted },
   top: { flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: spacing.sm },
-  page: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xxl + 4, gap: spacing.lg },
+  page: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xxl + 4, gap: spacing.lg },
   title: { fontSize: 24, fontWeight: '700', color: palette.ink, textAlign: 'center', marginTop: spacing.lg },
   text: { fontSize: fontSize.body + 1, lineHeight: 23, color: palette.muted, textAlign: 'center' },
   bottom: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.xl },

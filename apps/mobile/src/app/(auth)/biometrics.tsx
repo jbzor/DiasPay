@@ -8,7 +8,7 @@ import { useI18n } from '@/i18n';
 import { setBiometric } from '@/state/auth';
 import { bioIcon, bioKind, capitalize } from '@/lib/biometry';
 import type { BioKind } from '@/lib/biometry';
-import { Banner, Button, Icon, Screen } from '@/ui';
+import { Banner, Button, Icon, Screen, TopBar } from '@/ui';
 
 type Availability = 'checking' | 'ready' | 'unavailable';
 
@@ -73,15 +73,10 @@ export default function Biometrics() {
     );
 
   return (
-    <Screen footer={footer}>
-      <View>
-        <Text style={st.title} accessibilityRole="header">{t('security')}</Text>
-        <Text style={st.step}>{t('stepOf', { n: 2, total: 2 })}</Text>
-      </View>
+    <Screen footer={footer} scroll={false}>
+      <TopBar title={t('security')} subtitle={t('stepOf', { n: 2, total: 2 })} onBack={() => router.replace('/profile-setup')} />
       <View style={st.hero}>
-        <View style={st.iconWrap}>
-          <Icon name={bioIcon(kind)} size={56} color={palette.green} />
-        </View>
+        <Icon name={bioIcon(kind)} size={72} color={palette.green} />
         <Text style={st.heading}>{t('secureTitle')}</Text>
         <Text style={st.text}>{t('secureText', { method: capitalize(method) })}</Text>
       </View>
@@ -94,7 +89,7 @@ export default function Biometrics() {
 const st = StyleSheet.create({
   title: { fontSize: 28, fontWeight: '700', color: palette.ink },
   step: { fontSize: fontSize.small, color: palette.muted, marginTop: 2 },
-  hero: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xxl },
+  hero: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, paddingHorizontal: spacing.md },
   iconWrap: { width: 112, height: 112, borderRadius: 56, backgroundColor: palette.greenTint, alignItems: 'center', justifyContent: 'center' },
   heading: { fontSize: 22, fontWeight: '700', color: palette.ink, textAlign: 'center', marginTop: spacing.sm },
   text: { fontSize: fontSize.body, lineHeight: 22, color: palette.muted, textAlign: 'center' },

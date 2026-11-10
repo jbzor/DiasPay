@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
-import { Text } from '@/ui/text';
+import { Text, TextInput } from '@/ui/text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { ProviderSummary } from '@diaspay/api-client';
 import { isNormalizablePhone, normalizePhone } from '@diaspay/domain';
@@ -11,7 +11,7 @@ import { api } from '@/state/api';
 import { dispatch, needContext, useWizard } from '@/state/needWizard';
 import { useNeedText } from '@/features/need/text';
 import { WizardFrame } from '@/features/need/WizardFrame';
-import { Button, Card, Field, Radio, StatusLabel } from '@/ui';
+import { Button, Card, Field, Icon, Radio, StatusLabel } from '@/ui';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -43,8 +43,12 @@ export default function NeedProvider() {
 
   return (
     <WizardFrame detail={t('providerLabel')}>
-      <Field label={t('searchProvider')} value={query} onChangeText={setQuery} placeholder={t('searchProvider')}
-        autoCorrect={false} returnKeyType="search" />
+      {/* Recherche (maquette G3) : loupe, sans libellé visible ; le libellé reste lu par les lecteurs d’écran. */}
+      <View style={st.search}>
+        <Icon name="search" size={20} color={palette.muted} />
+        <TextInput accessibilityLabel={t('searchProvider')} value={query} onChangeText={setQuery} placeholder={t('searchProvider')}
+          placeholderTextColor={palette.muted} autoCorrect={false} returnKeyType="search" style={st.searchInput} />
+      </View>
       <View style={{ gap: spacing.sm }} accessibilityRole="radiogroup" accessibilityLabel={t('providerLabel')}>
         {chosen && !chosen.id ? (
           <Card variant="choice" selected accessibilityLabel={`${chosen.name}, ${t('invitedProvider', { phone: chosen.invitedPhone ?? '' })}`}>
@@ -72,7 +76,7 @@ export default function NeedProvider() {
         })}
         {results && results.length === 0 ? <Text style={st.empty}>{t('noProviderFound')}</Text> : null}
         <Pressable accessibilityRole="button" onPress={() => { setName(query); setInvite(true); }} style={st.invite}>
-          <Text style={st.inviteText}>+ {t('inviteProvider')}</Text>
+          <View style={st.inviteRow}><Icon name="plus" size={18} color={palette.green} /><Text style={st.inviteText}>{t('inviteProvider')}</Text></View>
         </Pressable>
       </View>
 
@@ -95,6 +99,9 @@ export default function NeedProvider() {
 }
 
 const st = StyleSheet.create({
+  search: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, height: 48, borderWidth: 1, borderColor: palette.line, borderRadius: radius.md, paddingHorizontal: 14, backgroundColor: semantic.surface },
+  searchInput: { flex: 1, height: 46, fontSize: 16, color: palette.ink },
+  inviteRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   name: { fontSize: fontSize.body, fontWeight: '700', color: palette.ink },
   sub: { fontSize: fontSize.caption, color: palette.muted, marginTop: 2 },
   empty: { fontSize: fontSize.small, color: palette.muted, paddingVertical: spacing.sm },

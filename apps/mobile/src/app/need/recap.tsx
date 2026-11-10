@@ -11,7 +11,7 @@ import { api } from '@/state/api';
 import { discardWizard, saveNow, useWizard } from '@/state/needWizard';
 import { useNeedText } from '@/features/need/text';
 import { WizardFrame } from '@/features/need/WizardFrame';
-import { Banner, Button, Row } from '@/ui';
+import { Banner, Button, Divider, Row } from '@/ui';
 import { showToast } from '@/ui/Toast';
 
 /** G6 — Récapitulatif : contrôle complet par le domaine à l’envoi ; brouillon enregistrable. */
@@ -65,6 +65,7 @@ export default function NeedRecap() {
         <Button tone="secondary" label={t('saveDraft')} onPress={saveDraftAndLeave} disabled={busy} />
       </>
     )}>
+      <Divider />
       {d.rejectionReason ? <Banner tone="error" text={t('rejectedBanner', { reason: d.rejectionReason })} /> : null}
       <View>
         <Row label={t('needType')} value={verticalLabel(vertical, locale)} />
@@ -81,7 +82,7 @@ export default function NeedRecap() {
       </View>
       <View style={st.block}>
         <Text style={st.blockLabel}>{t('documentsTitle')}</Text>
-        <Text style={st.blockTitle}>{t('docsCount', { n: docs })}</Text>
+        <Text style={st.blockTitle}>{docs === 1 ? t('docsCountOne') : t('docsCount', { n: docs })}</Text>
       </View>
       <View style={st.block}>
         <Text style={st.blockLabel}>{t('releaseRule')}</Text>

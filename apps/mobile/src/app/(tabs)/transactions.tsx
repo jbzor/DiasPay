@@ -5,13 +5,13 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { currentTrancheIndex, filterTransactions } from '@diaspay/api-client';
 import type { TxFilter } from '@diaspay/api-client';
 import type { NeedDraft } from '@diaspay/domain';
-import { fontSize, palette, spacing, touchTarget } from '@diaspay/ui-tokens';
+import { fontSize, palette, radius, spacing, touchTarget } from '@diaspay/ui-tokens';
 import { txStatusKey, useI18n, verticalLabel } from '@/i18n';
 import { api, useTransactions } from '@/state/api';
 import { useDrafts } from '@/state/drafts';
 import { openDraft } from '@/state/needWizard';
 import { stepIndex, STEP_COUNT } from '@/features/need/wizard';
-import { Card, Icon, Screen, Segmented, StatusLabel, Title, txStatusKind } from '@/ui';
+import { Card, Icon, Screen, StatusLabel, Title, txStatusKind } from '@/ui';
 import { Dialog } from '@/ui/Dialog';
 
 const FILTERS: readonly TxFilter[] = ['ALL', 'ACTIVE', 'REVIEW', 'CLOSED'];
@@ -37,7 +37,18 @@ export default function Transactions() {
   return (
     <Screen>
       <Title>{t('tabTx')}</Title>
-      <Segmented options={filters} value={filter} onChange={setFilter} accessibilityLabel={t('filter')} />
+      {/* Filtres en pastilles (maquette C1) : contour, pastille active verte. */}
+      <View style={st.chips} accessibilityRole="radiogroup" accessibilityLabel={t('filter')}>
+        {filters.map(([k, label]) => {
+          const on = k === filter;
+          return (
+            <Pressable key={k} accessibilityRole="radio" accessibilityState={{ selected: on }} onPress={() => setFilter(k)} hitSlop={4}
+              style={[st.chip, on ? st.chipOn : null]}>
+              <Text style={[st.chipText, on ? { color: '#FFFFFF' } : null]}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
       <View>
         {filter === 'ALL' ? drafts.map((d) => {
           const title = d.vertical ? `${verticalLabel(d.vertical, locale)} · ${d.purpose?.trim() || t('untitledDraft')}` : t('untitledDraft');
@@ -66,15 +77,17 @@ export default function Transactions() {
           const evidence = tx.tranches.some((r) => r.status === 'EVIDENCE_SUBMITTED');
           const statusText = evidence ? t('evidenceToValidate') : t(txStatusKey(tx.status));
           const focused = params.focus === tx.id;
+          const n = tx.tranches.length;
+          const milestones = tx.tranches.some((r) => r.releaseMode === 'EVIDENCE_REVIEW');
+          const progress = n > 1 ? ` · ${t(milestones ? 'milestoneOf' : 'trancheOfLower', { n: currentTrancheIndex(tx), total: n })}` : '';
           return (
             <Card key={tx.id} style={[st.row, focused ? st.focus : null]} onPress={() => router.push(`/tx/${tx.id}`)}
-              accessibilityLabel={`${verticalLabel(tx.vertical, locale)}, ${tx.purpose}, ${money(tx.amount)}, ${statusText}`}>
-              <View style={{ flexShrink: 1, gap: 2 }}>
-                <Text style={st.rowTitle}>{verticalLabel(tx.vertical, locale)} · {tx.purpose}</Text>
-                <Text style={st.sub}>{money(tx.amount)}{tx.tranches.length > 1 ? ` · ${currentTrancheIndex(tx)}/${tx.tranches.length}` : ''}</Text>
-                <StatusLabel kind={evidence ? 'pending' : txStatusKind(tx.status)} label={statusText} />
+              accessibilityLabel={`${verticalLabel(tx.vertical, locale)}, ${tx.providerName}, ${money(tx.amount)}, ${statusText}`}>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={st.rowTitle}>{verticalLabel(tx.vertical, locale)} · {tx.providerName}</Text>
+                <Text style={st.sub}>{money(tx.amount)}{progress}</Text>
               </View>
-              <Icon name="chevron" size={18} color={palette.muted} />
+              <StatusLabel kind={evidence ? 'pending' : txStatusKind(tx.status)} label={statusText} />
             </Card>
           );
         })}
@@ -91,6 +104,11 @@ export default function Transactions() {
 
 const st = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  // 36 px visibles + 4 px de hitSlop de chaque côté = 44 px de zone tactile.
+  chip: { minHeight: 36, paddingHorizontal: 11, borderRadius: radius.pill, borderWidth: 1, borderColor: palette.line, backgroundColor: palette.card, justifyContent: 'center' },
+  chipOn: { backgroundColor: palette.green, borderColor: palette.green },
+  chipText: { fontSize: fontSize.small, fontWeight: '600', color: palette.ink },
   draftRow: { flexDirection: 'row', alignItems: 'stretch' },
   trash: { width: touchTarget, alignItems: 'center', justifyContent: 'center', borderTopWidth: 1, borderTopColor: palette.line },
   focus: { backgroundColor: palette.greenTint, marginHorizontal: -spacing.sm, paddingHorizontal: spacing.sm },

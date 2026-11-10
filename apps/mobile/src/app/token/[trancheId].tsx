@@ -13,7 +13,7 @@ import { trancheStatusKey, useI18n, verticalLabel } from '@/i18n';
 import { api, usePersona, useTransactions } from '@/state/api';
 import { LINK_BASE } from '@/lib/env';
 import { tokenState } from '@/lib/expiry';
-import { Banner, Button, H2, Row, Screen, TopBar } from '@/ui';
+import { Banner, Button, Divider, Screen, TopBar } from '@/ui';
 import { QrCode } from '@/ui/QrCode';
 
 type Load =
@@ -83,7 +83,7 @@ export default function TokenScreen() {
   const link = buildLink(LINK_BASE, token.reference);
   const eqr = encodeEqr({ reference: token.reference, kid: token.kid, signature: token.signature });
   const ref = formatReference(token.reference);
-  const qrSize = Math.min(276, width - 2 * spacing.xl);
+  const qrSize = Math.min(200, width - 2 * spacing.xl);
 
   async function share() {
     setNotice(null);
@@ -131,6 +131,7 @@ export default function TokenScreen() {
       </>
     }>
       <TopBar title={t('tokenReadyTitle')} subtitle={t('tokenSubtitle', { type: verticalLabel(tx.vertical, locale), n: tranche.seq })} />
+      <Divider />
       <View style={st.issued}>
         <View style={[st.dot, { backgroundColor: usable ? palette.green : palette.disabled }]} />
         <Text style={st.issuedText}>{t('tokenIssued')}</Text>
@@ -142,18 +143,15 @@ export default function TokenScreen() {
       <View style={[st.qrBox, !usable ? { opacity: 0.35 } : null]}>
         <QrCode innerRef={qrRef} value={eqr} size={qrSize} accessibilityLabel={t('tokenQrLabel', { n: tranche.seq, ref })} />
       </View>
-      <Text style={st.ref} selectable>{ref}</Text>
+      <Text style={st.ref} selectable>{t('refPrefix', { ref })}</Text>
       <Text style={st.valid}>{t('tokenValidUntil', { date: dateTime(token.expiresAt) })}</Text>
       {validity ? <Text style={st.countdown} accessibilityLiveRegion="polite">{validity}</Text> : null}
 
-      <H2>{t('diaspayLink')}</H2>
-      <View>
-        <Row label={t('diaspayLink')} value={link} />
-        <Row label={t('status')} value={t(trancheStatusKey(tranche.status))} />
+      <Divider />
+      <View accessible accessibilityLabel={`${t('diaspayLinkBrand')}, ${link}`}>
+        <Text style={st.linkLabel}>{t('diaspayLinkBrand')}</Text>
+        <Text style={st.link} numberOfLines={1} ellipsizeMode="middle" selectable>{link.replace(/^https?:\/\//, '')}</Text>
       </View>
-      {tranche.status === 'AWAITING_PAYMENT' && persona === 'PAYER' && usable ? (
-        <Button tone="text" label={t('payThisTranche')} onPress={() => router.push(`/pay/${tranche.id}`)} />
-      ) : null}
       {token.simulated ? <Banner tone="pending" text={t('tokenSimBanner')} /> : null}
       {notice ? <Banner tone={notice.tone} text={notice.text} /> : null}
     </Screen>
@@ -162,11 +160,13 @@ export default function TokenScreen() {
 
 const st = StyleSheet.create({
   muted: { color: palette.muted, fontSize: fontSize.body },
-  issued: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  issued: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  linkLabel: { fontSize: fontSize.caption, color: palette.muted },
+  link: { fontSize: fontSize.body, fontWeight: '600', color: palette.ink, marginTop: 2 },
   dot: { width: 7, height: 7, borderRadius: 3.5 },
   issuedText: { fontSize: fontSize.caption, fontWeight: '700', color: palette.greenDark },
   qrBox: { alignItems: 'center', paddingVertical: spacing.sm },
-  ref: { textAlign: 'center', fontSize: 20, fontWeight: '700', letterSpacing: 1, color: palette.ink, fontVariant: ['tabular-nums'] },
+  ref: { textAlign: 'center', fontSize: 17, fontWeight: '600', letterSpacing: 1, color: palette.ink, fontVariant: ['tabular-nums'] },
   valid: { textAlign: 'center', fontSize: fontSize.small, color: palette.muted },
   countdown: { textAlign: 'center', fontSize: fontSize.small, fontWeight: '700', color: palette.ink },
   actions: { flexDirection: 'row', gap: spacing.sm },

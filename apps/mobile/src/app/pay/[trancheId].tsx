@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text } from '@/ui/text';
 import { router, useLocalSearchParams } from 'expo-router';
-import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
+import { fontSize, palette, radius, spacing } from '@diaspay/ui-tokens';
 import { useI18n, verticalLabel } from '@/i18n';
 import { api, useTransactions } from '@/state/api';
 import { biometric } from '@/lib/biometric';
-import { Banner, Button, Card, H2, Icon, Radio, Row, Screen, TopBar } from '@/ui';
+import { Banner, Button, Card, Divider, Icon, Radio, Row, Screen, TopBar } from '@/ui';
 
 export default function Pay() {
   const { trancheId } = useLocalSearchParams<{ trancheId: string }>();
@@ -41,7 +41,8 @@ export default function Pay() {
         <Text style={st.sim}>{t('simulated')}</Text>
       </>
     }>
-      <TopBar title={t('payTranche')} subtitle={`${verticalLabel(tx.vertical, locale)} · ${tx.providerName}`} />
+      <TopBar title={t('payTrancheN', { n: tr.seq })} subtitle={`${verticalLabel(tx.vertical, locale)} · ${tx.providerName}`} />
+      <Divider />
       <View>
         <Text style={st.label}>{t('amountToPay')}</Text>
         <Text style={st.amount}>{money({ amountMinor: tr.amountMinor, currency: tx.amount.currency })}</Text>
@@ -49,16 +50,18 @@ export default function Pay() {
         <Row label={t('beneficiary')} value={tx.beneficiaryName} />
         <Row label={t('fees')} value={t('feesTbd')} />
       </View>
-      <H2>{t('payMethod')}</H2>
       <View accessibilityRole="radiogroup" accessibilityLabel={t('payMethod')} style={{ gap: spacing.sm }}>
         {methods.map(([k, label]) => (
           <Card key={k} variant="choice" selected={method === k} onPress={() => setMethod(k)} accessibilityLabel={label}>
             <Radio on={method === k} />
-            <Text style={st.methodText}>{label}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={st.methodText}>{label}</Text>
+              <Text style={st.methodSub}>{t(`payMethodSub_${k}`)}</Text>
+            </View>
           </Card>
         ))}
       </View>
-      <View style={st.lock}><Icon name="lock" size={20} color={palette.greenDark} /><Text style={st.lockText}>{t('lockedNote')}</Text></View>
+      <View style={st.lock}><Icon name="lock" size={18} color={palette.greenDark} /><Text style={st.lockText}>{t('lockedNote')}</Text></View>
       {error ? <Banner text={error} tone="error" /> : null}
     </Screen>
   );
@@ -66,9 +69,10 @@ export default function Pay() {
 
 const st = StyleSheet.create({
   label: { fontSize: fontSize.small, color: palette.muted },
-  amount: { fontSize: 34, fontWeight: '700', color: palette.green, letterSpacing: -0.5, marginBottom: spacing.md },
+  amount: { fontSize: 30, fontWeight: '700', color: palette.ink, letterSpacing: -0.5, marginBottom: spacing.sm },
   methodText: { fontSize: fontSize.body, fontWeight: '600', color: palette.ink },
-  lock: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: spacing.sm },
+  lock: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: spacing.md, borderRadius: radius.md, backgroundColor: palette.greenTint },
+  methodSub: { fontSize: fontSize.caption, color: palette.muted, marginTop: 1 },
   lockText: { flex: 1, fontSize: fontSize.small, color: palette.greenDark, lineHeight: 18 },
   sim: { textAlign: 'center', fontSize: fontSize.caption, color: palette.muted },
 });

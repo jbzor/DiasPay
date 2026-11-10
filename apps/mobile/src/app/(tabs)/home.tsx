@@ -6,12 +6,12 @@ import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { txStatusKey, useI18n, verticalLabel } from '@/i18n';
 import { usePersona, useTransactions } from '@/state/api';
 import { useSession } from '@/state/auth';
-import { initials } from '@/lib/format';
+import { countryKey, initials } from '@/lib/format';
 import { startNewNeed } from '@/state/needWizard';
-import { Avatar, Button, Card, H2, Icon, Screen, StatusLabel, txStatusKind } from '@/ui';
+import { Avatar, Button, Card, H2, Screen, StatusLabel, txStatusKind } from '@/ui';
 
 export default function Home() {
-  const { t, locale, money, date } = useI18n();
+  const { t, locale, money, shortDate: date } = useI18n();
   const txs = useTransactions();
   const persona = usePersona();
   const funds = lockedFunds(txs);
@@ -24,7 +24,11 @@ export default function Home() {
       <View style={st.header}>
         <View>
           <Text style={st.hello} accessibilityRole="header">{t('hello', { name })}</Text>
-          <Text style={st.sub}>{session?.profile ? t(`role_${session.profile.primaryRole}`) : persona === 'PAYER' ? t('payer') : t('provider')}</Text>
+          <Text style={st.sub}>
+            {session?.profile
+              ? `${t(countryKey(session.profile.country))} · ${t(`role_${session.profile.primaryRole}`)}`
+              : persona === 'PAYER' ? t('payer') : t('provider')}
+          </Text>
         </View>
         <Avatar initials={initials(fullName)} />
       </View>
@@ -53,22 +57,27 @@ export default function Home() {
 
       <H2>{t('myTx')}</H2>
       <View>
-        {txs.slice(0, 3).map((tx) => (
-          <Card key={tx.id} style={st.row} onPress={() => router.push(`/tx/${tx.id}`)}
-            accessibilityLabel={`${verticalLabel(tx.vertical, locale)}, ${tx.providerName}, ${money(tx.amount)}, ${t(txStatusKey(tx.status))}`}>
-            <View style={{ flexShrink: 1, gap: 2 }}>
-              <Text style={st.rowTitle}>{verticalLabel(tx.vertical, locale)} · {tx.providerName}</Text>
-              <Text style={st.rowSub}>{tx.tranches.length > 1 ? `${t('trancheOf', { n: currentTrancheIndex(tx), total: tx.tranches.length })} · ` : ''}{money(tx.amount)}</Text>
+        {/* La transaction déjà présentée sous « À faire » n’est pas répétée (maquette B1). */}
+        {txs.filter((tx) => tx.id !== next?.tx.id).slice(0, 3).map((tx) => {
+          const i = currentTrancheIndex(tx);
+          const cur = tx.tranches[Math.min(i, tx.tranches.length) - 1];
+          const curAmount = cur ? money({ amountMinor: cur.amountMinor, currency: tx.amount.currency }) : money(tx.amount);
+          const sub = tx.tranches.length > 1 ? `${t('trancheOf', { n: i, total: tx.tranches.length })} · ${curAmount}` : `${cur?.label ?? ''} · ${curAmount}`;
+          return (
+            <Card key={tx.id} style={st.row} onPress={() => router.push(`/tx/${tx.id}`)}
+              accessibilityLabel={`${verticalLabel(tx.vertical, locale)}, ${tx.providerName}, ${sub}, ${t(txStatusKey(tx.status))}`}>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={st.rowTitle}>{verticalLabel(tx.vertical, locale)} · {tx.providerName}</Text>
+                <Text style={st.rowSub}>{sub}</Text>
+              </View>
               <StatusLabel kind={txStatusKind(tx.status)} label={t(txStatusKey(tx.status))} />
-            </View>
-            <Icon name="chevron" size={18} color={palette.muted} />
-          </Card>
-        ))}
+            </Card>
+          );
+        })}
       </View>
       {session?.profile?.primaryRole !== 'PROVIDER' ? (
         <Button tone="accent" label={t('newNeed')} onPress={() => { startNewNeed(); router.push('/need/type'); }} />
       ) : null}
-      <Text style={st.note}>{t('demoNote')}</Text>
     </Screen>
   );
 }
@@ -83,5 +92,4 @@ const st = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
   rowTitle: { fontSize: fontSize.body, fontWeight: '600', color: palette.ink },
   rowSub: { fontSize: fontSize.small, color: palette.muted },
-  note: { textAlign: 'center', fontSize: fontSize.caption, color: palette.muted },
 });

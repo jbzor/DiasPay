@@ -38,7 +38,13 @@ export default function Login() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Screen style={st.content}>
+      <Screen style={st.content} footer={(
+        <>
+          <Button label={t('getCode')} onPress={send} disabled={!valid || busy} />
+          <LangSwitch />
+          <Text style={st.terms}>{t('terms')}</Text>
+        </>
+      )}>
         <Logo size={72} />
         <Text style={st.title} accessibilityRole="header">{t('welcome')}</Text>
         <Text style={st.text}>{t('loginText')}</Text>
@@ -50,16 +56,13 @@ export default function Login() {
             returnKeyType="send" onSubmitEditing={send} autoFocus />
         </View>
         {error ? <Banner tone="error" text={error} /> : null}
-        <Button label={t('getCode')} onPress={send} disabled={!valid || busy} />
-        <LangSwitch />
-        <Text style={st.terms}>{t('terms')}</Text>
       </Screen>
     </KeyboardAvoidingView>
   );
 }
 
 const st = StyleSheet.create({
-  content: { paddingTop: spacing.xxl * 2, gap: spacing.lg },
+  content: { paddingTop: spacing.xxl * 2 + spacing.sm, gap: spacing.lg },
   title: { fontSize: 28, fontWeight: '700', color: palette.ink, marginTop: spacing.sm },
   text: { fontSize: fontSize.body, lineHeight: 22, color: palette.muted, marginTop: -spacing.sm },
   fields: { flexDirection: 'row', gap: spacing.md },

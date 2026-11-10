@@ -5,3 +5,6 @@ export * from './plan';
 export * from './txMachine';
 export * from './trancheMachine';
 export * from './eqr';
+export * from './phone';
+export * from './documents';
+export * from './need';

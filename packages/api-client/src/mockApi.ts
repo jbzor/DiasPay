@@ -1,8 +1,11 @@
 import {
-  DomainError, RELEASE_RULES, canOpenDispute, isAutoReleasable, normalizeReference, shouldCloseTransaction, transitionTranche,
+  DomainError, RELEASE_RULES, canOpenDispute, checkFile, isAutoReleasable, normalizeReference, shouldActivateTranche, shouldCloseTransaction,
+  toIsoDate, transitionTranche, transitionTx, validateNeed,
 } from '@diaspay/domain';
-import type { Actor, TrancheStatus, TxRole } from '@diaspay/domain';
+import type { Actor, DraftDocument, DraftDocumentInput, NeedDraft, TrancheStatus, TxRole, Vertical } from '@diaspay/domain';
 import type { AuditEntry, Persona, ReferenceInfo, Tranche, TrancheToken, Transaction, TransactionApi } from './types';
+import { ApiError, MemoryDraftStore, SEED_PROVIDERS, foldText, newId } from './need';
+import type { AppEvent, DraftStore, ProviderSummary } from './need';
 
 type Listener = () => void;
 const HOUR = 3_600_000;
@@ -24,7 +27,24 @@ function hexDigest(input: string, hexLength: number): string {
   }
   return out.slice(0, hexLength);
 }
-export interface MockApiOptions { tokenValidityHours?: number }
+export interface MockApiOptions {
+  tokenValidityHours?: number;
+  /** Persistance des brouillons (par défaut en mémoire). */
+  drafts?: DraftStore;
+  /** Durée simulée de chaque palier de progression d’un envoi (ms). */
+  uploadDelayMs?: number;
+  /** Probabilité d’échec simulé d’un envoi (0 = jamais). */
+  uploadFailureRate?: number;
+  random?: () => number;
+  providers?: ProviderSummary[];
+}
+
+/** Utilisateur connecté vu par la simulation : propriétaire des brouillons et rôle du créateur. */
+export interface MockUser { id: string; role: 'PAYER' | 'REQUESTER' | 'PROVIDER' }
+
+/** Bureau de contrôle simulé : validateur non partie au dossier. */
+const VALIDATOR: Actor = { kind: 'USER', roles: [], isValidator: true };
+const sleep = (ms: number) => (ms > 0 ? new Promise<void>((r) => setTimeout(r, ms)) : Promise.resolve());
 
 function actorFor(p: Persona): Actor {
   const roles: TxRole[] = p === 'PAYER' ? ['PAYER'] : ['PROVIDER'];
@@ -100,10 +120,26 @@ export class MockApi implements TransactionApi {
 
   private tokens = new Map<string, TrancheToken>();
   private readonly validityMs: number;
+  private visible: Transaction[] = [];
+  private readonly drafts: DraftStore;
+  private readonly providers: ProviderSummary[];
+  private readonly uploadDelayMs: number;
+  private readonly uploadFailureRate: number;
+  private readonly random: () => number;
+  /** Instantané des brouillons soumis, pour les rouvrir en correction. */
+  private readonly submitted = new Map<string, NeedDraft>();
+  private readonly events: AppEvent[] = [];
+  user: MockUser | null = null;
 
   constructor(private readonly clock: () => Date = () => new Date(), seed?: Transaction[], options: MockApiOptions = {}) {
     this.txs = seed ?? seedTransactions(clock());
     this.validityMs = (options.tokenValidityHours ?? TOKEN_VALIDITY_HOURS) * HOUR;
+    this.drafts = options.drafts ?? new MemoryDraftStore();
+    this.providers = options.providers ?? SEED_PROVIDERS;
+    this.uploadDelayMs = options.uploadDelayMs ?? 0;
+    this.uploadFailureRate = options.uploadFailureRate ?? 0;
+    this.random = options.random ?? Math.random;
+    this.refreshVisible();
     for (const tx of this.txs) for (const tr of tx.tranches) if (tr.status !== 'PLANNED') this.ensureToken(tr);
   }
 
@@ -144,9 +180,12 @@ export class MockApi implements TransactionApi {
     this.listeners.add(l);
     return () => this.listeners.delete(l);
   };
-  getSnapshot = (): readonly Transaction[] => this.txs;
+  /** Les brouillons ne sont jamais visibles comme transactions (y compris un dossier rouvert en correction). */
+  getSnapshot = (): readonly Transaction[] => this.visible;
+  private refreshVisible(): void { this.visible = this.txs.filter((t) => t.status !== 'DRAFT'); }
   setPersona(p: Persona): void { this.persona = p; this.emit(); }
-  private emit(): void { this.txs = [...this.txs]; this.listeners.forEach((l) => l()); }
+  private emit(): void { this.txs = [...this.txs]; this.refreshVisible(); this.listeners.forEach((l) => l()); }
+  setUser(user: MockUser | null): void { this.user = user; this.emit(); }
   private record(txId: string, event: string, trancheId?: string, detail?: string): void {
     (this.log[txId] ??= []).push({ at: this.clock().toISOString(), event, trancheId, detail });
   }
@@ -180,7 +219,7 @@ export class MockApi implements TransactionApi {
     return tx;
   }
 
-  async listTransactions() { return this.txs; }
+  async listTransactions() { return this.visible; }
   async getTransaction(id: string) {
     const tx = this.txs.find((t) => t.id === id);
     if (!tx) throw new DomainError('NOT_FOUND', 'Transaction introuvable');
@@ -244,6 +283,182 @@ export class MockApi implements TransactionApi {
     return tx;
   }
   async timeline(txId: string) { return this.log[txId] ?? []; }
+
+  // ——— Lot 3 : création d’un besoin ———
+
+  private today(): string { return toIsoDate(this.clock()); }
+  private requireUser(): MockUser {
+    if (!this.user) throw new ApiError('NOT_AUTHENTICATED', 'Aucun utilisateur connecté');
+    return this.user;
+  }
+  private creatorActor(): Actor {
+    const role = this.requireUser().role;
+    return { kind: 'USER', roles: [role === 'REQUESTER' ? 'REQUESTER' : role === 'PROVIDER' ? 'PROVIDER' : 'PAYER'], isValidator: false };
+  }
+  private async ownDraft(id: string): Promise<NeedDraft> {
+    const user = this.requireUser();
+    const d = await this.drafts.get(id);
+    if (!d || (d.ownerId && d.ownerId !== user.id)) throw new ApiError('NOT_FOUND', 'Brouillon introuvable');
+    return d;
+  }
+
+  async searchProviders(query: string, vertical: Vertical): Promise<ProviderSummary[]> {
+    const q = foldText(query);
+    return this.providers
+      .filter((p) => p.verticals.includes(vertical))
+      .filter((p) => !q || foldText(p.name).includes(q) || foldText(p.city).includes(q))
+      .map((p) => ({ ...p, verticals: [...p.verticals] }));
+  }
+
+  async listDrafts(): Promise<NeedDraft[]> {
+    if (!this.user) return [];
+    const uid = this.user.id;
+    return (await this.drafts.list()).filter((d) => d.ownerId === uid).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+  async getDraft(id: string): Promise<NeedDraft> { return this.ownDraft(id); }
+
+  async saveDraft(draft: NeedDraft): Promise<NeedDraft> {
+    const user = this.requireUser();
+    const existing = await this.drafts.get(draft.id);
+    if ((existing?.ownerId && existing.ownerId !== user.id) || (draft.ownerId && draft.ownerId !== user.id)) {
+      throw new ApiError('NOT_FOUND', 'Brouillon introuvable');
+    }
+    const saved: NeedDraft = { ...draft, ownerId: user.id, updatedAt: this.clock().toISOString() };
+    await this.drafts.put(saved);
+    this.emit();
+    return saved;
+  }
+
+  async deleteDraft(id: string): Promise<void> {
+    const d = await this.ownDraft(id);
+    await this.drafts.remove(id);
+    // Supprimer une correction abandonne le dossier : il reste au statut DRAFT (aucune transition DRAFT → REJECTED), donc masqué.
+    if (d.correctionOf) this.record(d.correctionOf, 'CORRECTION_ABANDONED');
+    this.emit();
+  }
+
+  async attachDocument(draftId: string, file: DraftDocumentInput, onProgress?: (p: number) => void): Promise<DraftDocument> {
+    const mimeType = checkFile(file);
+    await this.ownDraft(draftId);
+    for (const p of [0.1, 0.35, 0.6, 0.85]) { onProgress?.(p); await sleep(this.uploadDelayMs); }
+    if (this.uploadFailureRate > 0 && this.random() < this.uploadFailureRate) {
+      throw new ApiError('UPLOAD_FAILED', 'L’envoi a échoué');
+    }
+    const doc: DraftDocument = {
+      id: file.id ?? newId('doc'), kind: file.kind, name: file.name, mimeType, sizeBytes: file.sizeBytes, uri: file.uri,
+      status: 'UPLOADED', uploadedAt: this.clock().toISOString(),
+    };
+    const d = await this.ownDraft(draftId); // relu : le brouillon a pu changer pendant l’envoi
+    await this.drafts.put({ ...d, documents: [...d.documents.filter((x) => x.id !== doc.id), doc] });
+    onProgress?.(1);
+    this.emit();
+    return doc;
+  }
+
+  async removeDocument(draftId: string, documentId: string): Promise<void> {
+    const d = await this.ownDraft(draftId);
+    await this.drafts.put({ ...d, documents: d.documents.filter((x) => x.id !== documentId) });
+    this.emit();
+  }
+
+  /** Valide tout le dossier avec les règles du domaine, puis DRAFT → SUBMITTED → IN_REVIEW. */
+  async submitNeed(draftId: string): Promise<Transaction> {
+    const user = this.requireUser();
+    const draft = await this.ownDraft(draftId);
+    const issues = validateNeed(draft, { today: this.today(), creatorRole: user.role });
+    // Une verticale absente ou indisponible prime : le reste du dossier n’a pas de sens sans elle.
+    if (issues.some((i) => i.path === 'vertical')) throw new ApiError('VALIDATION', 'Dossier incomplet', { issues });
+    const sum = issues.find((i) => i.code === 'PLAN_SUM_MISMATCH');
+    if (sum) throw new ApiError('PLAN_SUM_MISMATCH', 'La somme des tranches ne correspond pas au montant', { ...sum.params });
+    const missing = issues.find((i) => i.code === 'DOCUMENT_REQUIRED');
+    if (missing) throw new ApiError('DOCUMENT_REQUIRED', 'Pièce obligatoire manquante', { kind: missing.params?.kind });
+    if (issues.length) throw new ApiError('VALIDATION', 'Dossier incomplet', { issues });
+
+    const vertical = draft.vertical as Vertical;
+    const tranches = draft.tranches ?? [];
+    const totalMinor = draft.amountMinor as number;
+    const uploaded = draft.documents.filter((d) => d.status === 'UPLOADED');
+    const previous = draft.correctionOf ? this.txs.find((t) => t.id === draft.correctionOf && t.status === 'DRAFT') : undefined;
+    // Contexte de soumission réel : plan et pièces (le domaine lève PLAN_SUM_MISMATCH ou TX_NO_DOCUMENT).
+    let status = transitionTx(previous?.status ?? 'DRAFT', 'SUBMITTED', this.creatorActor(), {
+      totalMinor, tranches, hasSupportingDocument: uploaded.length > 0,
+    });
+    status = transitionTx(status, 'IN_REVIEW', VALIDATOR);
+
+    const now = this.clock().toISOString();
+    const tx: Transaction = previous ?? ({ id: newId('tx') } as Transaction);
+    Object.assign(tx, {
+      vertical, purpose: (draft.purpose ?? '').trim(), amount: { amountMinor: totalMinor, currency: draft.currency ?? 'XAF' },
+      status, providerName: draft.provider?.name ?? '', beneficiaryName: (draft.beneficiaryName ?? '').trim(),
+      tranches: tranches.map((t, i) => mkTranche(i + 1, t.label.trim(), t.amountMinor, { vertical, dueDate: t.dueDate })),
+      createdAt: previous?.createdAt ?? now, submittedAt: now, planType: draft.planType, documentCount: uploaded.length,
+      ownerId: user.id, rejectionReason: undefined,
+    } satisfies Partial<Transaction>);
+    if (!previous) this.txs.push(tx);
+    this.submitted.set(tx.id, { ...draft, correctionOf: undefined, rejectionReason: undefined });
+    await this.drafts.remove(draft.id);
+    this.record(tx.id, previous ? 'NEED_RESUBMITTED' : 'NEED_SUBMITTED');
+    this.record(tx.id, 'REVIEW_STARTED');
+    this.emit();
+    return tx;
+  }
+
+  /** Dossier rejeté → brouillon de correction (REJECTED → DRAFT par le domaine). */
+  async reopenForCorrection(txId: string): Promise<NeedDraft> {
+    const user = this.requireUser();
+    const tx = await this.getTransaction(txId);
+    if (tx.ownerId && tx.ownerId !== user.id) throw new ApiError('NOT_FOUND', 'Transaction introuvable');
+    if (tx.status !== 'REJECTED') throw new ApiError('NOT_REJECTED', 'Seul un dossier rejeté se corrige');
+    const reason = tx.rejectionReason;
+    tx.status = transitionTx(tx.status, 'DRAFT', this.creatorActor());
+    const snap = this.submitted.get(txId);
+    const draft: NeedDraft = {
+      ...(snap ?? {
+        vertical: tx.vertical, amountMinor: tx.amount.amountMinor, currency: tx.amount.currency, purpose: tx.purpose,
+        beneficiaryName: tx.beneficiaryName, provider: { name: tx.providerName }, planType: tx.planType,
+        tranches: tx.tranches.map((t) => ({ label: t.label, amountMinor: t.amountMinor, dueDate: t.dueDate })), documents: [],
+      }),
+      id: newId('need'), ownerId: user.id, updatedAt: this.clock().toISOString(), step: 'recap', correctionOf: tx.id, rejectionReason: reason,
+    };
+    await this.drafts.put(draft);
+    this.record(tx.id, 'REOPENED_FOR_CORRECTION');
+    this.emit();
+    return draft;
+  }
+
+  /**
+   * Mode démonstration : le bureau de contrôle simulé décide.
+   * Approbation : VALIDATED → TOKEN_ISSUED → IN_PROGRESS, première tranche activée selon RG-12. Rejet : REJECTED avec motif.
+   */
+  async simulateReview(txId: string, decision: { approved: boolean; reason?: string }): Promise<Transaction> {
+    const tx = await this.getTransaction(txId);
+    if (!decision.approved) {
+      const reason = decision.reason?.trim() ?? '';
+      if (reason.length < 3) throw new ApiError('REASON_REQUIRED', 'Motif du rejet obligatoire');
+      tx.status = transitionTx(tx.status, 'REJECTED', VALIDATOR);
+      tx.rejectionReason = reason;
+      this.record(tx.id, 'NEED_REJECTED', undefined, reason);
+      this.events.push({ id: newId('ev'), at: this.clock().toISOString(), kind: 'NEED_REJECTED', txId, reason });
+      this.emit();
+      return tx;
+    }
+    tx.status = transitionTx(tx.status, 'VALIDATED', VALIDATOR);
+    tx.status = transitionTx(tx.status, 'TOKEN_ISSUED', SYSTEM);
+    tx.status = transitionTx(tx.status, 'IN_PROGRESS', SYSTEM);
+    const first = tx.tranches[0];
+    if (first && first.status === 'PLANNED' && shouldActivateTranche(first.dueDate, this.today())) {
+      first.status = transitionTranche({ status: first.status, releaseMode: first.releaseMode, contestHours: first.contestHours }, 'AWAITING_PAYMENT', SYSTEM, this.clock()).status;
+      this.ensureToken(first);
+      this.record(tx.id, 'TRANCHE_ACTIVATED', first.id);
+    }
+    this.record(tx.id, 'NEED_VALIDATED');
+    this.events.push({ id: newId('ev'), at: this.clock().toISOString(), kind: 'NEED_VALIDATED', txId });
+    this.emit();
+    return tx;
+  }
+
+  /** Événements préparés pour les alertes (lot suivant). */
+  listEvents(): readonly AppEvent[] { return [...this.events]; }
 
   /** Équivalent de release_due_tranches() côté serveur. Retourne le nombre de tranches débloquées. */
   runTimers(): number {

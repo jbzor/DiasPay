@@ -44,6 +44,8 @@ export interface DraftDocument {
 }
 
 export interface DraftDocumentInput {
+  /** Identifiant à conserver (nouvelle tentative d’un envoi échoué). */
+  id?: string;
   kind: DocumentKind;
   name: string;
   mimeType?: string;

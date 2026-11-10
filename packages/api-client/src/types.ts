@@ -1,4 +1,5 @@
-import type { Currency, Money, ReleaseMode, TrancheStatus, TxStatus, Vertical } from '@diaspay/domain';
+import type { Currency, DraftDocument, DraftDocumentInput, Money, NeedDraft, PlanType, ReleaseMode, TrancheStatus, TxStatus, Vertical } from '@diaspay/domain';
+import type { ProviderSummary } from './need';
 
 export interface Tranche {
   id: string;
@@ -25,6 +26,12 @@ export interface Transaction {
   beneficiaryName: string;
   tranches: Tranche[];
   createdAt: string;
+  /** Lot 3 : dossier créé dans l’application. */
+  planType?: PlanType;
+  documentCount?: number;
+  rejectionReason?: string;
+  ownerId?: string;
+  submittedAt?: string;
   /** Mock uniquement : profils de démonstration parties à la transaction (absent = tous). Sert à tester NOT_A_PARTY. */
   parties?: Persona[];
 }
@@ -78,4 +85,15 @@ export interface TransactionApi {
   approveRelease(trancheId: string): Promise<Transaction>;                // payeur, déblocage anticipé
   openDispute(trancheId: string, reason: string): Promise<Transaction>;
   timeline(txId: string): Promise<AuditEntry[]>;
+
+  // Lot 3 : création d’un besoin.
+  searchProviders(query: string, vertical: Vertical): Promise<ProviderSummary[]>;
+  listDrafts(): Promise<NeedDraft[]>;
+  getDraft(id: string): Promise<NeedDraft>;
+  saveDraft(draft: NeedDraft): Promise<NeedDraft>;            // crée ou met à jour
+  deleteDraft(id: string): Promise<void>;
+  attachDocument(draftId: string, file: DraftDocumentInput, onProgress?: (p: number) => void): Promise<DraftDocument>;
+  removeDocument(draftId: string, documentId: string): Promise<void>;
+  submitNeed(draftId: string): Promise<Transaction>;
+  reopenForCorrection(txId: string): Promise<NeedDraft>;       // REJECTED → DRAFT
 }

@@ -259,4 +259,4 @@ const s = StyleSheet.create({
 });
 
 export const txStatusKind = (status: string): StatusKind =>
-  status === 'IN_PROGRESS' ? 'active' : status === 'DRAFT' || status === 'CLOSED' ? 'draft' : status === 'DISPUTED' ? 'error' : 'pending';
+  status === 'IN_PROGRESS' ? 'active' : status === 'DRAFT' || status === 'CLOSED' ? 'draft' : status === 'DISPUTED' || status === 'REJECTED' ? 'error' : 'pending';

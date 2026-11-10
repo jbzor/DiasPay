@@ -6,6 +6,7 @@ import { txStatusKey, useI18n, verticalLabel } from '@/i18n';
 import { usePersona, useTransactions } from '@/state/api';
 import { useSession } from '@/state/auth';
 import { initials } from '@/lib/format';
+import { startNewNeed } from '@/state/needWizard';
 import { Avatar, Button, Card, H2, Icon, Screen, StatusLabel, txStatusKind } from '@/ui';
 
 export default function Home() {
@@ -63,7 +64,9 @@ export default function Home() {
           </Card>
         ))}
       </View>
-      <Button label={`${t('newNeed')} · ${t('soon')}`} tone="disabled" disabled />
+      {session?.profile?.primaryRole !== 'PROVIDER' ? (
+        <Button tone="accent" label={t('newNeed')} onPress={() => { startNewNeed(); router.push('/need/type'); }} />
+      ) : null}
       <Text style={st.note}>{t('demoNote')}</Text>
     </Screen>
   );

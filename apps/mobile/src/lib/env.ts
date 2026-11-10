@@ -7,3 +7,6 @@ export const SHOW_DEMO = __DEV__ || process.env.EXPO_PUBLIC_DEMO === '1';
  * réservé (`.example`) qui ne désigne aucun site réel ; voir le README.
  */
 export const LINK_BASE: string = process.env.EXPO_PUBLIC_LINK_BASE || 'links.diaspay.example';
+
+/** Actions « Simuler : valider / rejeter » du bureau de contrôle : uniquement avec EXPO_PUBLIC_DEMO=1 (pas en simple développement). */
+export const DEMO_REVIEW = process.env.EXPO_PUBLIC_DEMO === '1';

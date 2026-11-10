@@ -7,6 +7,12 @@ import type { Key, Locale } from './messages';
 import { saveLocale } from '../state/storage';
 
 export type { Key, Locale };
+
+/** Une date seule (AAAA-MM-JJ) est un jour du calendrier local : `new Date('2026-11-15')` la lirait en UTC et décalerait d’un jour à l’ouest de Greenwich. */
+export function parseLocalDate(iso: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso);
+}
 const dicts: Record<Locale, Record<Key, string>> = { fr, en };
 
 let locale: Locale = 'fr';
@@ -28,7 +34,7 @@ export function useI18n() {
     return s;
   };
   const tag = loc === 'fr' ? 'fr-FR' : 'en-GB';
-  const date = (iso: string) => new Intl.DateTimeFormat(loc === 'fr' ? 'fr-FR' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+  const date = (iso: string) => new Intl.DateTimeFormat(loc === 'fr' ? 'fr-FR' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(parseLocalDate(iso));
   const dateTime = (iso: string) => new Intl.DateTimeFormat(loc === 'fr' ? 'fr-FR' : 'en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
   const money = (m: Money) => formatMoney(m, loc === 'fr' ? 'fr-FR' : 'en-GB');
   const errorText = (e: unknown): string => {

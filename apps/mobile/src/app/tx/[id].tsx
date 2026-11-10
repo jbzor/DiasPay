@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { canOpenDispute } from '@diaspay/domain';
@@ -6,7 +7,54 @@ import type { Tranche, Transaction } from '@diaspay/api-client';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { trancheStatusKey, txStatusKey, useI18n, verticalLabel } from '@/i18n';
 import { api, usePersona, useTransactions } from '@/state/api';
-import { Banner, Button, H2, Icon, Row, Screen, StatusLabel, TopBar, txStatusKind } from '@/ui';
+import { Banner, Button, Field, H2, Icon, Row, Screen, StatusLabel, TopBar, txStatusKind } from '@/ui';
+import { Dialog } from '@/ui/Dialog';
+import { openDraft } from '@/state/needWizard';
+import { DEMO_REVIEW } from '@/lib/env';
+
+/** Dossier soumis, en validation ou rejeté : bandeau, motif, correction ; simulation du bureau de contrôle (démo). */
+function ReviewPanel({ tx }: { tx: Transaction }) {
+  const { t, errorText } = useI18n();
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const inReview = tx.status === 'SUBMITTED' || tx.status === 'IN_REVIEW';
+  const run = async (fn: () => Promise<unknown>) => { setError(null); try { await fn(); } catch (e) { setError(errorText(e)); } };
+
+  async function correct() {
+    await run(async () => {
+      const draft = await api.reopenForCorrection(tx.id);
+      const step = openDraft(draft);
+      router.replace(`/need/${step}`);
+    });
+  }
+
+  if (!inReview && tx.status !== 'REJECTED') return null;
+  return (
+    <View style={{ gap: spacing.sm }}>
+      {inReview ? <Banner text={t('inReviewBanner')} /> : null}
+      {tx.status === 'REJECTED' ? (
+        <View style={st.rejected}>
+          <Text style={st.statusLabel}>{t('rejectionReason')}</Text>
+          <Text style={st.reason}>{tx.rejectionReason ?? ''}</Text>
+          <Button label={t('correct')} onPress={() => void correct()} />
+        </View>
+      ) : null}
+      {DEMO_REVIEW && inReview ? (
+        <View style={st.actions}>
+          <Button small label={t('simApprove')} onPress={() => void run(() => api.simulateReview(tx.id, { approved: true }))} />
+          <Button small tone="danger" label={t('simReject')} onPress={() => { setReason(''); setRejecting(true); }} />
+        </View>
+      ) : null}
+      {error ? <Banner tone="error" text={error} /> : null}
+      <Dialog visible={rejecting} danger title={t('simReject')} confirmLabel={t('confirmReject')} cancelLabel={t('cancel')}
+        confirmDisabled={reason.trim().length < 3} onCancel={() => setRejecting(false)}
+        onConfirm={() => { setRejecting(false); void run(() => api.simulateReview(tx.id, { approved: false, reason })); }}>
+        <Field label={t('rejectionReason')} value={reason} onChangeText={setReason} placeholder={t('simRejectPlaceholder')} autoFocus />
+      </Dialog>
+    </View>
+  );
+}
 
 const dotColor = (s: Tranche['status']) =>
   s === 'RELEASED' ? palette.green : s === 'AWAITING_PAYMENT' ? palette.yellow : s === 'DISPUTED' ? palette.red : s === 'PLANNED' ? palette.disabled : palette.green;
@@ -85,6 +133,7 @@ export default function TransactionDetail() {
         <Row label={t('providerLabel')} value={tx.providerName} />
         <Row label={t('purpose')} value={tx.purpose} />
       </View>
+      <ReviewPanel tx={tx} />
       <H2>{t('tranches')}</H2>
       <View style={{ marginTop: spacing.xs }}>
         {tx.tranches.map((tr, i) => <TrancheItem key={tr.id} tx={tx} tr={tr} last={i === tx.tranches.length - 1} />)}
@@ -105,4 +154,6 @@ const st = StyleSheet.create({
   statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: palette.line },
   statusLabel: { fontSize: 14, color: palette.muted },
   actions: { flexDirection: 'row', gap: spacing.sm },
+  rejected: { gap: spacing.sm, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: palette.line },
+  reason: { fontSize: fontSize.body, lineHeight: 22, color: palette.ink },
 });

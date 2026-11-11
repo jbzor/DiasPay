@@ -138,8 +138,10 @@ function DossierPanel({ row, staffName, onClose, onDone, onStale }: {
   const title = dossierTitle(row);
   const amount = formatAmount(row.amountMinor, row.currency);
 
+  // Un dossier SUBMITTED est en cours de prise en charge (D8) : les contrôles sont affichés tout de suite, la base
+  // refusera une décision si la prise en charge échoue.
   const readOnly = row.isParty ? t('dossiers.isParty') : row.decidedByMe ? t('dossiers.alreadyDecided')
-    : row.status !== 'IN_REVIEW' ? t('dossiers.notInReview') : null;
+    : row.status !== 'IN_REVIEW' && row.status !== 'SUBMITTED' ? t('dossiers.notInReview') : null;
   const canApprove = !readOnly && validatorDecisionError({ approved: true, amountChecked }) === null;
 
   function askReject() {
@@ -155,6 +157,8 @@ function DossierPanel({ row, staffName, onClose, onDone, onStale }: {
     setActionError(null);
     try {
       const approved = confirm === 'approve';
+      // Prise en charge d’abord (sans effet si elle a déjà eu lieu) : la décision suit toujours SUBMITTED → IN_REVIEW.
+      if (row.status === 'SUBMITTED') await claimDossier(row.id);
       const result = await decideDossier(row.id, { approved, amountChecked, reason: approved ? undefined : reason });
       setConfirm(null);
       onDone(!approved ? t('dossiers.doneRejected', { title }) : result === 'IN_REVIEW' ? t('dossiers.donePartial', { title }) : t('dossiers.doneApproved', { title }));

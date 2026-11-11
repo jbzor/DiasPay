@@ -76,6 +76,24 @@ pnpm db:test           # tests SQL sur le projet lié (00_smoke, 01_lot4)
 pnpm test:supabase     # suite de contrat contre le simulateur et le projet Supabase de développement
 ```
 
+## Bureau de contrôle (lot 5)
+
+Application web Next.js 16 dans `apps/web`, pour les validateurs et les administrateurs. Elle s’appuie sur le même projet Supabase, avec la migration `0006_lot5.sql`. Ses quatre écrans :
+
+- Dossiers à valider (double validation, case « J’ai vérifié que le montant correspond aux pièces », motif obligatoire au rejet) ;
+- Preuves de jalons ;
+- Litiges (administrateurs) ;
+- Journal d’audit (chaîne vérifiée, export CSV).
+
+Connexion par e-mail et mot de passe, avec un second facteur TOTP exigé en production (D7).
+
+```bash
+cp apps/web/.env.example apps/web/.env.local     # URL et clé publique du projet
+pnpm --filter @diaspay/web dev                   # http://localhost:3000
+```
+
+Variables, comptes du personnel, second facteur, déploiement Vercel, rotation des clés et tests Playwright : voir [`docs/backoffice.md`](docs/backoffice.md). Décisions D6 à D8 : [`docs/decisions.md`](docs/decisions.md).
+
 ## TrustToken, eQR et scan (lot 2)
 **Format de l’eQR** : `DPQ1:<référence>:<kid>:<signature>`, et rien d’autre (ni montant, ni nom, ni objectif).
 - `référence` : 18 caractères hexadécimaux, insensibles à la casse (affichée `4F9A-2C71-B8E0-1D3C-A9`) ;
@@ -159,6 +177,13 @@ Les deux appareils ont chacun leur propre jeu de données simulé : pour que l�
 - Lot 3 : `packages/domain` (schémas par étape, montants, plans et fins de mois, pièces requises, limites de fichier, RG-12), `packages/api-client` (prestataires, brouillons par utilisateur, envoi de pièces, soumission et chaque erreur, revue simulée, correction et nouvelle soumission), `apps/mobile` (réducteur de l’assistant, reprise, sauvegarde différée, pièces au rechargement).
 - Lot 3 bis : `packages/domain` (statut `CANCELLED`, 3 fichiers par pièce, journal chaîné : chaîne valide, ligne modifiée, ligne supprimée, chaîne vide ; décision de litige), `packages/api-client` (alertes par événement, litiges, reçus, abandon, suppression, pièces multiples, persistance et instantané périmé, préférences, parcours complet avec reçu valide puis falsification détectée), `apps/mobile` (regroupement des alertes, libellés et parité, état du litige, formateur et modèle du reçu, garde de production).
 - Lot 4 : `packages/domain` (table des codes d’erreur confrontée au SQL, au code et à la documentation ; litige réservé à l’administrateur), `packages/api-client` (conversion des lignes et des erreurs, codes OTP de Supabase, refus de la clé de service, **suite de contrat** commune au simulateur et à Supabase), `apps/mobile` (une traduction par code d’erreur, fusion des brouillons locaux et serveur), `supabase/tests` (00_smoke : 67 vérifications, 01_lot4 : 117).
+- Lot 5 :
+  - `packages/domain` : règles de décision du bureau, miroir de `decide_tx` (case du montant, motif).
+  - `packages/ui-tokens` : contraste des couleurs du bureau.
+  - `apps/web` :
+    - tests unitaires : règles d’accès, en-têtes de sécurité, charte générée sans couleur recopiée, dictionnaire (apostrophes, table des erreurs affichées), durées relatives, montants, empreintes abrégées, CSV, libellés du journal, aucune clé secrète dans la construction ;
+    - tests Playwright : connexion, second facteur, validation simple et double, rejet, doublon, pièce journalisée, preuves, litiges, journal, export, clavier, en-têtes.
+  - `supabase/tests` : `02_lot5`, 132 vérifications. Variantes pour l’éditeur SQL : `*_editor.sql`.
 - `packages/domain` : codec eQR. `packages/api-client` : jetons, `resolveReference`, `confirmByReference` (chaque erreur, usage unique) et parcours complet payer → jeton → confirmer.
 
 ## À venir

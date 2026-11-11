@@ -1,6 +1,7 @@
 'use client';
 import { createContext, useContext, useEffect } from 'react';
 
+import { isSigningOut } from '@/lib/signout';
 import { browserClient } from '@/lib/supabase/browser';
 
 export interface StaffInfo { id: string; name: string; role: 'VALIDATOR' | 'ADMIN' }
@@ -11,7 +12,7 @@ export function StaffProvider({ staff, children }: { staff: StaffInfo; children:
   useEffect(() => {
     const { data } = browserClient().auth.onAuthStateChange((event) => {
       // Session expirée ou révoquée (rafraîchissement impossible), ou déconnexion depuis un autre onglet.
-      if (event === 'SIGNED_OUT') window.location.assign('/connexion?motif=expiree');
+      if (event === 'SIGNED_OUT' && !isSigningOut()) window.location.assign('/connexion?motif=expiree');
     });
     return () => data.subscription.unsubscribe();
   }, []);

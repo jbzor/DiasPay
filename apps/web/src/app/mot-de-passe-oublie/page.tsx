@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
 import { AuthShell } from '@/components/AuthShell';
@@ -11,6 +11,8 @@ export default function MotDePasseOublie() {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [invalidLink, setInvalidLink] = useState(false);
+  useEffect(() => { setInvalidLink(new URLSearchParams(window.location.search).get('lien') === 'invalide'); }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -25,6 +27,7 @@ export default function MotDePasseOublie() {
 
   return (
     <AuthShell title={t('forgot.title')}>
+      {invalidLink && !sent ? <p className="banner err" role="alert">{t('reset.invalidLink')}</p> : null}
       {sent ? <p className="banner ok" role="status">{t('forgot.sent')}</p> : (
         <form onSubmit={submit}>
           <p className="muted">{t('forgot.help')}</p>

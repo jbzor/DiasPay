@@ -29,3 +29,24 @@
 14. **Seed non exécuté** en production (`supabase/seed.sql` refuse de toute façon si `mock_mode <> 'true'`). Les validateurs et l’administrateur réels reçoivent leur rôle par une requête nominative de l’exploitant.
 15. **pg_cron actif** : `select jobname, schedule, active from cron.job;` liste `diaspay-release-due-tranches` (`*/10 * * * *`) et `diaspay-activate-due-tranches` (`0 6 * * *`).
 16. **Décision D5** revue (verrouillage après trois codes erronés) : voir `docs/decisions.md`.
+
+## Bureau de contrôle (lot 5)
+
+17. **Second facteur exigé** en production : `select value from app_config where key = 'require_staff_mfa';` renvoie `true`. Si ce n’est pas le cas :
+    ```sql
+    insert into app_config(key, value) values ('require_staff_mfa', 'true') on conflict (key) do update set value = 'true';
+    ```
+    TOTP doit être activé dans Supabase Auth (inscription et vérification).
+18. **Comptes du personnel nominatifs** : aucun compte partagé, aucun compte `@diaspay.test`, `seed-staff.sql` jamais exécuté. Le script refuse de toute façon si `mock_mode <> 'true'`. Vérification :
+    ```sql
+    select u.email, p.full_name, p.platform_role from profiles p join auth.users u on u.id = p.id where p.platform_role <> 'USER' order by 3, 1;
+    ```
+    Chaque ligne correspond à une personne identifiée.
+19. **Aucune clé `service_role` dans le build web** :
+    - Vercel ne définit que `NEXT_PUBLIC_SUPABASE_URL` et `NEXT_PUBLIC_SUPABASE_ANON_KEY`, et cette dernière est la clé publique.
+    - Après `pnpm --filter @diaspay/web build`, `pnpm --filter @diaspay/web test` inclut le contrôle de `.next/static` : ni `sb_secret_`, ni JWT `service_role`.
+20. **Aucun numéro de test actif** en production : `sms_test_otp` vide dans Supabase Auth (voir aussi le point 13). Les numéros +33 6 39 98 00 11 à 14 n’existent que sur le projet de développement.
+21. `auto_issue_token` absent ou `'false'` en production : sans `mock_mode`, il est sans effet, et le jeton relève du TrustEngine.
+22. **Domaine du bureau de contrôle** déclaré dans Supabase Auth (Site URL et Redirect URLs, `…/auth/confirm`). En-têtes vérifiés : `curl -sI https://<domaine>/connexion` doit montrer la CSP à nonce, `X-Frame-Options: DENY` et `Referrer-Policy: no-referrer`.
+23. **`supabase/seed-evidence.sql` jamais exécuté** en production. Il refuse de toute façon si `mock_mode <> 'true'`.
+24. **Longueur minimale des mots de passe** : dans Supabase Auth, `password_min_length` est à 12 (6 par défaut). Le bureau de contrôle impose déjà 12 caractères lors d’une réinitialisation.

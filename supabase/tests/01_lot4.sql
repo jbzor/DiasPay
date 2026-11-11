@@ -56,6 +56,9 @@ insert into providers(id, name, city, verticals, verified, phone) values
  ('e2000000-0000-4000-8000-000000000001', 'Lycée Général Leclerc (test)', 'Yaoundé', '{EDUCATION}', true, '+237611110003'),
  ('e2000000-0000-4000-8000-000000000002', 'Clinique de l’Espérance (test)', 'Douala', '{HEALTH}', true, null);
 
+-- Lot 5 : pas d’émission simulée du jeton à la validation dans ce test (étapes système jouées explicitement).
+update app_config set value = 'false' where key = 'auto_issue_token';
+
 -- ---------- Structure et droits ----------
 select t.check(not exists (
   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -225,8 +228,8 @@ select t.admin();
 -- ---------- Validation et notifications aux bonnes parties ----------
 select t.login('e1000000-0000-4000-8000-000000000004');
 select transition_tx('e3000000-0000-4000-8000-000000000001', 'IN_REVIEW');
-select t.check((select status from decide_tx('e3000000-0000-4000-8000-000000000001', true)) = 'VALIDATED', 'validation');
-select t.hint($$select decide_tx('e3000000-0000-4000-8000-000000000001', true)$$, 'NOT_IN_REVIEW', 'décision sur un dossier déjà validé');
+select t.check((select status from decide_tx('e3000000-0000-4000-8000-000000000001', true, true)) = 'VALIDATED', 'validation');
+select t.hint($$select decide_tx('e3000000-0000-4000-8000-000000000001', true, true)$$, 'NOT_IN_REVIEW', 'décision sur un dossier déjà validé');
 select t.admin();
 select t.check((select array_agg(user_id order by user_id)::text from notifications where tx_id = 'e3000000-0000-4000-8000-000000000001' and event = 'TX_VALIDATED')
   = '{e1000000-0000-4000-8000-000000000001,e1000000-0000-4000-8000-000000000002,e1000000-0000-4000-8000-000000000003}',
@@ -339,8 +342,8 @@ select transition_tx('e3000000-0000-4000-8000-000000000002', 'SUBMITTED');
 select t.admin();
 select t.login('e1000000-0000-4000-8000-000000000004');
 select transition_tx('e3000000-0000-4000-8000-000000000002', 'IN_REVIEW');
-select t.hint($$select decide_tx('e3000000-0000-4000-8000-000000000002', false, '')$$, 'REASON_REQUIRED', 'rejet sans motif');
-select decide_tx('e3000000-0000-4000-8000-000000000002', false, 'Devis illisible');
+select t.hint($$select decide_tx('e3000000-0000-4000-8000-000000000002', false, false, '')$$, 'REASON_REQUIRED', 'rejet sans motif');
+select decide_tx('e3000000-0000-4000-8000-000000000002', false, false, 'Devis illisible');
 select t.admin();
 select t.check((select count(*) from notifications where event = 'TX_REJECTED' and payload->>'reason' = 'Devis illisible' and tx_id = 'e3000000-0000-4000-8000-000000000002') = 2,
   'TX_REJECTED avec motif au payeur et au prestataire inscrit');

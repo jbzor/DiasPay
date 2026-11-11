@@ -41,6 +41,9 @@ update profiles set platform_role='ADMIN' where phone='+237600000006';
 -- Compte seulement les sept utilisateurs du test (la base peut déjà contenir des comptes, dont ceux du seed).
 select t.check((select count(*) from profiles where id::text like '00000000-0000-0000-0000-00000000000_')=7, 'profils créés automatiquement à l''inscription');
 
+-- Lot 5 : pas d’émission simulée du jeton à la validation dans ce test (étapes système jouées explicitement).
+update app_config set value = 'false' where key = 'auto_issue_token';
+
 -- ---------- Structure et droits ----------
 select t.check((select count(*) from pg_tables where schemaname='public' and not rowsecurity)=0,
   'RLS activée sur toutes les tables publiques');
@@ -96,8 +99,8 @@ select t.admin();
 -- ---------- Validation ----------
 select t.login('00000000-0000-0000-0000-000000000004');
 select t.check((select status from transition_tx('10000000-0000-0000-0000-000000000001','IN_REVIEW'))='IN_REVIEW', 'le validateur prend en charge le dossier');
-select t.check((select status from decide_tx('10000000-0000-0000-0000-000000000001', true))='VALIDATED', 'un seul validateur suffit pour la scolarité');
-select t.fails($$select decide_tx('10000000-0000-0000-0000-000000000001', true)$$, 'décision impossible une fois validé');
+select t.check((select status from decide_tx('10000000-0000-0000-0000-000000000001', true, true))='VALIDATED', 'un seul validateur suffit pour la scolarité');
+select t.fails($$select decide_tx('10000000-0000-0000-0000-000000000001', true, true)$$, 'décision impossible une fois validé');
 select t.admin();
 
 -- ---------- Jeton, activation, paiement (simulation) ----------
@@ -191,11 +194,11 @@ select transition_tx('20000000-0000-0000-0000-000000000001','SUBMITTED');
 select t.admin();
 select t.login('00000000-0000-0000-0000-000000000004');
 select transition_tx('20000000-0000-0000-0000-000000000001','IN_REVIEW');
-select t.check((select status from decide_tx('20000000-0000-0000-0000-000000000001', true))='IN_REVIEW', 'terrain : une validation ne suffit pas');
-select t.fails($$select decide_tx('20000000-0000-0000-0000-000000000001', true)$$, 'le même validateur ne peut pas valider deux fois');
+select t.check((select status from decide_tx('20000000-0000-0000-0000-000000000001', true, true))='IN_REVIEW', 'terrain : une validation ne suffit pas');
+select t.fails($$select decide_tx('20000000-0000-0000-0000-000000000001', true, true)$$, 'le même validateur ne peut pas valider deux fois');
 select t.admin();
 select t.login('00000000-0000-0000-0000-000000000005');
-select t.check((select status from decide_tx('20000000-0000-0000-0000-000000000001', true))='VALIDATED', 'terrain : deuxième validateur distinct => validé');
+select t.check((select status from decide_tx('20000000-0000-0000-0000-000000000001', true, true))='VALIDATED', 'terrain : deuxième validateur distinct => validé');
 select t.admin();
 
 -- ---------- Rejet puis abandon (décision D4) ----------
@@ -213,7 +216,7 @@ select transition_tx('30000000-0000-0000-0000-000000000001','SUBMITTED');
 select t.admin();
 select t.login('00000000-0000-0000-0000-000000000004');
 select transition_tx('30000000-0000-0000-0000-000000000001','IN_REVIEW');
-select t.check((select status from decide_tx('30000000-0000-0000-0000-000000000001', false, 'Devis illisible'))='REJECTED', 'rejet avec motif');
+select t.check((select status from decide_tx('30000000-0000-0000-0000-000000000001', false, false, 'Devis illisible'))='REJECTED', 'rejet avec motif');
 select t.admin();
 select t.login('00000000-0000-0000-0000-000000000001');
 select t.check((select status from transition_tx('30000000-0000-0000-0000-000000000001','CANCELLED'))='CANCELLED', 'abandon d''un dossier rejeté (D4)');
@@ -256,7 +259,7 @@ select transition_tx('50000000-0000-0000-0000-000000000001','SUBMITTED');
 select t.admin();
 select t.login('00000000-0000-0000-0000-000000000004');
 select transition_tx('50000000-0000-0000-0000-000000000001','IN_REVIEW');
-select decide_tx('50000000-0000-0000-0000-000000000001', false, 'Pièce manquante');
+select decide_tx('50000000-0000-0000-0000-000000000001', false, false, 'Pièce manquante');
 select t.admin();
 select t.login('00000000-0000-0000-0000-000000000001');
 select t.check((select status from transition_tx('50000000-0000-0000-0000-000000000001','DRAFT'))='DRAFT', 'un dossier rejeté revient en brouillon pour correction');

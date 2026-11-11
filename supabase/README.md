@@ -67,6 +67,33 @@ Constats sur le projet réel pendant la mise au point :
 - Le test de fumée a été mis en conformité avec D2 et la vague 1 (types de pièces `ENROLMENT_CERTIFICATE`, `SUPPORTING_DOCUMENT`, pièce d’identité du bénéficiaire en santé ; terrain ouvert le temps du test). Ses vérifications sont inchangées.
 - Le bucket `dossiers` n’avait aucune limite de taille ni de type : fixées par 0005.
 
+## Migration 0006 (lot 5) : ce que le bureau de contrôle attend du serveur
+
+Test : `tests/02_lot5.sql` (132 vérifications). Variante pour l’éditeur SQL : `tests/02_lot5_editor.sql`, générée comme celles des autres tests par `node scripts/sql-editor-variant.mjs`. L’éditeur n’affichant pas les lignes PASS / FAIL, chaque variante se termine par une erreur toujours levée, qui affiche le résultat et annule le test : « RESULTAT : N vérifications, toutes réussies », ou « ECHEC » suivi des libellés en échec. `scripts/db.sh test-editor` les exécute ; `scripts/db.sh test` refuse une variante périmée.
+
+- **Second facteur (D7)** : clé `require_staff_mfa` (`'false'` par défaut, `'true'` en production). `is_validator()` et `is_admin()` exigent alors un jeton `aal2`. Toutes les politiques RLS et fonctions du personnel en héritent, pour l’interface comme pour l’API.
+- **Files du bureau** : vues `bo_dossiers`, `bo_evidence_queue` et `bo_disputes` (`security_invoker`, filtrées par `is_validator()` ou `is_admin()`). Elles donnent les noms des parties, le nombre de validations requises et reçues pour le tour courant, la décision du validateur courant, et indiquent s’il est partie au dossier.
+- **Contrôles automatiques (D6)** : `dossier_checks(tx)` couvre les pièces obligatoires, le prestataire vérifié, le doublon possible et la somme des tranches ; `evidence_checks(tranche)` couvre la preuve déposée et le prestataire vérifié. Chaque contrôle renvoie `OK`, `ATTENTION` ou `ECHEC` avec un détail en jsonb.
+- **Prise en charge (D8)** : `claim_dossier(tx)` passe un dossier `SUBMITTED` en `IN_REVIEW` au nom du validateur. Sur un dossier déjà en validation, la fonction ne fait rien. Elle renvoie `VALIDATOR_IS_PARTY` à un validateur partie au dossier.
+- **Case « montant vérifié » (D6)** :
+  - Nouvelle signature `decide_tx(tx, approuvé, montant_vérifié, motif)`, l’ancienne étant retirée.
+  - Approuver sans la case renvoie `AMOUNT_NOT_CHECKED`.
+  - La case est stockée dans `validations.amount_checked`, protégée par une contrainte `NOT VALID` : les validations antérieures ne sont pas contrôlées.
+  - Chaque décision est journalisée par l’événement `VALIDATION_DECISION`, qui remplace `VALIDATION_PARTIAL` pour les dossiers.
+- **Pièces** :
+  - `dossier_documents(tx)` liste les pièces.
+  - `open_document(doc)` journalise la consultation (`DOCUMENT_VIEWED` : qui, quelle pièce, quand) et renvoie le chemin.
+  - La politique de stockage `dossiers_read` n’ouvre un fichier à un membre du personnel que pendant 2 minutes après cette consultation, le temps de créer une URL signée courte. Une lecture non journalisée est donc impossible.
+- **Journal** :
+  - `bo_audit(tx)` renvoie les lignes avec l’acteur affiché, son rôle et la tranche.
+  - `bo_audit_verify(tx)` renvoie `{valid, count, lastHash}`.
+  - `log_audit_export(tx, lignes)` journalise l’export CSV sous `AUDIT_EXPORTED`.
+  - `bo_find_transactions(texte)` cherche par objectif, nom, prestataire, référence du dossier ou d’un eQR.
+- **Litiges** : colonnes `response`, `responded_by` et `responded_at`, et fonction `respond_dispute(litige, texte)`. Seule la partie adverse répond, une seule fois (`NOT_RESPONDENT`, `ALREADY_ANSWERED`) ; l’écran mobile de réponse reste à faire.
+- **Émission simulée du jeton** : avec `mock_mode = 'true'` et `auto_issue_token = 'true'` (posé par `seed.sql`), une validation complète enchaîne comme la validation de démonstration : jeton, `IN_PROGRESS`, puis activation de la première tranche (RG-12). Hors `mock_mode`, le dossier reste `VALIDATED` : l’émission relève du TrustEngine, hors périmètre.
+- **Droits** : aucune fonction nouvelle n’est exécutable par `anon`, et les fonctions internes ne le sont par personne ; les vues sont fermées à `anon`. Un test dédié le vérifie.
+- **Comptes du personnel de test** : `supabase/seed-staff.sql` (`scripts/db.sh seed-staff`), développement seulement. Le mot de passe est lu dans `.env.local` (`E2E_STAFF_PASSWORD`).
+
 ## Défauts corrigés par la migration 0004
 
 Trouvés en exécutant les migrations 0001 à 0003, qui n'avaient jamais été exécutées :

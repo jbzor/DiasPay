@@ -1,6 +1,7 @@
 import {
   DomainError, RELEASE_RULES, appendEntry, canOpenDispute, checkFile, checkFileCount, formatReference, isAutoReleasable, normalizeReference,
   resolveDisputeTransition, shouldActivateTranche, shouldCloseTransaction, toIsoDate, transitionTranche, transitionTx, validateNeed, verifyChain,
+  validatorDecisionError,
 } from '@diaspay/domain';
 import type { Actor, ChainedAuditEntry, DisputeOutcome, DraftDocument, DraftDocumentInput, NeedDraft, TrancheStatus, TxRole, Vertical } from '@diaspay/domain';
 import type {
@@ -651,9 +652,11 @@ export class MockApi implements TransactionApi {
    */
   async simulateReview(txId: string, decision: { approved: boolean; reason?: string }): Promise<Transaction> {
     const tx = await this.getTransaction(txId);
+    // Même règle que decide_tx (lot 5) ; le validateur simulé coche la case « montant vérifié » (comme demo_review).
+    const invalid = validatorDecisionError({ approved: decision.approved, amountChecked: true, reason: decision.reason });
+    if (invalid) throw new ApiError(invalid, 'Décision incomplète');
     if (!decision.approved) {
       const reason = decision.reason?.trim() ?? '';
-      if (reason.length < 3) throw new ApiError('REASON_REQUIRED', 'Motif du rejet obligatoire');
       tx.status = transitionTx(tx.status, 'REJECTED', VALIDATOR);
       tx.rejectionReason = reason;
       this.record(tx.id, 'NEED_REJECTED', undefined, reason, 'validator');

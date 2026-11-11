@@ -27,3 +27,7 @@ alter role postgres set search_path = "$user", public, extensions;
 alter role anon set search_path = "$user", public, extensions;
 alter role authenticated set search_path = "$user", public, extensions;
 alter role service_role set search_path = "$user", public, extensions;
+-- Lot 5 : auth.jwt() (lit le niveau d’authentification « aal » des réclamations du jeton).
+create function auth.jwt() returns jsonb language sql stable as $$
+  select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
+grant execute on function auth.jwt() to anon, authenticated, service_role;

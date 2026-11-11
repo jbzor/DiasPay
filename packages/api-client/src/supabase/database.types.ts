@@ -50,20 +50,26 @@ export type Database = {
       foreignKeyName: "audit_log_tx_id_fkey"
       columns: ["tx_id"]
 isOneToOne: false
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "audit_log_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
       referencedRelation: "transactions"
       referencedColumns: ["id"]
     }
                   ]
                 },"disputes": {
                   Row: {
-                    "id": string,"opened_at": string,"opened_by": string,"reason": string,"reason_code": string | null,"resolution_note": string | null,"resolved_at": string | null,"resolved_by": string | null,"status": string,"tranche_id": string,"tx_id": string
+                    "id": string,"opened_at": string,"opened_by": string,"reason": string,"reason_code": string | null,"resolution_note": string | null,"resolved_at": string | null,"resolved_by": string | null,"responded_at": string | null,"responded_by": string | null,"response": string | null,"status": string,"tranche_id": string,"tx_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "id"?: string,"opened_at"?: string,"opened_by": string,"reason": string,"reason_code"?: string | null,"resolution_note"?: string | null,"resolved_at"?: string | null,"resolved_by"?: string | null,"status"?: string,"tranche_id": string,"tx_id": string
+                    "id"?: string,"opened_at"?: string,"opened_by": string,"reason": string,"reason_code"?: string | null,"resolution_note"?: string | null,"resolved_at"?: string | null,"resolved_by"?: string | null,"responded_at"?: string | null,"responded_by"?: string | null,"response"?: string | null,"status"?: string,"tranche_id": string,"tx_id": string
                   }
                   Update: {
-                    "id"?: string,"opened_at"?: string,"opened_by"?: string,"reason"?: string,"reason_code"?: string | null,"resolution_note"?: string | null,"resolved_at"?: string | null,"resolved_by"?: string | null,"status"?: string,"tranche_id"?: string,"tx_id"?: string
+                    "id"?: string,"opened_at"?: string,"opened_by"?: string,"reason"?: string,"reason_code"?: string | null,"resolution_note"?: string | null,"resolved_at"?: string | null,"resolved_by"?: string | null,"responded_at"?: string | null,"responded_by"?: string | null,"response"?: string | null,"status"?: string,"tranche_id"?: string,"tx_id"?: string
                   }
                   Relationships: [
                     {
@@ -79,10 +85,28 @@ isOneToOne: false
       referencedRelation: "profiles"
       referencedColumns: ["id"]
     },{
+      foreignKeyName: "disputes_responded_by_fkey"
+      columns: ["responded_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "disputes_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "bo_evidence_queue"
+      referencedColumns: ["tranche_id"]
+    },{
       foreignKeyName: "disputes_tranche_id_fkey"
       columns: ["tranche_id"]
 isOneToOne: false
       referencedRelation: "tranches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "disputes_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
       referencedColumns: ["id"]
     },{
       foreignKeyName: "disputes_tx_id_fkey"
@@ -108,7 +132,19 @@ isOneToOne: false
       foreignKeyName: "documents_tranche_id_fkey"
       columns: ["tranche_id"]
 isOneToOne: false
+      referencedRelation: "bo_evidence_queue"
+      referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "documents_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
       referencedRelation: "tranches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "documents_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
       referencedColumns: ["id"]
     },{
       foreignKeyName: "documents_tx_id_fkey"
@@ -154,6 +190,12 @@ isOneToOne: false
       foreignKeyName: "notifications_tx_id_fkey"
       columns: ["tx_id"]
 isOneToOne: false
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "notifications_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
       referencedRelation: "transactions"
       referencedColumns: ["id"]
     },{
@@ -180,7 +222,19 @@ isOneToOne: false
       foreignKeyName: "payments_tranche_id_fkey"
       columns: ["tranche_id"]
 isOneToOne: false
+      referencedRelation: "bo_evidence_queue"
+      referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "payments_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
       referencedRelation: "tranches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "payments_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
       referencedColumns: ["id"]
     },{
       foreignKeyName: "payments_tx_id_fkey"
@@ -240,6 +294,12 @@ isOneToOne: false
       foreignKeyName: "recurrence_plans_tx_id_fkey"
       columns: ["tx_id"]
 isOneToOne: true
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "recurrence_plans_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: true
       referencedRelation: "transactions"
       referencedColumns: ["id"]
     }
@@ -260,7 +320,19 @@ isOneToOne: true
       foreignKeyName: "release_events_tranche_id_fkey"
       columns: ["tranche_id"]
 isOneToOne: false
+      referencedRelation: "bo_evidence_queue"
+      referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "release_events_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
       referencedRelation: "tranches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "release_events_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
       referencedColumns: ["id"]
     },{
       foreignKeyName: "release_events_tx_id_fkey"
@@ -334,6 +406,12 @@ isOneToOne: false
       foreignKeyName: "tranche_tokens_tranche_id_fkey"
       columns: ["tranche_id"]
 isOneToOne: true
+      referencedRelation: "bo_evidence_queue"
+      referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "tranche_tokens_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: true
       referencedRelation: "tranches"
       referencedColumns: ["id"]
     }
@@ -368,6 +446,12 @@ isOneToOne: true
       foreignKeyName: "tranches_tx_id_fkey"
       columns: ["tx_id"]
 isOneToOne: false
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "tranches_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
       referencedRelation: "transactions"
       referencedColumns: ["id"]
     }
@@ -385,6 +469,12 @@ isOneToOne: false
                   }
                   Relationships: [
                     {
+      foreignKeyName: "transaction_parties_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
       foreignKeyName: "transaction_parties_tx_id_fkey"
       columns: ["tx_id"]
 isOneToOne: false
@@ -440,27 +530,45 @@ isOneToOne: false
       foreignKeyName: "trust_tokens_tx_id_fkey"
       columns: ["tx_id"]
 isOneToOne: true
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "trust_tokens_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: true
       referencedRelation: "transactions"
       referencedColumns: ["id"]
     }
                   ]
                 },"validations": {
                   Row: {
-                    "approved": boolean,"decided_at": string,"id": string,"reason": string | null,"tranche_id": string | null,"tx_id": string,"validator_id": string
+                    "amount_checked": boolean,"approved": boolean,"decided_at": string,"id": string,"reason": string | null,"tranche_id": string | null,"tx_id": string,"validator_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "approved": boolean,"decided_at"?: string,"id"?: string,"reason"?: string | null,"tranche_id"?: string | null,"tx_id": string,"validator_id": string
+                    "amount_checked"?: boolean,"approved": boolean,"decided_at"?: string,"id"?: string,"reason"?: string | null,"tranche_id"?: string | null,"tx_id": string,"validator_id": string
                   }
                   Update: {
-                    "approved"?: boolean,"decided_at"?: string,"id"?: string,"reason"?: string | null,"tranche_id"?: string | null,"tx_id"?: string,"validator_id"?: string
+                    "amount_checked"?: boolean,"approved"?: boolean,"decided_at"?: string,"id"?: string,"reason"?: string | null,"tranche_id"?: string | null,"tx_id"?: string,"validator_id"?: string
                   }
                   Relationships: [
                     {
       foreignKeyName: "validations_tranche_id_fkey"
       columns: ["tranche_id"]
 isOneToOne: false
+      referencedRelation: "bo_evidence_queue"
+      referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "validations_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
       referencedRelation: "tranches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "validations_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
       referencedColumns: ["id"]
     },{
       foreignKeyName: "validations_tx_id_fkey"
@@ -479,14 +587,80 @@ isOneToOne: false
                 }
           }
           Views: {
-            [_ in never]: never
+            "bo_disputes": {
+                  Row: {
+                    "amount_minor": number | null,"currency": string | null,"description": string | null,"id": string | null,"is_party": boolean | null,"notified_at": string | null,"opened_at": string | null,"opened_by_role": string | null,"payer_name": string | null,"provider_name": string | null,"purpose": string | null,"reason_code": string | null,"reference": string | null,"resolution_note": string | null,"resolved_at": string | null,"resolved_by_name": string | null,"responded_at": string | null,"response": string | null,"status": string | null,"tranche_id": string | null,"tranche_label": string | null,"tranche_seq": number | null,"tranche_status": string | null,"tx_id": string | null,"vertical": string | null
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    {
+      foreignKeyName: "disputes_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "bo_evidence_queue"
+      referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "disputes_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "tranches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "disputes_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "disputes_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "transactions"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"bo_dossiers": {
+                  Row: {
+                    "amount_minor": number | null,"beneficiary_name": string | null,"created_at": string | null,"currency": string | null,"decided_by_me": boolean | null,"id": string | null,"is_party": boolean | null,"payer_name": string | null,"provider_name": string | null,"purpose": string | null,"reference": string | null,"requester_name": string | null,"status": string | null,"submitted_at": string | null,"updated_at": string | null,"validations_received": number | null,"validations_required": number | null,"vertical": string | null
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    
+                  ]
+                },"bo_evidence_queue": {
+                  Row: {
+                    "amount_minor": number | null,"currency": string | null,"decided_by_me": boolean | null,"is_party": boolean | null,"label": string | null,"provider_name": string | null,"purpose": string | null,"reference": string | null,"seq": number | null,"submitted_at": string | null,"tranche_id": string | null,"tx_id": string | null,"validations_received": number | null,"validations_required": number | null,"vertical": string | null
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    {
+      foreignKeyName: "tranches_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "tranches_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "transactions"
+      referencedColumns: ["id"]
+    }
+                  ]
+                }
           }
           Functions: {
-            "_draft_json":
+            "_dispute_notified_at":
+{ Args: { "p_dispute": string }; Returns: string
+                           },
+"_draft_json":
 { Args: { "p_tx": string }; Returns: Json
                            },
 "_err":
 { Args: { "p_code": string,"p_detail"?: string,"p_message": string }; Returns: undefined
+                           },
+"_evidence_round_start":
+{ Args: { "p_tranche": string }; Returns: string
                            },
 "_fold":
 { Args: { "p": string }; Returns: string
@@ -500,7 +674,16 @@ isOneToOne: false
 "_norm_phone":
 { Args: { "p": string }; Returns: string
                            },
+"_party_name":
+{ Args: { "p_role": Database["public"]['Enums']["tx_role"],"p_tx": string }; Returns: string
+                           },
+"_recently_opened":
+{ Args: { "p_path": string }; Returns: boolean
+                           },
 "_require_user":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
+"_require_validator":
 { Args: Record<PropertyKey, never>; Returns: string
                            },
 "_resolve_dispute_core":
@@ -513,6 +696,9 @@ isOneToOne: false
 "resolution_note": string | null,
 "resolved_at": string | null,
 "resolved_by": string | null,
+"responded_at": string | null,
+"responded_by": string | null,
+"response": string | null,
 "status": string,
 "tranche_id": string,
 "tx_id": string
@@ -523,6 +709,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"_round_start":
+{ Args: { "p_tx": string }; Returns: string
+                           },
 "_set_tranche_status":
 { Args: { "p_actor": string,"p_event": string,"p_payload"?: Json,"p_to": Database["public"]['Enums']["tranche_status"],"p_tranche": string }; Returns: {
               "amount_minor": number,
@@ -545,8 +734,20 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"_simulate_token_issue":
+{ Args: { "p_tx": string }; Returns: undefined
+                           },
+"_staff_aal_ok":
+{ Args: Record<PropertyKey, never>; Returns: boolean
+                           },
+"_staff_name":
+{ Args: { "p_user": string }; Returns: string
+                           },
 "_storage_tx":
 { Args: { "p_name": string }; Returns: string
+                           },
+"_tx_ref":
+{ Args: { "p_tx": string }; Returns: string
                            },
 "_user_by_phone":
 { Args: { "p_phone": string }; Returns: string
@@ -560,6 +761,50 @@ isOneToOne: false
 "add_document":
 { Args: { "p_kind": string,"p_mime": string,"p_name": string,"p_path": string,"p_size": number,"p_tx": string }; Returns: Json
                            },
+"bo_audit":
+{ Args: { "p_tx": string }; Returns: {
+              "actor_id": string,"actor_name": string,"actor_role": string,"created_at": string,"event": string,"from_status": string,"hash": string,"id": number,"payload": Json,"prev_hash": string,"to_status": string,"tranche_id": string,"tranche_seq": number
+            }[]
+                           },
+"bo_audit_verify":
+{ Args: { "p_tx": string }; Returns: Json
+                           },
+"bo_decisions":
+{ Args: { "p_tranche"?: string,"p_tx": string }; Returns: {
+              "amount_checked": boolean,"approved": boolean,"decided_at": string,"is_me": boolean,"reason": string,"validator_id": string,"validator_name": string
+            }[]
+                           },
+"bo_find_transactions":
+{ Args: { "p_query": string }; Returns: {
+              "amount_minor": number,"created_at": string,"currency": string,"id": string,"payer_name": string,"provider_name": string,"purpose": string,"reference": string,"status": string,"vertical": string
+            }[]
+                           },
+"claim_dossier":
+{ Args: { "p_tx": string }; Returns: {
+              "amount_minor": number | null,
+"beneficiary_name": string | null,
+"created_at": string,
+"created_by": string,
+"currency": Database["public"]['Enums']["currency"] | null,
+"draft_data": NonNullable<Json>,
+"due_date": string | null,
+"expires_at": string | null,
+"id": string,
+"plan_type": string | null,
+"provider_id": string | null,
+"provider_name": string | null,
+"purpose": string | null,
+"reject_reason": string | null,
+"status": Database["public"]['Enums']["tx_status"],
+"updated_at": string,
+"vertical": Database["public"]['Enums']["vertical"]
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "transactions"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "confirm_by_reference":
 { Args: { "p_device_time"?: string,"p_ref": string }; Returns: {
               "amount_minor": number,
@@ -627,7 +872,7 @@ isOneToOne: false
         isSetofReturn: false
       } },
 "decide_tx":
-{ Args: { "p_approved": boolean,"p_reason"?: string,"p_tx": string }; Returns: {
+{ Args: { "p_amount_checked": boolean,"p_approved": boolean,"p_reason"?: string,"p_tx": string }; Returns: {
               "amount_minor": number | null,
 "beneficiary_name": string | null,
 "created_at": string,
@@ -668,6 +913,9 @@ isOneToOne: false
 "resolution_note": string | null,
 "resolved_at": string | null,
 "resolved_by": string | null,
+"responded_at": string | null,
+"responded_by": string | null,
+"response": string | null,
 "status": string,
 "tranche_id": string,
 "tx_id": string
@@ -704,6 +952,19 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"dossier_checks":
+{ Args: { "p_tx": string }; Returns: {
+              "code": string,"detail": Json,"result": string
+            }[]
+                           },
+"dossier_documents":
+{ Args: { "p_tx": string }; Returns: Json
+                           },
+"evidence_checks":
+{ Args: { "p_tranche": string }; Returns: {
+              "code": string,"detail": Json,"result": string
+            }[]
+                           },
 "generate_recurring_tranches":
 { Args: { "p_freq": Database["public"]['Enums']["recurrence_freq"],"p_label"?: string,"p_n": number,"p_start": string,"p_tx": string }; Returns: {
               "amount_minor": number,
@@ -753,6 +1014,9 @@ isOneToOne: false
 "is_validator":
 { Args: Record<PropertyKey, never>; Returns: boolean
                            },
+"log_audit_export":
+{ Args: { "p_rows": number,"p_tx": string }; Returns: undefined
+                           },
 "open_dispute":
 { Args: { "p_reason": string,"p_reason_code"?: string,"p_tranche": string }; Returns: {
               "id": string,
@@ -763,6 +1027,9 @@ isOneToOne: false
 "resolution_note": string | null,
 "resolved_at": string | null,
 "resolved_by": string | null,
+"responded_at": string | null,
+"responded_by": string | null,
+"response": string | null,
 "status": string,
 "tranche_id": string,
 "tx_id": string
@@ -773,6 +1040,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"open_document":
+{ Args: { "p_doc": string }; Returns: Json
+                           },
 "release_due_tranches":
 { Args: Record<PropertyKey, never>; Returns: number
                            },
@@ -792,6 +1062,9 @@ isOneToOne: false
 "resolution_note": string | null,
 "resolved_at": string | null,
 "resolved_by": string | null,
+"responded_at": string | null,
+"responded_by": string | null,
+"response": string | null,
 "status": string,
 "tranche_id": string,
 "tx_id": string
@@ -815,6 +1088,29 @@ isOneToOne: false
               "amount_minor": number,"expires_at": string,"label": string,"status": Database["public"]['Enums']["tranche_status"],"tranche_id": string,"tx_id": string,"used": boolean
             }[]
                            },
+"respond_dispute":
+{ Args: { "p_dispute": string,"p_text": string }; Returns: {
+              "id": string,
+"opened_at": string,
+"opened_by": string,
+"reason": string,
+"reason_code": string | null,
+"resolution_note": string | null,
+"resolved_at": string | null,
+"resolved_by": string | null,
+"responded_at": string | null,
+"responded_by": string | null,
+"response": string | null,
+"status": string,
+"tranche_id": string,
+"tx_id": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "disputes"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "save_draft":
 { Args: { "p_draft": Json }; Returns: Json
                            },

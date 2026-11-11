@@ -17,14 +17,14 @@ function walk(dir: string): string[] {
 const sqlCodes = (sql: string) => [...sql.matchAll(/_err\('([A-Z_]+)'/g)].map((m) => m[1] ?? '');
 
 describe('table des codes d’erreur', () => {
-  it('chaque code levé par les fonctions SQL (0005) est dans la table', () => {
-    const codes = [...new Set(sqlCodes(read('supabase', 'migrations', '0005_lot4.sql')))];
+  it('chaque code levé par les fonctions SQL (0005, 0006) est dans la table', () => {
+    const codes = [...new Set(['0005_lot4.sql', '0006_lot5.sql'].flatMap((f) => sqlCodes(read('supabase', 'migrations', f))))];
     expect(codes.length).toBeGreaterThan(40);
     expect(codes.filter((c) => !isErrorCode(c))).toEqual([]);
   });
 
   it('chaque code levé en TypeScript (domaine, client, application) est dans la table', () => {
-    const files = ['packages/domain/src', 'packages/api-client/src', 'apps/mobile/src'].flatMap((d) => walk(join(root, d)));
+    const files = ['packages/domain/src', 'packages/api-client/src', 'apps/mobile/src', 'apps/web/src'].flatMap((d) => walk(join(root, d)));
     const codes = new Set<string>();
     for (const f of files) {
       for (const m of readFileSync(f, 'utf8').matchAll(/(?:Domain|Api|Auth)Error\(\s*'([A-Z_]+)'/g)) codes.add(m[1] ?? '');

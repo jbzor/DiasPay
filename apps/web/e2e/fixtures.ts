@@ -1,4 +1,7 @@
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { SupabaseApi, SupabaseAuth, createDiasPayClient } from '@diaspay/api-client';
 import type { Transaction } from '@diaspay/api-client';
@@ -92,4 +95,25 @@ export async function staffClient(email: string) {
 export async function cleanup(): Promise<void> {
   for (const p of apis.values()) await (await p).resetDemoData().catch(() => undefined);
   apis.clear();
+}
+
+/**
+ * Preuve de jalon (vague 2) : le demandeur crée un brouillon terrain et y dépose la preuve (envoi réel au bucket,
+ * permis tant que le dossier est un brouillon), puis supabase/seed-evidence.sql amène le dossier jusqu’à la preuve
+ * en attente (scripts/db.sh seed-evidence <tx>). Renvoie l’identifiant du dossier.
+ */
+export async function landWithPendingEvidence(purpose: string): Promise<string> {
+  const api = await party('REQUESTER');
+  const id = randomUUID();
+  await api.saveDraft({
+    ...emptyDraft(id, new Date()), vertical: 'LAND', amountMinor: 10_000_000, currency: 'XAF', purpose, beneficiaryName: 'Famille M. (e2e)',
+    counterpartyPhone: PHONES.PAYER.phone, provider: { name: 'Étude notariale Mbarga (e2e)', invitedPhone: PHONES.OTHER.phone },
+    planType: 'PARTIAL', step: 'recap',
+    tranches: [{ label: 'Signature de l’acte notarié', amountMinor: 4_000_000, dueDate: inDays(5) }, { label: 'Remise du titre foncier', amountMinor: 6_000_000, dueDate: inDays(60) }],
+  } as NeedDraft);
+  await api.attachDocument(id, pdf('SUPPORTING_DOCUMENT', 'promesse_de_vente.pdf'));
+  await api.attachDocument(id, pdf('EVIDENCE', 'acte_notarie.pdf'));
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+  execFileSync(join(root, 'scripts', 'db.sh'), ['seed-evidence', id], { cwd: root, stdio: 'pipe' });
+  return id;
 }

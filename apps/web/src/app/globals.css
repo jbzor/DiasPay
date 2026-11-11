@@ -22,6 +22,7 @@ a { color: var(--c-green-dark); }
 .skip-link { position: absolute; left: 8px; top: -60px; z-index: 50; padding: 8px 12px; background: var(--s-surface); border: 1px solid var(--s-border); }
 .skip-link:focus { top: 8px; }
 .num, .amount { font-variant-numeric: tabular-nums; }
+.amount, .grid td.num, .grid td .muted { white-space: nowrap; }
 .muted { color: var(--s-text-muted); }
 .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; color: var(--bo-hash-text); }
 

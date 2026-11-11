@@ -230,6 +230,7 @@ export const fr = {
   'preuves.dossier': 'Dossier',
   'preuves.evidence': 'Preuve',
   'preuves.page': '{name} · {kind}',
+  'preuves.enlarge': 'Agrandir',
   'preuves.confirmApproveTitle': 'Approuver cette preuve ?',
   'preuves.confirmApprove': 'Vous approuvez la preuve « {title} » ({amount}). Une fois toutes les validations reçues, la tranche est débloquée au prestataire.',
   'preuves.confirmRejectTitle': 'Rejeter cette preuve ?',

@@ -20,9 +20,9 @@ import { claimDossier, decideDossier, dossierDetail, listDossiers } from '@/lib/
 import type { DossierDetail, DossierRow } from '@/lib/bo';
 import { formatAmount, formatDate, formatTime, relativeTime } from '@/lib/format';
 import { includesFolded } from '@/lib/search';
+import { dossierTitle } from '@/lib/labels';
 
 const VERTICALS = ['EDUCATION', 'HEALTH', 'RENT', 'AGRO', 'REAL_ESTATE', 'LAND'] as const;
-export const dossierTitle = (r: { vertical: string; purpose: string }) => `${tMaybe(`vertical.${r.vertical}`) ?? r.vertical} · ${r.purpose}`;
 
 /**
  * Dossiers à valider (BO1). Liste des dossiers soumis ou en validation, du plus ancien au plus récent ; volet de

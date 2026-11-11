@@ -4,7 +4,7 @@
 #   scripts/db.sh test            # exécute supabase/tests/NN_*.sql (00_smoke, 01_lot4, 02_lot5…) : échoue au moindre FAIL
 #   scripts/db.sh test-editor     # exécute leurs variantes pour l’éditeur SQL (NN_*_editor.sql) : attend « RESULTAT »
 #   scripts/db.sh seed-staff      # comptes du personnel de test (e-mail, mot de passe E2E_STAFF_PASSWORD) : développement seulement
-#   scripts/db.sh seed-evidence   # dossier terrain avec une preuve de jalon en attente (écran Preuves) : développement seulement
+#   scripts/db.sh seed-evidence [tx] # dossier terrain avec une preuve de jalon en attente (écran Preuves) : développement seulement
 #   scripts/db.sh push            # applique les nouvelles migrations (supabase db push)
 #   scripts/db.sh seed            # comptes et prestataires de démonstration (refusé si mock_mode <> 'true')
 #   scripts/db.sh psql [args…]    # console psql sur le projet lié
@@ -26,8 +26,9 @@ export PGPASSWORD="$SUPABASE_DB_PASSWORD"
 DB_URL="$(python3 -c "import os,sys,urllib.parse; u=sys.argv[1]; print(u.replace('@', ':' + urllib.parse.quote(os.environ['SUPABASE_DB_PASSWORD'], safe='') + '@', 1))" "$POOLER")"
 
 run_sql() {
-  # Affiche les lignes PASS/FAIL et le résumé ; code de sortie non nul au moindre échec.
-  "$PSQL" "$POOLER" -v ON_ERROR_STOP=1 -q -f "$1" 2>&1 | sed -E 's/^psql:[^ ]+ //; s/^(NOTICE|ERROR):  //'
+  # Affiche les lignes PASS/FAIL et le résumé ; code de sortie non nul au moindre échec. Arguments suivants : options psql.
+  local f="$1"; shift
+  "$PSQL" "$POOLER" -v ON_ERROR_STOP=1 -q "$@" -f "$f" 2>&1 | sed -E 's/^psql:[^ ]+ //; s/^(NOTICE|ERROR):  //'
   return "${PIPESTATUS[0]}"
 }
 
@@ -59,7 +60,8 @@ case "${1:-}" in
     : "${E2E_STAFF_PASSWORD:?E2E_STAFF_PASSWORD manquant dans .env.local (mot de passe des comptes du personnel de test)}"
     "$PSQL" "$POOLER" -v ON_ERROR_STOP=1 -q -v staff_password="$E2E_STAFF_PASSWORD" -f supabase/seed-staff.sql 2>&1 | sed -E 's/^psql:[^ ]+ //; s/^(NOTICE|ERROR):  //'
     exit "${PIPESTATUS[0]}" ;;
-  seed-evidence) run_sql supabase/seed-evidence.sql ;;
+  seed-evidence)
+    if [ -n "${2:-}" ]; then run_sql supabase/seed-evidence.sql -v tx="$2"; else run_sql supabase/seed-evidence.sql; fi ;;
   push) supabase db push --db-url "$DB_URL" ;;
   seed) run_sql supabase/seed.sql ;;
   types)

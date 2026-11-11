@@ -19,3 +19,13 @@ test('capture : dossiers à valider', async ({ page }) => {
   await page.locator('aside.panel').evaluate((el) => el.scrollTo(0, 400));
   await page.screenshot({ path: `${process.env.E2E_CAPTURE}/bo-dossiers-bas.png`, fullPage: false });
 });
+
+test('capture : preuves de jalons', async ({ page }) => {
+  const { landWithPendingEvidence } = await import('./fixtures');
+  await landWithPendingEvidence(`Parcelle Nkolbisson ${RUN}`);
+  await signIn(page, STAFF.A.email, '/preuves');
+  await row(page, `Parcelle Nkolbisson ${RUN}`).click();
+  await page.locator('aside.panel .preview iframe').waitFor();
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `${process.env.E2E_CAPTURE}/bo-preuves.png` });
+});

@@ -63,3 +63,9 @@ export async function loadLocale(): Promise<Locale | null> {
   return v === 'fr' || v === 'en' ? v : null;
 }
 export const saveLocale = (l: Locale) => write(KEYS.locale, l);
+
+/** Préférences de l’appareil (biométrie…) : même stockage que la session locale. */
+export const devicePrefs = {
+  get: (key: string) => read(key),
+  set: (key: string, value: string | null) => write(key, value),
+};

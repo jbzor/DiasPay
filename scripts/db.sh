@@ -5,6 +5,7 @@
 #   scripts/db.sh push            # applique les nouvelles migrations (supabase db push)
 #   scripts/db.sh seed            # comptes et prestataires de démonstration (refusé si mock_mode <> 'true')
 #   scripts/db.sh psql [args…]    # console psql sur le projet lié
+#   scripts/db.sh types           # régénère packages/api-client/src/supabase/database.types.ts (jamais édité à la main)
 #
 # Connexion par le pooler en mode session (supabase/.temp/pooler-url, écrit par `supabase link`) :
 # la connexion directe db.<ref>.supabase.co n’est joignable qu’en IPv6 sur l’offre gratuite.
@@ -42,6 +43,11 @@ case "${1:-}" in
     exit $status ;;
   push) supabase db push --db-url "$DB_URL" ;;
   seed) run_sql supabase/seed.sql ;;
+  types)
+    out=packages/api-client/src/supabase/database.types.ts
+    mkdir -p "$(dirname "$out")"
+    { echo "// Fichier généré par \`pnpm db:types\` (supabase gen types) : ne pas modifier à la main."; supabase gen types typescript --db-url "$DB_URL" --schema public; } > "$out.tmp" && mv "$out.tmp" "$out"
+    echo "Types écrits dans $out" ;;
   psql) shift; exec "$PSQL" "$POOLER" "$@" ;;
-  *) sed -n '2,9p' "$0"; exit 2 ;;
+  *) sed -n '2,10p' "$0"; exit 2 ;;
 esac

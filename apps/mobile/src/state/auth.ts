@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { MockAuth } from '@diaspay/api-client';
+import { API_MODE, createAuthApi } from './backend';
 import type { AuthApi, Persona, PrimaryRole, Profile, Session } from '@diaspay/api-client';
 import { applyLocale } from '../i18n';
 import { api, setPersona } from './api';
@@ -12,7 +13,7 @@ export interface AuthState {
   onboardingSeen: boolean;
 }
 
-// Implémentation simulée derrière AuthApi ; Supabase Auth la remplacera au lot 4.
+// Implémentation choisie à la racine (EXPO_PUBLIC_API) : MockAuth ou SupabaseAuth, derrière AuthApi.
 let authApi: AuthApi = new MockAuth();
 
 let state: AuthState = { ready: false, session: null, onboardingSeen: false };
@@ -46,9 +47,14 @@ let booting: Promise<void> | null = null;
 export function bootstrap(): Promise<void> {
   booting ??= (async () => {
     // L’état de la simulation (dossiers soumis, alertes, journal) est rechargé avant le premier écran.
-    const [session, onboardingSeen, locale] = await Promise.all([loadSession(), loadOnboardingSeen(), loadLocale(), api.hydrate().catch(() => false)]);
+    const [cached, onboardingSeen, locale] = await Promise.all([loadSession(), loadOnboardingSeen(), loadLocale(), api.hydrate().catch(() => false)]);
     if (locale) applyLocale(locale);
-    authApi = new MockAuth({ session });
+    authApi = createAuthApi(cached);
+    let session = cached;
+    if (API_MODE === 'supabase') {
+      // Session Supabase (stockage chiffré) ; hors connexion, le dernier profil connu reste affiché.
+      try { session = await authApi.getSession(); await saveSession(session); } catch { session = cached; }
+    }
     set({ ready: true, session, onboardingSeen });
   })();
   return booting;

@@ -67,6 +67,9 @@ export const fr = {
   err_OTP_WRONG: 'Code incorrect. Il vous reste {remaining} essai(s).',
   err_OTP_EXPIRED: 'Ce code a expiré. Demandez un nouveau code.',
   err_OTP_LOCKED: 'Trop de codes erronés. Ce numéro est bloqué jusqu’à {time}.',
+  // Supabase (décision D5) : ni nombre d’essais restants ni heure de déblocage.
+  otpWrongNoCount: 'Code incorrect. Vérifiez le SMS et réessayez.',
+  otpLockedLater: 'Trop de tentatives. Réessayez dans quelques minutes.',
   err_OTP_RESEND_TOO_SOON: 'Patientez avant de demander un nouveau code.',
   err_NOT_AUTHENTICATED: 'Votre session a expiré. Reconnectez-vous.',
   err_PROFILE_INVALID: 'Renseignez votre nom complet et votre pays de résidence.',
@@ -506,6 +509,9 @@ export const en: Record<Key, string> = {
   err_OTP_WRONG: 'Wrong code. {remaining} attempt(s) left.',
   err_OTP_EXPIRED: 'This code has expired. Request a new code.',
   err_OTP_LOCKED: 'Too many wrong codes. This number is blocked until {time}.',
+  // Supabase (decision D5): no attempts count, no unlock time.
+  otpWrongNoCount: 'Wrong code. Check the SMS and try again.',
+  otpLockedLater: 'Too many attempts. Try again in a few minutes.',
   err_OTP_RESEND_TOO_SOON: 'Please wait before requesting a new code.',
   err_NOT_AUTHENTICATED: 'Your session has expired. Please sign in again.',
   err_PROFILE_INVALID: 'Enter your full name and country of residence.',

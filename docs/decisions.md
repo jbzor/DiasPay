@@ -56,3 +56,15 @@ Choix délégués par le client au prestataire. Chaque décision reste révisabl
   - Dossier soumis ou en validation : ni supprimable ni annulable dans la vague 1.
   - Aucun dossier ayant une ligne d’audit n’est jamais effacé.
 - **Mise en œuvre** : statut `CANCELLED` et transition `REJECTED → CANCELLED` (payeur, demandeur) dans `packages/domain/src/txMachine.ts` ; `abandonRejected` et `deleteDraft` dans `packages/api-client/src/mockApi.ts`.
+
+## D5 — Verrouillage après trois codes SMS erronés
+
+- **Date** : 11 novembre 2026
+- **Statut** : décidé par le chef de projet, révisable
+- **Constat** : le cahier (US-01) demande de bloquer un numéro 15 minutes après trois codes erronés. Supabase Auth ne le fait pas : il limite le débit des demandes et des vérifications (`rate_limit_otp`, `rate_limit_verify`, par heure et par adresse IP) et répond `otp_expired` (« Token has expired or is invalid ») aussi bien pour un code erroné que pour un code expiré, sans compter les essais.
+- **Décision** : pour le pilote, on s’appuie sur la limite de débit de Supabase, sans fonction serveur supplémentaire. Correspondance dans `packages/api-client/src/supabase/errors.ts` (`toAuthError`) :
+  - `otp_expired` avant l’expiration locale du code (300 s après la demande) → `OTP_WRONG`, après → `OTP_EXPIRED` ;
+  - `over_sms_send_rate_limit` → `OTP_RESEND_TOO_SOON` ;
+  - `over_request_rate_limit` ou HTTP 429 → `OTP_LOCKED`, sans heure de déblocage (Supabase ne la donne pas).
+- **Conséquences** : l’écran n’affiche plus « Il vous reste N essai(s) » ni l’heure de déblocage en mode Supabase (messages `otpWrongNoCount` et `otpLockedLater`). Le simulateur garde le comportement du cahier (3 essais, 15 minutes).
+- **Pour revenir au cahier** : une fonction serveur (Edge Function) qui compte les échecs par numéro avant d’appeler la vérification, ou un fournisseur SMS qui verrouille lui-même. À décider avant la mise en production.

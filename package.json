@@ -5,7 +5,9 @@
   "scripts": {
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "capture": "node scripts/design-capture.mjs"
+    "capture": "node scripts/design-capture.mjs",
+    "db:types": "scripts/db.sh types",
+    "db:test": "scripts/db.sh test"
   },
   "devDependencies": {
     "playwright-core": "1.65.0",

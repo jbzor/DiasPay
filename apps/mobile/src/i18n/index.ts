@@ -44,6 +44,8 @@ export function useI18n() {
     const k = `err_${code}` as Key;
     const d = (e as { details?: { remaining?: number; lockedUntil?: string } })?.details ?? {};
     const time = d.lockedUntil ? new Intl.DateTimeFormat(tag, { hour: '2-digit', minute: '2-digit' }).format(new Date(d.lockedUntil)) : '';
+    if (code === 'OTP_WRONG' && d.remaining === undefined) return t('otpWrongNoCount');
+    if (code === 'OTP_LOCKED' && !d.lockedUntil) return t('otpLockedLater');
     return code && k in fr ? t(k, { remaining: d.remaining ?? '', time }) : t('err_generic');
   };
   return { t, locale: loc, date, shortDate, dateTime, money, errorText };

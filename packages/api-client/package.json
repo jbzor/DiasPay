@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@diaspay/domain": "workspace:*"
+    "@diaspay/domain": "workspace:*",
+    "@supabase/supabase-js": "^2.119.0"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

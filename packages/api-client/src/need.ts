@@ -31,6 +31,21 @@ export function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/**
+ * UUID v4 (identifiant de brouillon et de pièce) : le serveur exige un uuid pour un brouillon (save_draft).
+ * crypto.getRandomValues (navigateur, Node, React Native avec react-native-get-random-values), sinon Math.random.
+ */
+export function newUuid(): string {
+  const c = (globalThis as { crypto?: { randomUUID?: () => string; getRandomValues?: (a: Uint8Array) => Uint8Array } }).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  const b = new Uint8Array(16);
+  if (c?.getRandomValues) c.getRandomValues(b); else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  b[6] = (b[6]! & 0x0f) | 0x40;
+  b[8] = (b[8]! & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 /** Comparaison insensible à la casse et aux accents. */
 export const foldText = (s: string): string => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
 

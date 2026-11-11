@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { newId } from '@diaspay/api-client';
+import { newUuid } from '@diaspay/api-client';
 import { emptyDraft, toIsoDate } from '@diaspay/domain';
 import type { NeedContext, NeedDraft, NeedStep } from '@diaspay/domain';
 import { createAutosaver } from '@/features/need/autosave';
@@ -29,7 +29,7 @@ export function needContext(): NeedContext {
 /** Démarre un nouveau besoin (le brouillon est enregistré à la première saisie). */
 export function startNewNeed(): void {
   autosaver.cancel();
-  state = { draft: emptyDraft(newId('need'), new Date()), step: 'type' };
+  state = { draft: emptyDraft(newUuid(), new Date()), step: 'type' };
   notify();
 }
 

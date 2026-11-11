@@ -8,7 +8,9 @@
     "capture": "node scripts/design-capture.mjs",
     "db:types": "scripts/db.sh types",
     "db:test": "scripts/db.sh test",
-    "test:supabase": "set -a && . apps/mobile/.env.local && set +a && SUPABASE_TEST_URL=$EXPO_PUBLIC_SUPABASE_URL SUPABASE_TEST_ANON_KEY=$EXPO_PUBLIC_SUPABASE_ANON_KEY pnpm --filter @diaspay/api-client exec vitest run test/contract"
+    "test:supabase": "set -a && . apps/mobile/.env.local && set +a && SUPABASE_TEST_URL=$EXPO_PUBLIC_SUPABASE_URL SUPABASE_TEST_ANON_KEY=$EXPO_PUBLIC_SUPABASE_ANON_KEY pnpm --filter @diaspay/api-client exec vitest run test/contract",
+    "build": "turbo run build",
+    "dev:web": "pnpm --filter @diaspay/web dev"
   },
   "devDependencies": {
     "playwright-core": "1.65.0",

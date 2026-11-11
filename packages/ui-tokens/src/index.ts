@@ -52,6 +52,23 @@ export const disabledSurface = '#F1EEE3';
 /** Fond du contrôle segmenté et des surfaces neutres. */
 export const neutralTint = '#ECE8D8';
 
+/**
+ * Bureau de contrôle (web, lot 5). Mêmes principes que la maquette : listes à filets, ligne choisie sur fond blanc,
+ * anneau de focus vert foncé, voile des fenêtres de confirmation.
+ */
+export const backoffice = {
+  /** Ligne survolée ou choisie dans un tableau. */
+  rowSelected: palette.card,
+  /** Anneau de focus clavier (3:1 minimum sur l’ivoire et le blanc). */
+  focusRing: palette.greenDark,
+  /** Voile derrière une fenêtre de confirmation (encre à 45 %). */
+  overlay: 'rgba(20, 35, 26, 0.45)',
+  /** Fond du visionneur de pièces. */
+  viewerBg: '#EFEBDD',
+  /** Empreintes et références (police à chasse fixe). */
+  hashText: '#3A4A40',
+} as const;
+
 export const spacing ={ xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24 } as const;
 export const radius = { sm: 10, md: 12, lg: 16, xl: 20, pill: 999 } as const;
 export const touchTarget = 44;

@@ -48,6 +48,7 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `VALIDATION` | D, S, C | Dossier incomplet ou saisie invalide |
 | `AMOUNT_INVALID` | D | Montant invalide |
 | `AMOUNT_DECIMALS` | D | Trop de décimales pour la devise |
+| `AMOUNT_NOT_CHECKED` | S | Approbation sans la case « J’ai vérifié que le montant correspond aux pièces » (D6, lot 5 : `decide_tx`) |
 | `BAD_DATE` | D | Date invalide |
 | `PHONE_INVALID` | D, S | Numéro de téléphone invalide |
 | `REASON_REQUIRED` | S, C | Motif obligatoire (rejet, décision de litige) |
@@ -102,6 +103,8 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `DISPUTE_NOT_ALLOWED` | D, S | Litige impossible dans cet état ou après le délai |
 | `NO_OPEN_DISPUTE` | D, S, C | Aucun litige en cours |
 | `INVALID_OUTCOME` | S | Issue de litige inconnue |
+| `NOT_RESPONDENT` | S | Seule la partie adverse (celle qui n’a pas ouvert le litige) répond (lot 5 : `respond_dispute`) |
+| `ALREADY_ANSWERED` | S | Le litige a déjà une réponse (lot 5) |
 
 ## Démonstration
 

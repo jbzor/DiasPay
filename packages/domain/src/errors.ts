@@ -32,6 +32,7 @@ export const ERROR_CODES = {
   VALIDATION: 'D S C — dossier incomplet ou saisie invalide',
   AMOUNT_INVALID: 'D — montant invalide',
   AMOUNT_DECIMALS: 'D — trop de décimales pour la devise',
+  AMOUNT_NOT_CHECKED: 'S — approbation sans la case « montant vérifié » (décision D6, lot 5)',
   BAD_DATE: 'D — date invalide',
   PHONE_INVALID: 'D S — numéro de téléphone invalide',
   REASON_REQUIRED: 'S C — motif obligatoire (rejet, décision de litige)',
@@ -70,6 +71,8 @@ export const ERROR_CODES = {
   DISPUTE_NOT_ALLOWED: 'D S — litige impossible dans cet état ou après le délai',
   NO_OPEN_DISPUTE: 'D S C — aucun litige en cours',
   INVALID_OUTCOME: 'S — issue de litige inconnue',
+  NOT_RESPONDENT: 'S — seule la partie adverse répond à un litige (lot 5)',
+  ALREADY_ANSWERED: 'S — le litige a déjà une réponse (lot 5)',
   // Démonstration
   DEMO_DISABLED: 'S — simulation refusée : le serveur n’est pas en mock_mode',
   DEMO_NO_VALIDATOR: 'S — aucun validateur de démonstration (seed non exécuté)',

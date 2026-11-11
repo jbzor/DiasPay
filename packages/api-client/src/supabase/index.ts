@@ -5,6 +5,7 @@ export { SupabaseAuth } from './auth';
 export type { DevicePrefs } from './auth';
 export { createDiasPayClient, assertPublicKey } from './client';
 export type { ClientConfig, SessionStorage } from './client';
-export { setErrorLogger, toAuthError, toDomainError } from './errors';
+export { setErrorLogger, toAuthError, toDomainError, unwrap, unwrapMaybe } from './errors';
+export type { Database, Json } from './database.types';
 export type { ErrorLogger } from './errors';
 export * as convert from './convert';

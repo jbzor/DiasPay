@@ -33,7 +33,8 @@ export interface Money {
 
 export type Actor =
   | { kind: 'SYSTEM' }
-  | { kind: 'USER'; roles: readonly TxRole[]; isValidator: boolean };
+  /** isAdmin : rôle de plateforme ADMIN (is_admin() côté serveur), seul habilité à trancher un litige. */
+  | { kind: 'USER'; roles: readonly TxRole[]; isValidator: boolean; isAdmin?: boolean };
 
 export interface TrancheDraft {
   label: string;

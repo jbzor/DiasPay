@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ERROR_CODES } from '@diaspay/domain';
 import { en, fr } from '../src/i18n/messages';
 
 const placeholders = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
@@ -32,5 +33,10 @@ describe('parité i18n', () => {
       expect(fr).toHaveProperty(`err_${c}`);
       expect(en).toHaveProperty(`err_${c}`);
     }
+  });
+
+  it('chaque code de la table des erreurs (docs/error-codes.md) a un message en français et en anglais', () => {
+    const missing = Object.keys(ERROR_CODES).filter((c) => !(`err_${c}` in fr) || !(`err_${c}` in en));
+    expect(missing).toEqual([]);
   });
 });

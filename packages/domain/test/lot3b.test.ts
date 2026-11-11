@@ -13,15 +13,15 @@ describe('abandon d’un dossier rejeté (D4)', () => {
     expect(transitionTx('REJECTED', 'CANCELLED', user('REQUESTER'))).toBe('CANCELLED');
   });
   it('refusé au prestataire, au validateur et au système', () => {
-    expect(() => transitionTx('REJECTED', 'CANCELLED', user('PROVIDER'))).toThrow(expect.objectContaining({ code: 'TX_TRANSITION_FORBIDDEN' }));
+    expect(() => transitionTx('REJECTED', 'CANCELLED', user('PROVIDER'))).toThrow(expect.objectContaining({ code: 'TRANSITION_FORBIDDEN' }));
     expect(canTransitionTx('REJECTED', 'CANCELLED', { kind: 'USER', roles: [], isValidator: true })).toBe(false);
     expect(canTransitionTx('REJECTED', 'CANCELLED', { kind: 'SYSTEM' })).toBe(false);
   });
   it('aucune autre transition vers CANCELLED', () => {
     for (const from of ['DRAFT', 'SUBMITTED', 'IN_REVIEW', 'VALIDATED', 'TOKEN_ISSUED', 'IN_PROGRESS', 'CLOSED', 'DISPUTED'] as const) {
-      expect(() => transitionTx(from, 'CANCELLED', user('PAYER'))).toThrow(expect.objectContaining({ code: 'TX_TRANSITION_UNKNOWN' }));
+      expect(() => transitionTx(from, 'CANCELLED', user('PAYER'))).toThrow(expect.objectContaining({ code: 'TRANSITION_UNKNOWN' }));
     }
-    expect(() => transitionTx('CANCELLED', 'DRAFT', user('PAYER'))).toThrow(expect.objectContaining({ code: 'TX_TRANSITION_UNKNOWN' }));
+    expect(() => transitionTx('CANCELLED', 'DRAFT', user('PAYER'))).toThrow(expect.objectContaining({ code: 'TRANSITION_UNKNOWN' }));
   });
 });
 
@@ -89,13 +89,23 @@ describe('journal d’audit chaîné', () => {
 });
 
 import { resolveDisputeTransition } from '../src';
-describe('décision d’un litige', () => {
+describe('décision d’un litige (RG-09 : administrateur non partie)', () => {
+  const admin: Actor = { kind: 'USER', roles: [], isValidator: true, isAdmin: true };
   const validator: Actor = { kind: 'USER', roles: [], isValidator: true };
-  it('libère ou rembourse, uniquement par un validateur non partie', () => {
-    expect(resolveDisputeTransition({ status: 'DISPUTED' }, 'RELEASED', validator)).toBe('RELEASED');
-    expect(resolveDisputeTransition({ status: 'DISPUTED' }, 'REFUNDED', validator)).toBe('CANCELLED');
-    expect(() => resolveDisputeTransition({ status: 'DISPUTED' }, 'RELEASED', user('PAYER'))).toThrow(expect.objectContaining({ code: 'TR_TRANSITION_FORBIDDEN' }));
-    expect(() => resolveDisputeTransition({ status: 'DISPUTED' }, 'RELEASED', { kind: 'USER', roles: ['PAYER'], isValidator: true })).toThrow();
-    expect(() => resolveDisputeTransition({ status: 'CONFIRMED' }, 'RELEASED', validator)).toThrow(expect.objectContaining({ code: 'TR_NOT_DISPUTED' }));
+  it('libère ou rembourse quand un administrateur non partie décide', () => {
+    expect(resolveDisputeTransition({ status: 'DISPUTED' }, 'RELEASED', admin)).toBe('RELEASED');
+    expect(resolveDisputeTransition({ status: 'DISPUTED' }, 'REFUNDED', admin)).toBe('CANCELLED');
+  });
+  it('refuse un validateur, même non partie (ADMIN_ONLY, comme resolve_dispute())', () => {
+    expect(() => resolveDisputeTransition({ status: 'DISPUTED' }, 'RELEASED', validator)).toThrow(expect.objectContaining({ code: 'ADMIN_ONLY' }));
+    expect(() => resolveDisputeTransition({ status: 'DISPUTED' }, 'RELEASED', user('PAYER'))).toThrow(expect.objectContaining({ code: 'ADMIN_ONLY' }));
+    expect(() => resolveDisputeTransition({ status: 'DISPUTED' }, 'RELEASED', { kind: 'SYSTEM' })).toThrow(expect.objectContaining({ code: 'ADMIN_ONLY' }));
+  });
+  it('refuse un administrateur partie au dossier', () => {
+    expect(() => resolveDisputeTransition({ status: 'DISPUTED' }, 'RELEASED', { ...admin, roles: ['PAYER'] }))
+      .toThrow(expect.objectContaining({ code: 'VALIDATOR_IS_PARTY' }));
+  });
+  it('refuse une tranche qui n’est pas en litige', () => {
+    expect(() => resolveDisputeTransition({ status: 'CONFIRMED' }, 'RELEASED', admin)).toThrow(expect.objectContaining({ code: 'NO_OPEN_DISPUTE' }));
   });
 });

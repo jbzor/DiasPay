@@ -1,0 +1,143 @@
+# Codes d’erreur
+
+Table unique des codes d’erreur stables (lot 4). La source de vérité est `packages/domain/src/errors.ts` ; un test (`packages/domain/test/errors.test.ts`) vérifie que chaque code levé par les fonctions SQL et par le code TypeScript y figure, et que ce document les liste tous.
+
+## Transport
+
+- **Serveur** : `raise exception using errcode = 'P0001', message = <texte>, hint = <CODE>, detail = <précision>` (fonction `_err`, migration 0005). Le client lit **uniquement `hint`** ; le message est destiné aux journaux.
+- **Client** : `SupabaseApi` convertit toute erreur PostgREST en `DomainError(code)` à partir de `hint`. Une erreur sans `hint` reconnu devient `UNEXPECTED` : elle est journalisée, et l’utilisateur voit le message générique (`err_generic`), jamais le texte brut.
+- **Application** : `errorText(e)` affiche `err_<CODE>` (français et anglais) ; un test vérifie qu’il existe une traduction pour chaque code.
+- `detail` porte une précision exploitable : le type de pièce manquant pour `DOCUMENT_REQUIRED`, `{sum,total,gap}` (JSON) pour `PLAN_SUM_MISMATCH`.
+
+Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le simulateur), **S** fonction SQL, **C** client (application, simulateur, authentification). Une règle marquée D et S est implémentée et testée des deux côtés (`packages/domain/test`, `supabase/tests/01_lot4.sql`).
+
+
+## Session et accès
+
+| Code | Origine | Signification |
+|---|---|---|
+| `NOT_AUTHENTICATED` | S, C | Aucune session ou session expirée |
+| `NOT_FOUND` | S, C | Élément introuvable (alerte, pièce) |
+| `TX_NOT_FOUND` | S, C | Transaction ou brouillon introuvable, ou inaccessible (RLS) |
+| `TRANCHE_NOT_FOUND` | S, C | Tranche introuvable, ou inaccessible |
+| `NOT_A_PARTY` | D, S | L’utilisateur n’est pas partie au dossier |
+| `PROVIDER_ONLY` | D, S | Réservé au prestataire |
+| `PAYER_ONLY` | S | Réservé au payeur (déblocage anticipé) |
+| `VALIDATOR_ONLY` | D, S | Réservé aux validateurs |
+| `VALIDATOR_IS_PARTY` | D, S | Un validateur ou administrateur partie au dossier ne peut pas décider |
+| `ADMIN_ONLY` | D, S | Réservé aux administrateurs (litiges, RG-09) |
+
+## Machine d’états
+
+| Code | Origine | Signification |
+|---|---|---|
+| `TRANSITION_UNKNOWN` | D, S | Transition inexistante depuis l’état courant |
+| `TRANSITION_FORBIDDEN` | D, S | Transition interdite pour ce rôle |
+| `TX_NOT_ACTIVE` | D, S | La transaction n’est pas en cours (IN_PROGRESS) |
+| `TX_CONTEXT_REQUIRED` | D | Contexte de soumission manquant (erreur de programmation) |
+| `NOT_IN_REVIEW` | S | Le dossier n’est pas en validation |
+| `ALREADY_DECIDED` | S | Ce validateur a déjà décidé |
+| `NOT_EDITABLE` | S | Seul un brouillon (ou un dossier rejeté) se modifie |
+| `NOT_REJECTED` | C | Seul un dossier rejeté se corrige |
+| `VERTICAL_UNAVAILABLE` | S | Type de besoin non ouvert (vague 2) |
+
+## Saisie
+
+| Code | Origine | Signification |
+|---|---|---|
+| `VALIDATION` | D, S, C | Dossier incomplet ou saisie invalide |
+| `AMOUNT_INVALID` | D | Montant invalide |
+| `AMOUNT_DECIMALS` | D | Trop de décimales pour la devise |
+| `BAD_DATE` | D | Date invalide |
+| `PHONE_INVALID` | D, S | Numéro de téléphone invalide |
+| `REASON_REQUIRED` | S, C | Motif obligatoire (rejet, décision de litige) |
+| `REASON_TOO_SHORT` | D, S | Description de litige trop courte (10 caractères) |
+| `PROFILE_INVALID` | C | Nom ou pays de résidence manquant |
+
+## Plan de paiement
+
+| Code | Origine | Signification |
+|---|---|---|
+| `PLAN_EMPTY` | D, S | Aucune tranche |
+| `PLAN_SUM_MISMATCH` | D, S | La somme des tranches diffère du total (detail : sum, total, gap) |
+| `PLAN_BAD_AMOUNT` | D, S | Tranche de montant nul ou négatif |
+| `PLAN_BAD_COUNT` | D, S | Nombre d’échéances hors de 2 à 60 |
+| `PLAN_TOO_SMALL` | D, S | Montant trop faible pour ce nombre d’échéances |
+
+## Pièces
+
+| Code | Origine | Signification |
+|---|---|---|
+| `TX_NO_DOCUMENT` | D, S | Aucune pièce justificative |
+| `DOCUMENT_REQUIRED` | D, S, C | Pièce obligatoire manquante (detail : type de pièce) |
+| `TOO_MANY_FILES` | D, S | Plus de 3 fichiers pour un type de pièce |
+| `FILE_TOO_LARGE` | D, S | Fichier vide ou de plus de 10 Mo |
+| `FILE_TYPE` | D, S | Format autre que JPEG, PNG ou PDF |
+| `UPLOAD_FAILED` | C | Envoi du fichier interrompu |
+| `AUDITED_FILE` | S, C | Dossier audité : ni suppression ni effacement de fichier |
+
+## Jetons et confirmation
+
+| Code | Origine | Signification |
+|---|---|---|
+| `NO_TOKEN` | C | Jeton pas encore émis pour cette tranche |
+| `EQR_MALFORMED` | D | QR illisible ou étranger à DiasPay |
+| `UNKNOWN_REFERENCE` | D, S | Référence d’eQR inconnue |
+| `TOKEN_USED` | D, S | EQR déjà utilisé |
+| `TOKEN_EXPIRED` | D, S | EQR expiré |
+| `DEVICE_TIME_INVALID` | D, S | Heure de l’appareil incohérente |
+| `NOT_PAID` | D, S | Tranche non payée ou déjà traitée |
+| `NOT_PAYABLE` | D, S | Tranche non ouverte au paiement |
+| `WRONG_MODE` | D, S | La tranche ne se confirme pas par scan |
+| `WRONG_CONFIRMER` | D, S | Ce rôle ne confirme pas cette tranche |
+| `NO_EVIDENCE_NEEDED` | D, S | La tranche ne requiert pas de preuve |
+| `EVIDENCE_MISSING` | D, S | Aucune pièce probante déposée |
+| `NO_EVIDENCE_PENDING` | S | Aucune preuve en attente de décision |
+| `NOT_RELEASED` | S, C | Reçu demandé pour une tranche non débloquée |
+
+## Litiges
+
+| Code | Origine | Signification |
+|---|---|---|
+| `DISPUTE_NOT_ALLOWED` | D, S | Litige impossible dans cet état ou après le délai |
+| `NO_OPEN_DISPUTE` | D, S, C | Aucun litige en cours |
+| `INVALID_OUTCOME` | S | Issue de litige inconnue |
+
+## Démonstration
+
+| Code | Origine | Signification |
+|---|---|---|
+| `DEMO_DISABLED` | S | Simulation refusée : le serveur n’est pas en mock_mode |
+| `DEMO_NO_VALIDATOR` | S | Aucun validateur de démonstration (seed non exécuté) |
+
+## Authentification (décision D5 pour le verrouillage)
+
+| Code | Origine | Signification |
+|---|---|---|
+| `OTP_FORMAT` | C | Le code comporte 6 chiffres |
+| `OTP_NOT_REQUESTED` | C | Aucun code en cours |
+| `OTP_WRONG` | C | Code incorrect |
+| `OTP_EXPIRED` | C | Code expiré (ou erroné, côté Supabase : voir D5) |
+| `OTP_LOCKED` | C | Trop de tentatives (limite de débit Supabase) |
+| `OTP_RESEND_TOO_SOON` | C | Nouvelle demande de code trop tôt |
+
+## Transport
+
+| Code | Origine | Signification |
+|---|---|---|
+| `OFFLINE` | C | Hors connexion : action impossible |
+| `UNEXPECTED` | C | Erreur sans code (journalisée, message générique) |
+
+## Codes renommés au lot 4
+
+| Ancien code | Nouveau code |
+|---|---|
+| `TX_TRANSITION_FORBIDDEN`, `TR_TRANSITION_FORBIDDEN` | `TRANSITION_FORBIDDEN` |
+| `TX_TRANSITION_UNKNOWN`, `TR_TRANSITION_UNKNOWN` | `TRANSITION_UNKNOWN` |
+| `TR_WRONG_CONFIRMER` | `WRONG_CONFIRMER` |
+| `TR_NO_EVIDENCE_NEEDED` | `NO_EVIDENCE_NEEDED` |
+| `TR_EVIDENCE_MISSING` | `EVIDENCE_MISSING` |
+| `TR_NOT_DISPUTED` | `NO_OPEN_DISPUTE` |
+| `NOT_FOUND` (transaction, brouillon, tranche) | `TX_NOT_FOUND`, `TRANCHE_NOT_FOUND` |
+
+Un validateur qui tente une transition réservée reçoit désormais `VALIDATOR_ONLY` (non validateur) ou `VALIDATOR_IS_PARTY` (partie au dossier), comme `transition_tx()`, au lieu de `TRANSITION_FORBIDDEN`. Le règlement d’un litige exige un administrateur (`ADMIN_ONLY`), comme `resolve_dispute()` depuis 0003.

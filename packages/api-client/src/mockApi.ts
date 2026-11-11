@@ -67,6 +67,8 @@ export interface MockUser { id: string; role: 'PAYER' | 'REQUESTER' | 'PROVIDER'
 
 /** Bureau de contrôle simulé : validateur non partie au dossier. */
 const VALIDATOR: Actor = { kind: 'USER', roles: [], isValidator: true };
+/** Administrateur simulé, non partie (RG-09 : seul un administrateur tranche un litige). */
+const ADMIN: Actor = { kind: 'USER', roles: [], isValidator: true, isAdmin: true };
 const sleep = (ms: number) => (ms > 0 ? new Promise<void>((r) => setTimeout(r, ms)) : Promise.resolve());
 
 function actorFor(p: Persona): Actor {
@@ -323,7 +325,7 @@ export class MockApi implements TransactionApi {
       const tr = tx.tranches.find((t) => t.id === trancheId);
       if (tr) return { tx, tr };
     }
-    throw new DomainError('NOT_FOUND', 'Tranche introuvable');
+    throw new DomainError('TRANCHE_NOT_FOUND', 'Tranche introuvable');
   }
 
   private apply(trancheId: string, to: TrancheStatus, actor: Actor, event: string): Transaction {
@@ -356,7 +358,7 @@ export class MockApi implements TransactionApi {
   async listTransactions() { return this.visible; }
   async getTransaction(id: string) {
     const tx = this.txs.find((t) => t.id === id);
-    if (!tx) throw new DomainError('NOT_FOUND', 'Transaction introuvable');
+    if (!tx) throw new DomainError('TX_NOT_FOUND', 'Transaction introuvable');
     return tx;
   }
   async payTranche(trancheId: string) {
@@ -462,7 +464,7 @@ export class MockApi implements TransactionApi {
     if (!dispute || dispute.status !== 'OPEN') throw new ApiError('NO_OPEN_DISPUTE', 'Aucun litige en cours sur cette tranche');
     if (decision.note.trim().length < 3) throw new ApiError('REASON_REQUIRED', 'Note de décision obligatoire');
     const now = this.clock().toISOString();
-    tr.status = resolveDisputeTransition(tr, decision.outcome, VALIDATOR);
+    tr.status = resolveDisputeTransition(tr, decision.outcome, ADMIN);
     if (tr.status === 'RELEASED') tr.releasedAt = now;
     dispute.status = decision.outcome === 'RELEASED' ? 'RELEASED_TO_PROVIDER' : 'REFUNDED_TO_PAYER';
     dispute.resolvedAt = now;
@@ -492,7 +494,7 @@ export class MockApi implements TransactionApi {
   async abandonRejected(txId: string): Promise<Transaction> {
     const user = this.requireUser();
     const tx = await this.getTransaction(txId);
-    if (tx.ownerId && tx.ownerId !== user.id) throw new ApiError('NOT_FOUND', 'Transaction introuvable');
+    if (tx.ownerId && tx.ownerId !== user.id) throw new ApiError('TX_NOT_FOUND', 'Transaction introuvable');
     if (tx.status !== 'REJECTED') throw new ApiError('NOT_REJECTED', 'Seul un dossier rejeté peut être abandonné');
     tx.status = transitionTx(tx.status, 'CANCELLED', this.creatorActor());
     this.record(tx.id, 'TX_ABANDONED', undefined, undefined, user.role.toLowerCase());
@@ -514,7 +516,7 @@ export class MockApi implements TransactionApi {
   private async ownDraft(id: string): Promise<NeedDraft> {
     const user = this.requireUser();
     const d = await this.drafts.get(id);
-    if (!d || (d.ownerId && d.ownerId !== user.id)) throw new ApiError('NOT_FOUND', 'Brouillon introuvable');
+    if (!d || (d.ownerId && d.ownerId !== user.id)) throw new ApiError('TX_NOT_FOUND', 'Brouillon introuvable');
     return d;
   }
 
@@ -537,7 +539,7 @@ export class MockApi implements TransactionApi {
     const user = this.requireUser();
     const existing = await this.drafts.get(draft.id);
     if ((existing?.ownerId && existing.ownerId !== user.id) || (draft.ownerId && draft.ownerId !== user.id)) {
-      throw new ApiError('NOT_FOUND', 'Brouillon introuvable');
+      throw new ApiError('TX_NOT_FOUND', 'Brouillon introuvable');
     }
     const saved: NeedDraft = { ...draft, ownerId: user.id, updatedAt: this.clock().toISOString() };
     await this.drafts.put(saved);
@@ -624,7 +626,7 @@ export class MockApi implements TransactionApi {
   async reopenForCorrection(txId: string): Promise<NeedDraft> {
     const user = this.requireUser();
     const tx = await this.getTransaction(txId);
-    if (tx.ownerId && tx.ownerId !== user.id) throw new ApiError('NOT_FOUND', 'Transaction introuvable');
+    if (tx.ownerId && tx.ownerId !== user.id) throw new ApiError('TX_NOT_FOUND', 'Transaction introuvable');
     if (tx.status !== 'REJECTED') throw new ApiError('NOT_REJECTED', 'Seul un dossier rejeté se corrige');
     const reason = tx.rejectionReason;
     tx.status = transitionTx(tx.status, 'DRAFT', this.creatorActor());

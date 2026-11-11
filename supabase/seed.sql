@@ -50,6 +50,32 @@ from (values
 ) as d(phone, full_name, role)
 where p.phone = d.phone;
 
+-- Prestataires vérifiés (noms fictifs), Yaoundé et Douala. Ceux qui portent le numéro du compte prestataire
+-- de démonstration (+33 6 39 98 00 03) lui sont rattachés à son inscription (ou dès maintenant s’il existe).
+insert into providers(name, city, verticals, verified, phone)
+select v.name, v.city, v.verticals, true, v.phone
+from (values
+  ('Collège Les Manguiers',            'Yaoundé', '{EDUCATION}'::text[], '+33639980003'),
+  ('Lycée Bilingue de l’Étoile',       'Yaoundé', '{EDUCATION}'::text[], null),
+  ('Institut Supérieur Akwa',          'Douala',  '{EDUCATION}'::text[], null),
+  ('École Primaire La Ruche',          'Douala',  '{EDUCATION}'::text[], null),
+  ('Université Privée du Mfoundi',     'Yaoundé', '{EDUCATION}'::text[], null),
+  ('Clinique Sainte-Élise',            'Yaoundé', '{HEALTH}'::text[],    '+33639980003'),
+  ('Centre Médical Bonapriso',         'Douala',  '{HEALTH}'::text[],    null),
+  ('Polyclinique du Wouri',            'Douala',  '{HEALTH}'::text[],    null),
+  ('Cabinet Dentaire Essos',           'Yaoundé', '{HEALTH}'::text[],    null),
+  ('Pharmacie de la Cité Verte',       'Yaoundé', '{HEALTH}'::text[],    null),
+  ('Agence Immobilière Bastos',        'Yaoundé', '{RENT}'::text[],      '+33639980003'),
+  ('Résidences Bonanjo',               'Douala',  '{RENT}'::text[],      null),
+  ('Gestion Locative Makepe',          'Douala',  '{RENT}'::text[],      null),
+  ('Cité Universitaire Ngoa-Ekellé',   'Yaoundé', '{RENT,EDUCATION}'::text[], null),
+  ('Coopérative Agricole du Moungo',   'Douala',  '{AGRO}'::text[],      null)
+) as v(name, city, verticals, phone)
+where not exists (select 1 from providers p where p.name = v.name);
+update providers p set user_id = pr.id from profiles pr
+where p.user_id is null and p.phone is not null and _norm_phone(pr.phone) = _norm_phone(p.phone);
+
 commit;
 
 select phone, full_name, platform_role from profiles where phone like '3363998000%' order by phone;
+select count(*) as prestataires, count(user_id) as rattaches from providers;

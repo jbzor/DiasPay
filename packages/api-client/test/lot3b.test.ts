@@ -102,7 +102,7 @@ describe('litiges', () => {
     expect(await api.getDispute(trId)).toMatchObject({
       txId: tx.id, trancheId: trId, reason: 'INCOMPLETE', description: 'Une partie des soins manque.', openedBy: 'PAYER', status: 'OPEN',
     });
-    expect(await code(api.getDispute('tr-inconnue'))).toBe('NOT_FOUND');
+    expect(await code(api.getDispute('tr-inconnue'))).toBe('TRANCHE_NOT_FOUND');
   });
   it('libération : tranche débloquée, reçu disponible', async () => {
     const { api, trId } = await disputed();

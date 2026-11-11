@@ -48,10 +48,15 @@ export function transitionTx(
   ctx?: SubmitContext,
 ): TxStatus {
   if (!allowedFor(status, to)) {
-    throw new DomainError('TX_TRANSITION_UNKNOWN', `Transition ${status} -> ${to} non autorisée`);
+    throw new DomainError('TRANSITION_UNKNOWN', `Transition ${status} -> ${to} non autorisée`);
+  }
+  if (actor.kind === 'USER' && allowedFor(status, to)?.includes('VALIDATOR')) {
+    // Mêmes codes que transition_tx() : VALIDATOR_ONLY, puis VALIDATOR_IS_PARTY.
+    if (!actor.isValidator) throw new DomainError('VALIDATOR_ONLY', 'Réservé aux validateurs');
+    if (actor.roles.length > 0) throw new DomainError('VALIDATOR_IS_PARTY', 'Un validateur ne peut pas agir sur un dossier dont il est partie');
   }
   if (!canTransitionTx(status, to, actor)) {
-    throw new DomainError('TX_TRANSITION_FORBIDDEN', `Rôle non autorisé pour ${status} -> ${to}`);
+    throw new DomainError('TRANSITION_FORBIDDEN', `Rôle non autorisé pour ${status} -> ${to}`);
   }
   if (status === 'DRAFT' && to === 'SUBMITTED') {
     if (!ctx) throw new DomainError('TX_CONTEXT_REQUIRED', 'Contexte de soumission manquant');

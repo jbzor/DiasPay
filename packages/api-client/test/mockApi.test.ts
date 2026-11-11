@@ -93,7 +93,7 @@ describe('MockApi — TrustToken et eQR', () => {
     expect(tok.simulated).toBe(true);
     expect(tok.expiresAt).toBe('2026-11-15T10:00:00.000Z');
     expect(await code(api.getToken(tx.tranches[2]!.id))).toBe('NO_TOKEN');
-    expect(await code(api.getToken('inconnu'))).toBe('NOT_FOUND');
+    expect(await code(api.getToken('inconnu'))).toBe('TRANCHE_NOT_FOUND');
   });
   it('toutes les références du jeu de démonstration sont uniques et en 18 hex', async () => {
     const { api } = make();

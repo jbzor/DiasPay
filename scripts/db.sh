@@ -33,7 +33,11 @@ case "${1:-}" in
     for f in supabase/tests/[0-9][0-9]_*.sql; do
       echo "== $f"
       if [ "${VERBOSE:-0}" = 1 ]; then run_sql "$f" || status=1
-      else run_sql "$f" | grep -E "FAIL|RESULTAT|ECHEC|ERROR|ERREUR" || true; [ "${PIPESTATUS[0]}" = 0 ] || status=1; fi
+      else
+        out="$(run_sql "$f")" && rc=0 || rc=$?
+        printf '%s\n' "$out" | grep -E "FAIL|RESULTAT|ECHEC" || true
+        if [ "$rc" != 0 ]; then status=1; echo "-- arrêt sur erreur :"; printf '%s\n' "$out" | tail -8; fi
+      fi
     done
     exit $status ;;
   push) supabase db push --db-url "$DB_URL" ;;

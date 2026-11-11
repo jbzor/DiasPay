@@ -66,7 +66,7 @@ export default function TokenScreen() {
       <Screen>
         <TopBar title={t('tokenReadyTitle')} />
         {load.kind === 'loading' ? <Text style={st.muted} accessibilityLiveRegion="polite">{t('loading')}</Text> : null}
-        {load.kind === 'notfound' ? <Banner tone="error" text={t('err_NOT_FOUND')} /> : null}
+        {load.kind === 'notfound' ? <Banner tone="error" text={t('err_TRANCHE_NOT_FOUND')} /> : null}
         {load.kind === 'error' ? (
           <>
             <Banner tone="error" text={t('loadFailed')} />

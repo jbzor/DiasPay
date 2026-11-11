@@ -9,3 +9,4 @@ export * from './phone';
 export * from './documents';
 export * from './need';
 export * from './audit';
+export * from './errors';

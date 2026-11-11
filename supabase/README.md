@@ -41,11 +41,31 @@ Couvert, exécuté sur PostgreSQL 16 avec un schéma Supabase émulé (`tests/lo
 Projet de développement `ihyyjenmqadzwqctisbz`, **PostgreSQL 17.11** (l’émulation utilisait PostgreSQL 16).
 
 - **État trouvé** : les migrations 0001 à 0004 avaient déjà été appliquées à la main (éditeur SQL) : 20 tables, `has_audit`, `disputes.reason_code`, bucket `dossiers`, aucune donnée, **aucun historique de migrations**. Le test de fumée a été exécuté tel quel : **67 vérifications, toutes réussies** ; le schéma est conforme. L’historique a ensuite été enregistré sans rien rejouer (`supabase migration repair --status applied 0001 0002 0003 0004`).
-- **`pg_cron` n’est pas installé** sur le projet : les tâches planifiées de la 0003 ne sont pas actives (traité par la migration 0005).
+- **`pg_cron` n’était pas installé** sur le projet : les tâches planifiées de la 0003 n’étaient pas actives (installé et planifié par la migration 0005).
 - **Défaut du test, pas du schéma** : la vérification « profils créés automatiquement » comptait *tous* les profils (`count(*) = 7`) et échouait dès qu’un vrai compte existait. Elle ne compte plus que les sept utilisateurs du test. Résultat après correction, avec les comptes de démonstration présents : 67 vérifications, toutes réussies.
 - Aucune autre différence entre l’émulation et Supabase n’a été constatée par le test de fumée.
 
 Commandes : `scripts/db.sh test`, `scripts/db.sh push`, `scripts/db.sh seed` (voir `docs/supabase-setup.md`).
+
+## Migration 0005 (lot 4) : ce que l’application attend du serveur
+
+Appliquée le 11 novembre 2026 sur le projet de développement (`scripts/db.sh push`). Test : `tests/01_lot4.sql`, **117 vérifications, toutes réussies** ; test de fumée toujours à **67/67**.
+
+- **Codes d’erreur stables** dans `hint` (`_err`), sur toutes les fonctions publiques redéfinies : table dans `docs/error-codes.md`.
+- **Brouillons côté serveur** : `save_draft(jsonb)` (création ou mise à jour en une transaction : dossier, parties, tranches), `get_draft`, `get_drafts`, `delete_draft`. Un brouillon peut être partiel : `purpose`, `amount_minor` et `currency` ne sont plus `NOT NULL` en `DRAFT` (contrainte `tx_complete_unless_draft`) ; l’état brut de l’assistant est conservé dans `draft_data`.
+- **Soumission** : `transition_tx` vérifie désormais, comme le domaine, la verticale ouverte (`app_config.open_verticals`, vague 1), les pièces obligatoires D2 (`required_documents`) et ignore les pièces archivées.
+- **Invitations** : un payeur ou un prestataire invité par numéro est rattaché à la création de son profil (comparaison sur les chiffres seuls : l’authentification enregistre `33639980001`, l’application envoie `+33639980001`).
+- **Prestataires** : table `providers` (lecture authentifiée, écriture administrateur), `search_providers` insensible à la casse et aux accents (`extensions.unaccent`).
+- **Pièces** : `add_document`, `remove_document` (suppression si le dossier n’a jamais été audité, archivage `deleted_at` sinon), limites en base (3 par type, 10 Mo, JPEG / PNG / PDF) et sur le bucket, politiques de suppression.
+- **Notifications** créées par un déclencheur sur `audit_log` (sept types), `payload jsonb` ; le client ne peut modifier que `read_at`.
+- **Lecture** : `get_receipt`, `get_dispute`, `resolve_reference_info`.
+- **Démonstration** : `demo_review`, `demo_resolve_dispute`, `demo_reset`, créées seulement si `mock_mode = 'true'` au moment de la migration, et refusées (`DEMO_DISABLED`) dès que `mock_mode` ne l’est plus. `demo_reset` est la seule exception à l’ajout seul du journal d’audit (drapeau de transaction et `mock_mode`).
+- **pg_cron** installé : `release_due_tranches()` toutes les 10 minutes, `activate_due_tranches()` chaque jour à 06:00 UTC.
+
+Constats sur le projet réel pendant la mise au point :
+- Les **privilèges par défaut** de Supabase donnent `EXECUTE` à `anon` sur toute nouvelle fonction : chaque fonction de 0005 est explicitement retirée à `public` et `anon` (vérifié par le test).
+- Le test de fumée a été mis en conformité avec D2 et la vague 1 (types de pièces `ENROLMENT_CERTIFICATE`, `SUPPORTING_DOCUMENT`, pièce d’identité du bénéficiaire en santé ; terrain ouvert le temps du test). Ses vérifications sont inchangées.
+- Le bucket `dossiers` n’avait aucune limite de taille ni de type : fixées par 0005.
 
 ## Défauts corrigés par la migration 0004
 

@@ -69,7 +69,7 @@ select t.check((select count(*) from create_tranches('10000000-0000-0000-0000-00
 select t.fails($$select transition_tx('10000000-0000-0000-0000-000000000001','SUBMITTED')$$,
   'soumission refusée sans pièce justificative');
 insert into documents(tx_id, kind, storage_path, mime_type, size_bytes, uploaded_by)
- values ('10000000-0000-0000-0000-000000000001','ENROLLMENT_CERT','10000000-0000-0000-0000-000000000001/a.pdf','application/pdf',1000,'00000000-0000-0000-0000-000000000001');
+ values ('10000000-0000-0000-0000-000000000001','ENROLMENT_CERTIFICATE','10000000-0000-0000-0000-000000000001/a.pdf','application/pdf',1000,'00000000-0000-0000-0000-000000000001');
 select t.check((select status from transition_tx('10000000-0000-0000-0000-000000000001','SUBMITTED'))='SUBMITTED',
   'soumission acceptée avec plan et pièce');
 with u as (update transactions set status='VALIDATED' where id='10000000-0000-0000-0000-000000000001' returning 1)
@@ -177,6 +177,7 @@ select t.fails($$update audit_log set event='X' where tx_id='10000000-0000-0000-
 select t.fails($$delete from audit_log where tx_id='10000000-0000-0000-0000-000000000001'$$, 'journal : suppression refusée');
 
 -- ---------- Double validation (terrain) ----------
+update app_config set value = value || ',LAND' where key = 'open_verticals';  -- 0005 : terrain ouvert le temps du test (vague 2)
 select t.login('00000000-0000-0000-0000-000000000001');
 insert into transactions(id, vertical, purpose, amount_minor, currency, created_by)
  values ('20000000-0000-0000-0000-000000000001','LAND','Parcelle',12500000,'XAF','00000000-0000-0000-0000-000000000001');
@@ -185,7 +186,7 @@ insert into transaction_parties(tx_id,user_id,role) values
  ('20000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002','PAYER'),
  ('20000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000003','PROVIDER');
 select count(*) from create_tranches('20000000-0000-0000-0000-000000000001','[{"label":"Promesse","amount_minor":2500000},{"label":"Acte","amount_minor":10000000}]'::jsonb);
-insert into documents(tx_id,kind,storage_path,mime_type,size_bytes,uploaded_by) values ('20000000-0000-0000-0000-000000000001','TITLE','20000000-0000-0000-0000-000000000001/t.pdf','application/pdf',1000,'00000000-0000-0000-0000-000000000001');
+insert into documents(tx_id,kind,storage_path,mime_type,size_bytes,uploaded_by) values ('20000000-0000-0000-0000-000000000001','SUPPORTING_DOCUMENT','20000000-0000-0000-0000-000000000001/t.pdf','application/pdf',1000,'00000000-0000-0000-0000-000000000001');
 select transition_tx('20000000-0000-0000-0000-000000000001','SUBMITTED');
 select t.admin();
 select t.login('00000000-0000-0000-0000-000000000004');
@@ -206,7 +207,8 @@ insert into transaction_parties(tx_id,user_id,role) values
  ('30000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002','PAYER'),
  ('30000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000003','PROVIDER');
 select count(*) from create_tranches('30000000-0000-0000-0000-000000000001','[{"label":"Soins","amount_minor":180000}]'::jsonb);
-insert into documents(tx_id,kind,storage_path,mime_type,size_bytes,uploaded_by) values ('30000000-0000-0000-0000-000000000001','QUOTE','30000000-0000-0000-0000-000000000001/q.pdf','application/pdf',1000,'00000000-0000-0000-0000-000000000001');
+insert into documents(tx_id,kind,storage_path,mime_type,size_bytes,uploaded_by) values ('30000000-0000-0000-0000-000000000001','QUOTE','30000000-0000-0000-0000-000000000001/q.pdf','application/pdf',1000,'00000000-0000-0000-0000-000000000001'),
+ ('30000000-0000-0000-0000-000000000001','BENEFICIARY_ID','30000000-0000-0000-0000-000000000001/id.jpg','image/jpeg',1000,'00000000-0000-0000-0000-000000000001');
 select transition_tx('30000000-0000-0000-0000-000000000001','SUBMITTED');
 select t.admin();
 select t.login('00000000-0000-0000-0000-000000000004');
@@ -248,7 +250,8 @@ insert into transaction_parties(tx_id,user_id,role) values
  ('50000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002','PAYER'),
  ('50000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000003','PROVIDER');
 select count(*) from create_tranches('50000000-0000-0000-0000-000000000001','[{"label":"Soins","amount_minor":1000}]'::jsonb);
-insert into documents(tx_id,kind,storage_path,mime_type,size_bytes,uploaded_by) values ('50000000-0000-0000-0000-000000000001','QUOTE','50000000-0000-0000-0000-000000000001/q.pdf','application/pdf',10,'00000000-0000-0000-0000-000000000001');
+insert into documents(tx_id,kind,storage_path,mime_type,size_bytes,uploaded_by) values ('50000000-0000-0000-0000-000000000001','QUOTE','50000000-0000-0000-0000-000000000001/q.pdf','application/pdf',10,'00000000-0000-0000-0000-000000000001'),
+ ('50000000-0000-0000-0000-000000000001','BENEFICIARY_ID','50000000-0000-0000-0000-000000000001/id.jpg','image/jpeg',10,'00000000-0000-0000-0000-000000000001');
 select transition_tx('50000000-0000-0000-0000-000000000001','SUBMITTED');
 select t.admin();
 select t.login('00000000-0000-0000-0000-000000000004');

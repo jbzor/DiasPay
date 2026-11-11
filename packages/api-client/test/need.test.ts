@@ -53,8 +53,8 @@ describe('brouillons', () => {
     expect((await api.listTransactions()).some((t) => t.status === 'DRAFT')).toBe(false);
     api.setUser({ id: 'u-autre', role: 'PAYER' });
     expect(await api.listDrafts()).toEqual([]);
-    expect(await code(api.getDraft('need-1'))).toBe('NOT_FOUND');
-    expect(await code(api.saveDraft({ ...emptyDraft('need-1', T0) }))).toBe('NOT_FOUND');
+    expect(await code(api.getDraft('need-1'))).toBe('TX_NOT_FOUND');
+    expect(await code(api.saveDraft({ ...emptyDraft('need-1', T0) }))).toBe('TX_NOT_FOUND');
     api.setUser(null);
     expect(await api.listDrafts()).toEqual([]);
   });
@@ -142,7 +142,7 @@ describe('soumission', () => {
     const { api } = make();
     const d = await healthDraft(api);
     api.setUser({ id: 'u-marie', role: 'PROVIDER' });
-    expect(await code(api.submitNeed(d.id))).toBe('TX_TRANSITION_FORBIDDEN');
+    expect(await code(api.submitNeed(d.id))).toBe('TRANSITION_FORBIDDEN');
   });
 });
 
@@ -195,6 +195,6 @@ describe('bureau de contrôle simulé', () => {
   });
   it('n’agit que sur un dossier en validation', async () => {
     const { api } = make();
-    expect(await code(api.simulateReview('tx-school', { approved: true }))).toBe('TX_TRANSITION_UNKNOWN');
+    expect(await code(api.simulateReview('tx-school', { approved: true }))).toBe('TRANSITION_UNKNOWN');
   });
 });

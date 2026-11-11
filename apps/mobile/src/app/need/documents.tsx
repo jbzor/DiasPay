@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Image, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '@/ui/text';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { newId } from '@diaspay/api-client';
+import { newUuid } from '@diaspay/api-client';
 import { MAX_FILES_PER_KIND, REQUIRED_DOCUMENTS, checkFile, checkFileCount, missingRequiredDocuments } from '@diaspay/domain';
 import type { DocumentKind, DraftDocument } from '@diaspay/domain';
 import { fontSize, palette, radius, semantic, spacing, touchTarget } from '@diaspay/ui-tokens';
@@ -34,7 +34,7 @@ export default function NeedDocuments() {
   const vertical = draft.vertical as NonNullable<typeof draft.vertical>;
   const missing = missingRequiredDocuments(vertical, draft.documents);
 
-  async function upload(kind: DocumentKind, file: PickedFile, id = newId('doc')) {
+  async function upload(kind: DocumentKind, file: PickedFile, id = newUuid()) {
     setError(null);
     try {
       checkFile(file); // contrôle local immédiat (le serveur simulé vérifie aussi)
@@ -46,10 +46,12 @@ export default function NeedDocuments() {
     }
     const placeholder: DraftDocument = { id, kind, name: file.name, mimeType: file.mimeType ?? '', sizeBytes: file.sizeBytes, uri: file.uri, status: 'UPLOADING' };
     dispatch({ type: 'upsertDocument', doc: placeholder });
-    await saveNow(); // le brouillon doit exister côté API avant l’envoi
     try {
+      await saveNow(); // le brouillon doit exister côté API avant l’envoi
       const doc = await api.attachDocument(draft.id, { id, kind, name: file.name, mimeType: file.mimeType, sizeBytes: file.sizeBytes, uri: file.uri },
         (p) => setProgress((s) => ({ ...s, [id]: p })));
+      // Le serveur attribue son propre identifiant à la pièce : la ligne provisoire est remplacée.
+      if (doc.id !== id) dispatch({ type: 'removeDocument', id });
       dispatch({ type: 'upsertDocument', doc });
     } catch (e) {
       dispatch({ type: 'upsertDocument', doc: { ...placeholder, status: 'FAILED' } });

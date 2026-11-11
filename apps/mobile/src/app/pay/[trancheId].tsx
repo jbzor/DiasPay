@@ -4,7 +4,8 @@ import { Text } from '@/ui/text';
 import { router, useLocalSearchParams } from 'expo-router';
 import { fontSize, palette, radius, spacing } from '@diaspay/ui-tokens';
 import { useI18n, verticalLabel } from '@/i18n';
-import { api, useTransactions } from '@/state/api';
+import { api } from '@/state/api';
+import { useTransactions } from '@/state/queries';
 import { biometric } from '@/lib/biometric';
 import { Banner, Button, Card, Divider, Icon, Radio, Row, Screen, TopBar } from '@/ui';
 

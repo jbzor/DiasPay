@@ -10,7 +10,8 @@ import { buildLink, encodeEqr, formatReference } from '@diaspay/domain';
 import type { Tranche, TrancheToken, Transaction } from '@diaspay/api-client';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { trancheStatusKey, useI18n, verticalLabel } from '@/i18n';
-import { api, usePersona, useTransactions } from '@/state/api';
+import { api, usePersona } from '@/state/api';
+import { useTransactions } from '@/state/queries';
 import { LINK_BASE } from '@/lib/env';
 import { tokenState } from '@/lib/expiry';
 import { Banner, Button, Divider, Screen, TopBar } from '@/ui';
@@ -53,7 +54,7 @@ export default function TokenScreen() {
         if (alive) setLoad({ kind: 'ready', tx, tranche, token });
       } catch (e) {
         const code = (e as { code?: string })?.code;
-        if (alive) setLoad({ kind: code === 'NOT_FOUND' || code === 'NO_TOKEN' ? 'notfound' : 'error' });
+        if (alive) setLoad({ kind: code === 'NOT_FOUND' || code === 'TRANCHE_NOT_FOUND' || code === 'TX_NOT_FOUND' || code === 'NO_TOKEN' ? 'notfound' : 'error' });
       }
     })();
     return () => { alive = false; };

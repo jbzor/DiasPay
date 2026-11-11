@@ -7,9 +7,12 @@ import type { TxFilter } from '@diaspay/api-client';
 import type { NeedDraft } from '@diaspay/domain';
 import { fontSize, palette, radius, spacing, touchTarget } from '@diaspay/ui-tokens';
 import { txStatusKey, useI18n, verticalLabel } from '@/i18n';
-import { api, useTransactions } from '@/state/api';
-import { useDrafts } from '@/state/drafts';
-import { openDraft } from '@/state/needWizard';
+import { api } from '@/state/api';
+import { useTransactionsQuery } from '@/state/queries';
+import { QueryGate } from '@/ui/states';
+import { useDraftsQuery } from '@/state/queries';
+import { openDraft, removeLocalDraft } from '@/state/needWizard';
+import { showToast } from '@/ui/Toast';
 import { stepIndex, STEP_COUNT } from '@/features/need/wizard';
 import { Card, Icon, Screen, StatusLabel, Title, txStatusKind } from '@/ui';
 import { Dialog } from '@/ui/Dialog';
@@ -17,7 +20,7 @@ import { Dialog } from '@/ui/Dialog';
 const FILTERS: readonly TxFilter[] = ['ALL', 'ACTIVE', 'REVIEW', 'CLOSED'];
 
 export default function Transactions() {
-  const { t, locale, money, date } = useI18n();
+  const { t, locale, money, date, errorText } = useI18n();
   const params = useLocalSearchParams<{ filter?: string; focus?: string }>();
   const [filter, setFilter] = useState<TxFilter>('ALL');
   const [toDelete, setToDelete] = useState<NeedDraft | null>(null);
@@ -25,8 +28,10 @@ export default function Transactions() {
   useEffect(() => {
     if (params.filter && (FILTERS as readonly string[]).includes(params.filter)) setFilter(params.filter as TxFilter);
   }, [params.filter]);
-  const txs = filterTransactions(useTransactions(), filter);
-  const drafts = useDrafts(api);
+  const q = useTransactionsQuery();
+  const dq = useDraftsQuery();
+  const txs = filterTransactions(q.data ?? [], filter);
+  const drafts = dq.data ?? [];
   const filters = [['ALL', t('all')], ['ACTIVE', t('active')], ['REVIEW', t('toReview')], ['CLOSED', t('closed')]] as const;
 
   function resume(d: NeedDraft) {
@@ -35,7 +40,7 @@ export default function Transactions() {
   }
 
   return (
-    <Screen>
+    <Screen refreshing={q.isRefetching || dq.isRefetching} onRefresh={() => { void q.refetch(); void dq.refetch(); }}>
       <Title>{t('tabTx')}</Title>
       {/* Filtres en pastilles (maquette C1) : contour, pastille active verte. */}
       <View style={st.chips} accessibilityRole="radiogroup" accessibilityLabel={t('filter')}>
@@ -49,6 +54,7 @@ export default function Transactions() {
           );
         })}
       </View>
+      <QueryGate query={q} rows={4}>
       <View>
         {filter === 'ALL' ? drafts.map((d) => {
           const title = d.vertical ? `${verticalLabel(d.vertical, locale)} · ${d.purpose?.trim() || t('untitledDraft')}` : t('untitledDraft');
@@ -93,11 +99,12 @@ export default function Transactions() {
         })}
         {txs.length === 0 && (filter !== 'ALL' || drafts.length === 0) ? <Text style={[st.sub, { paddingVertical: spacing.md }]}>{t('noTx')}</Text> : null}
       </View>
+      </QueryGate>
 
       <Dialog visible={toDelete !== null} danger title={t('deleteDraft')}
         message={t('deleteDraftConfirm')}
         confirmLabel={t('delete')} cancelLabel={t('cancel')} onCancel={() => setToDelete(null)}
-        onConfirm={() => { if (toDelete) void api.deleteDraft(toDelete.id); setToDelete(null); }} />
+        onConfirm={() => { if (toDelete) void api.deleteDraft(toDelete.id).then(() => removeLocalDraft(toDelete.id)).catch((e) => showToast(errorText(e))); setToDelete(null); }} />
     </Screen>
   );
 }

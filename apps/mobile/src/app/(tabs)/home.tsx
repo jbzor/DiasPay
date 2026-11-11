@@ -4,7 +4,9 @@ import { router } from 'expo-router';
 import { currentTrancheIndex, lockedFunds, nextPayment, trancheCount } from '@diaspay/api-client';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { txStatusKey, useI18n, verticalLabel } from '@/i18n';
-import { usePersona, useTransactions } from '@/state/api';
+import { usePersona } from '@/state/api';
+import { useTransactionsQuery } from '@/state/queries';
+import { QueryGate } from '@/ui/states';
 import { useSession } from '@/state/auth';
 import { countryKey, initials } from '@/lib/format';
 import { startNewNeed } from '@/state/needWizard';
@@ -12,7 +14,8 @@ import { Avatar, Button, Card, H2, Screen, StatusLabel, txStatusKind } from '@/u
 
 export default function Home() {
   const { t, locale, money, shortDate: date } = useI18n();
-  const txs = useTransactions();
+  const q = useTransactionsQuery();
+  const txs = q.data ?? [];
   const persona = usePersona();
   const funds = lockedFunds(txs);
   const next = nextPayment(txs);
@@ -20,7 +23,7 @@ export default function Home() {
   const fullName = session?.profile?.fullName ?? '';
   const name = fullName.split(' ')[0] ?? '';
   return (
-    <Screen>
+    <Screen refreshing={q.isRefetching} onRefresh={() => void q.refetch()}>
       <View style={st.header}>
         <View>
           <Text style={st.hello} accessibilityRole="header">{t('hello', { name })}</Text>
@@ -56,6 +59,7 @@ export default function Home() {
       ) : null}
 
       <H2>{t('myTx')}</H2>
+      <QueryGate query={q} rows={3}>
       <View>
         {/* La transaction déjà présentée sous « À faire » n’est pas répétée (maquette B1). */}
         {txs.filter((tx) => tx.id !== next?.tx.id).slice(0, 3).map((tx) => {
@@ -75,6 +79,7 @@ export default function Home() {
           );
         })}
       </View>
+      </QueryGate>
       {session?.profile?.primaryRole !== 'PROVIDER' ? (
         <Button tone="accent" label={t('newNeed')} onPress={() => { startNewNeed(); router.push('/need/type'); }} />
       ) : null}

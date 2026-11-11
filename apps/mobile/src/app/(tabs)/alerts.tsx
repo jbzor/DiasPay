@@ -4,8 +4,10 @@ import type { AppNotification } from '@diaspay/api-client';
 import { fontSize, palette, semantic, spacing, touchTarget } from '@diaspay/ui-tokens';
 import { useI18n, verticalLabel } from '@/i18n';
 import type { Key } from '@/i18n';
-import { api, useTransactions } from '@/state/api';
-import { useNotifications } from '@/state/notifications';
+import { api } from '@/state/api';
+import { useTransactions } from '@/state/queries';
+import { useNotificationsQuery } from '@/state/queries';
+import { QueryGate } from '@/ui/states';
 import { alertKeys, groupByDay } from '@/features/alerts/alerts';
 import { IllustrationBellCheck, Screen } from '@/ui';
 import { Text } from '@/ui/text';
@@ -13,7 +15,8 @@ import { Text } from '@/ui/text';
 /** E1 — Alertes : groupées par jour, non lues marquées d’un point vert ; état vide conçu. */
 export default function Alerts() {
   const { t, locale, date, shortDate, dateTime } = useI18n();
-  const list = useNotifications();
+  const nq = useNotificationsQuery();
+  const list = nq.data ?? null;
   const txs = useTransactions();
   const time = (iso: string) => new Intl.DateTimeFormat(locale === 'fr' ? 'fr-FR' : 'en-GB', { hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
   const fmt = {
@@ -47,7 +50,7 @@ export default function Alerts() {
 
   const hasUnread = (list ?? []).some((n) => !n.readAt);
   return (
-    <Screen>
+    <Screen refreshing={nq.isRefetching} onRefresh={() => void nq.refetch()}>
       <View style={st.head}>
         <Text style={st.title} accessibilityRole="header">{t('alertsTitle')}</Text>
         {hasUnread ? (
@@ -56,6 +59,7 @@ export default function Alerts() {
           </Pressable>
         ) : null}
       </View>
+      {list === null ? <QueryGate query={nq} rows={4} height={56}>{null}</QueryGate> : null}
       {groupByDay(list ?? [], new Date()).map((g) => (
         <View key={g.day}>
           <Text style={st.group} accessibilityRole="header">{groupLabel(g.key, g.day)}</Text>

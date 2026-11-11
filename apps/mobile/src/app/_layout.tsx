@@ -1,3 +1,4 @@
+import 'react-native-get-random-values'; // crypto.getRandomValues (identifiants, chiffrement de la session) avant tout le reste
 import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Stack } from 'expo-router';
@@ -12,7 +13,14 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { palette, semantic, spacing } from '@diaspay/ui-tokens';
 import { ToastHost } from '@/ui/Toast';
 import { Text } from '@/ui/text';
-import { api } from '@/state/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
+import { mockApi } from '@/state/api';
+import { queryClient, useOnline, useRealtime } from '@/state/queries';
+import { OfflineBanner } from '@/ui/states';
+import { API_MODE } from '@/state/backend';
 import { bootstrap, useSession } from '@/state/auth';
 import { canSetup, canUseApp } from '@/lib/flow';
 import { demoReleaseViolation } from '@/lib/releaseGuard';
@@ -24,6 +32,33 @@ void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 const DEMO_IN_RELEASE = demoReleaseViolation({
   dev: __DEV__, demo: process.env.EXPO_PUBLIC_DEMO, allow: process.env.EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE,
 });
+
+// Mode Supabase : le cache des requêtes est conservé sur l’appareil (dernières données connues hors connexion).
+// Le simulateur a sa propre persistance ; son cache n’est pas conservé.
+const persister = API_MODE === 'supabase'
+  ? createAsyncStoragePersister({ storage: AsyncStorage, key: 'diaspay.queries.v1', throttleTime: 2_000 })
+  : null;
+
+function DataProvider({ children }: { children: React.ReactNode }) {
+  if (!persister) return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <PersistQueryClientProvider client={queryClient} persistOptions={{ persister, maxAge: 7 * 24 * 3_600_000, buster: 'lot4' }}>
+      {children}
+    </PersistQueryClientProvider>
+  );
+}
+
+/** Temps réel, bandeau hors connexion et purge du cache à la déconnexion. */
+function DataLifecycle() {
+  const { session } = useSession();
+  const online = useOnline();
+  useRealtime();
+  const uid = session?.userId;
+  useEffect(() => {
+    if (!uid) queryClient.removeQueries({ queryKey: ['diaspay'] });
+  }, [uid]);
+  return API_MODE === 'supabase' && !online ? <OfflineBanner /> : null;
+}
 
 /** Build de production avec le mode démonstration : écran bloquant. */
 function DemoInReleaseBlocked() {
@@ -56,8 +91,10 @@ export default function RootLayout() {
     if (DEMO_IN_RELEASE) return;
     void bootstrap();
     // Équivalent du job serveur release_due_tranches() : débloque les tranches dont le délai de contestation est écoulé.
-    api.runTimers();
-    const id = setInterval(() => api.runTimers(), 30_000);
+    // En mode Supabase, ce sont les tâches pg_cron du serveur (release_due_tranches, activate_due_tranches).
+    if (API_MODE !== 'mock') return;
+    mockApi.runTimers();
+    const id = setInterval(() => mockApi.runTimers(), 30_000);
     return () => clearInterval(id);
   }, []);
 
@@ -71,6 +108,7 @@ export default function RootLayout() {
   // Garde d’accès : un écran dont la garde est fausse est inaccessible, y compris par lien profond ;
   // Expo Router redirige alors vers l’écran de lancement (index), qui oriente selon l’état.
   return (
+    <DataProvider>
     <SafeAreaProvider>
       <StatusBar style="dark" />
       <Stack screenOptions={{ headerShown: false }}>
@@ -98,8 +136,10 @@ export default function RootLayout() {
           <Stack.Screen name="need-done/[txId]" options={{ animation: 'fade', gestureEnabled: false }} />
         </Stack.Protected>
       </Stack>
+      <DataLifecycle />
       <ToastHost />
     </SafeAreaProvider>
+    </DataProvider>
   );
 }
 

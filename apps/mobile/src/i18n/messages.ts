@@ -69,6 +69,10 @@ export const fr = {
   err_OTP_LOCKED: 'Trop de codes erronés. Ce numéro est bloqué jusqu’à {time}.',
   // Supabase (décision D5) : ni nombre d’essais restants ni heure de déblocage.
   otpWrongNoCount: 'Code incorrect. Vérifiez le SMS et réessayez.',
+  // Lot 4 : chargement, hors connexion
+  loadingData: 'Chargement…',
+  offlineBanner: 'Hors connexion · dernières données connues',
+  scanOffline: 'Hors connexion : la confirmation sans réseau arrive dans une prochaine version. Reconnectez-vous pour confirmer.',
   otpLockedLater: 'Trop de tentatives. Réessayez dans quelques minutes.',
   err_OTP_RESEND_TOO_SOON: 'Patientez avant de demander un nouveau code.',
   err_NOT_AUTHENTICATED: 'Votre session a expiré. Reconnectez-vous.',
@@ -511,6 +515,10 @@ export const en: Record<Key, string> = {
   err_OTP_LOCKED: 'Too many wrong codes. This number is blocked until {time}.',
   // Supabase (decision D5): no attempts count, no unlock time.
   otpWrongNoCount: 'Wrong code. Check the SMS and try again.',
+  // Lot 4: loading, offline
+  loadingData: 'Loading…',
+  offlineBanner: 'Offline · showing last known data',
+  scanOffline: 'Offline: confirming without a network is coming in a later version. Reconnect to confirm.',
   otpLockedLater: 'Too many attempts. Try again in a few minutes.',
   err_OTP_RESEND_TOO_SOON: 'Please wait before requesting a new code.',
   err_NOT_AUTHENTICATED: 'Your session has expired. Please sign in again.',

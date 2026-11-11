@@ -6,10 +6,11 @@ import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import type { Persona } from '@diaspay/api-client';
 import { setLocale, useI18n } from '@/i18n';
 import type { Locale } from '@/i18n';
+import { useDemo } from '@/state/queries';
 import { api, setPersona, usePersona } from '@/state/api';
 import { signOut, useSession } from '@/state/auth';
 import { formatPhoneDisplay, initials } from '@/lib/format';
-import { DEMO_REVIEW, HELP_URL, TERMS_URL } from '@/lib/env';
+import { HELP_URL, TERMS_URL } from '@/lib/env';
 import { SectionTitle, SettingsRow } from '@/features/profile/rows';
 import { useBioKind } from '@/features/profile/useBioKind';
 import { Avatar, Button, Card, H2, Radio, Screen, Segmented } from '@/ui';
@@ -20,6 +21,7 @@ import { Text } from '@/ui/text';
 /** F1 — Profil : identité, compte, sécurité, aide, déconnexion ; outils de démonstration en bas (EXPO_PUBLIC_DEMO=1). */
 export default function Profile() {
   const { t, locale } = useI18n();
+  const demo = useDemo();
   const persona = usePersona();
   const { session } = useSession();
   const { kind } = useBioKind();
@@ -63,7 +65,7 @@ export default function Profile() {
 
       <Button tone="neutral" label={t('signOut')} onPress={async () => { await signOut(); router.replace('/login'); }} />
 
-      {DEMO_REVIEW ? (
+      {demo ? (
         <View style={st.demo}>
           <H2>{t('demoProfile')}</H2>
           <Segmented<Persona> options={[['PAYER', t('payer')], ['PROVIDER', t('provider')]]} value={persona} onChange={setPersona} accessibilityLabel={t('demoProfile')} />

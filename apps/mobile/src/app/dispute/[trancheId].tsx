@@ -4,7 +4,8 @@ import { Text, TextInput } from '@/ui/text';
 import { router, useLocalSearchParams } from 'expo-router';
 import { fontSize, palette, radius, spacing } from '@diaspay/ui-tokens';
 import { useI18n, verticalLabel } from '@/i18n';
-import { api, useTransactions } from '@/state/api';
+import { api } from '@/state/api';
+import { useTransactions } from '@/state/queries';
 import { Banner, Button, Card, Radio, Row, Screen, TopBar } from '@/ui';
 
 const REASON_CODES = ['NOT_DELIVERED', 'INCOMPLETE', 'WRONG_AMOUNT', 'OTHER'] as const;

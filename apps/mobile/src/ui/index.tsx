@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View, RefreshControl } from 'react-native';
 import { Text, TextInput } from './text';
 import type { StyleProp, TextInputProps, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -61,11 +61,16 @@ export function Icon({ name, size = 24, color = palette.ink, accessibilityLabel 
   );
 }
 
-export function Screen({ children, scroll = true, footer, style }: { children: ReactNode; scroll?: boolean; footer?: ReactNode; style?: StyleProp<ViewStyle> }) {
+export function Screen({ children, scroll = true, footer, style, refreshing, onRefresh }: {
+  children: ReactNode; scroll?: boolean; footer?: ReactNode; style?: StyleProp<ViewStyle>;
+  /** Actualisation manuelle (tirer vers le bas). */
+  refreshing?: boolean; onRefresh?: () => void;
+}) {
   return (
     <SafeAreaView style={s.screen} edges={['top']}>
       {scroll
-        ? <ScrollView contentContainerStyle={[s.scroll, style]} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+        ? <ScrollView contentContainerStyle={[s.scroll, style]} keyboardShouldPersistTaps="handled"
+            refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={palette.green} colors={[palette.green]} /> : undefined}>{children}</ScrollView>
         : <View style={[s.scroll, { flex: 1 }, style]}>{children}</View>}
       {footer ? <View style={s.footer}>{footer}</View> : null}
     </SafeAreaView>

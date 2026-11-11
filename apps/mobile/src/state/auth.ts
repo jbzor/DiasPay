@@ -3,7 +3,7 @@ import { MockAuth } from '@diaspay/api-client';
 import { API_MODE, createAuthApi } from './backend';
 import type { AuthApi, Persona, PrimaryRole, Profile, Session } from '@diaspay/api-client';
 import { applyLocale } from '../i18n';
-import { api, setPersona } from './api';
+import { getCurrentUser, mockApi, setCurrentUser, setPersona } from './api';
 import { loadLocale, loadOnboardingSeen, loadSession, saveOnboardingSeen, saveSession } from './storage';
 
 export interface AuthState {
@@ -30,8 +30,9 @@ function set(patch: Partial<AuthState>) {
   if (role) setPersona(personaForRole(role));
   // La simulation filtre les brouillons par utilisateur : à la déconnexion, plus aucun brouillon n’est visible.
   const s = state.session;
-  if (s?.userId !== api.user?.id || (role && role !== api.user?.role) || s?.profile?.fullName !== api.user?.name) {
-    api.setUser(s ? { id: s.userId, role: role ?? 'PAYER', name: s.profile?.fullName } : null);
+  const u = getCurrentUser();
+  if (s?.userId !== u?.id || (role && role !== u?.role) || s?.profile?.fullName !== u?.name) {
+    setCurrentUser(s ? { id: s.userId, role: role ?? 'PAYER', name: s.profile?.fullName } : null);
   }
   listeners.forEach((f) => f());
 }
@@ -47,7 +48,7 @@ let booting: Promise<void> | null = null;
 export function bootstrap(): Promise<void> {
   booting ??= (async () => {
     // L’état de la simulation (dossiers soumis, alertes, journal) est rechargé avant le premier écran.
-    const [cached, onboardingSeen, locale] = await Promise.all([loadSession(), loadOnboardingSeen(), loadLocale(), api.hydrate().catch(() => false)]);
+    const [cached, onboardingSeen, locale] = await Promise.all([loadSession(), loadOnboardingSeen(), loadLocale(), mockApi.hydrate().catch(() => false)]);
     if (locale) applyLocale(locale);
     authApi = createAuthApi(cached);
     let session = cached;

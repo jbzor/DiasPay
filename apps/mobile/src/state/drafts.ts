@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { File } from 'expo-file-system';
@@ -57,16 +56,3 @@ export const asyncDraftStore: DraftStore = {
   put: (draft) => mutate((all) => { all[draft.id] = draft; }),
   remove: (id) => mutate((all) => { delete all[id]; }),
 };
-
-/** Brouillons de l’utilisateur connecté, rechargés à chaque changement de l’API. */
-export function useDrafts(api: { subscribe: (l: () => void) => () => void; listDrafts: () => Promise<NeedDraft[]> }): NeedDraft[] {
-  const [drafts, setDrafts] = useState<NeedDraft[]>([]);
-  useEffect(() => {
-    let alive = true;
-    const load = () => { void api.listDrafts().then((d) => { if (alive) setDrafts(d); }); };
-    load();
-    const unsub = api.subscribe(load);
-    return () => { alive = false; unsub(); };
-  }, [api]);
-  return drafts;
-}

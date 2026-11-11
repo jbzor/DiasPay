@@ -1,6 +1,6 @@
 // Seul point d’entrée de supabase-js : les écrans n’importent jamais @supabase/supabase-js.
-export { SupabaseApi, fetchUploader, BUCKET, VIEW_URL_TTL_S } from './api';
-export type { DiasPayClient, FileUploader, UploadFile, UploadTarget, SupabaseApiOptions } from './api';
+export { SupabaseApi, fetchUploader, BUCKET, VIEW_URL_TTL_S, REALTIME_TABLES } from './api';
+export type { RealtimeTable, DiasPayClient, FileUploader, UploadFile, UploadTarget, SupabaseApiOptions } from './api';
 export { SupabaseAuth } from './auth';
 export type { DevicePrefs } from './auth';
 export { createDiasPayClient, assertPublicKey } from './client';

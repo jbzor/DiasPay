@@ -10,11 +10,13 @@ export type ScanPhase = 'idle' | 'scanning' | 'resolving' | 'ready' | 'error' | 
 
 export type ScanErrorCode =
   | 'EQR_MALFORMED' | 'UNKNOWN_REFERENCE' | 'TOKEN_EXPIRED' | 'TOKEN_USED' | 'NOT_PAID'
-  | 'WRONG_MODE' | 'PROVIDER_ONLY' | 'NOT_A_PARTY' | 'DEVICE_TIME_INVALID' | 'GENERIC';
+  | 'WRONG_MODE' | 'PROVIDER_ONLY' | 'NOT_A_PARTY' | 'DEVICE_TIME_INVALID' | 'OFFLINE' | 'GENERIC';
 
 const KNOWN: readonly ScanErrorCode[] = [
   'EQR_MALFORMED', 'UNKNOWN_REFERENCE', 'TOKEN_EXPIRED', 'TOKEN_USED', 'NOT_PAID',
   'WRONG_MODE', 'PROVIDER_ONLY', 'NOT_A_PARTY', 'DEVICE_TIME_INVALID',
+  // Lot 4 : confirmation hors connexion non livrée (vague 2) ; message dédié.
+  'OFFLINE',
 ];
 
 /** Code d’erreur serveur → code d’erreur d’écran (tout code inattendu devient GENERIC). */

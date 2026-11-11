@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fontSize, palette, semantic, spacing, touchTarget } from '@diaspay/ui-tokens';
 import { trancheStatusKey, useI18n } from '@/i18n';
 import { api, usePersona } from '@/state/api';
+import { assertOnline } from '@/state/queries';
 import { biometric } from '@/lib/biometric';
 import { initialScanState, scanReducer } from '@/features/scan/reducer';
 import { Banner, Button, Field, Icon, Row, StatusLabel } from '@/ui';
@@ -72,6 +73,7 @@ export default function Scan() {
     if (!(await biometric(t('bioReasonConfirm')))) { setBioError(true); return; }
     dispatch({ type: 'CONFIRM' });
     try {
+      assertOnline(); // la confirmation hors connexion (file d’attente signée) arrive en vague 2
       await api.confirmByReference(s.reference, new Date().toISOString());
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
       dispatch({ type: 'CONFIRMED' });
@@ -150,7 +152,7 @@ export default function Scan() {
 
           {s.phase === 'error' ? (
             <>
-              <Banner tone="error" text={errorText({ code: s.error === 'GENERIC' ? undefined : s.error })} />
+              <Banner tone="error" text={s.error === 'OFFLINE' ? t('scanOffline') : errorText({ code: s.error === 'GENERIC' ? undefined : s.error })} />
               <Button label={t('scanAnother')} onPress={() => dispatch({ type: 'RESET' })} />
             </>
           ) : null}

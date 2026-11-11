@@ -13,6 +13,8 @@ import type { TxWithRelations } from './convert';
 import { toDomainError, unwrap, unwrapMaybe } from './errors';
 
 export type DiasPayClient = SupabaseClient<Database>;
+export const REALTIME_TABLES = ['transactions', 'tranches', 'disputes', 'notifications'] as const;
+export type RealtimeTable = (typeof REALTIME_TABLES)[number];
 export const BUCKET = 'dossiers';
 /** Durée de validité des URL signées de consultation d’une pièce (secondes). */
 export const VIEW_URL_TTL_S = 60;
@@ -267,6 +269,21 @@ export class SupabaseApi implements TransactionApi {
 
   async getReceipt(trancheId: string): Promise<Receipt> {
     return toReceipt(unwrap(await this.sb.rpc('get_receipt', { p_tranche: trancheId }), 'getReceipt'));
+  }
+
+  // ——— Temps réel ———
+
+  /**
+   * Abonnement aux changements (Realtime, postgres_changes) des tables lues par l’application. Supabase applique
+   * la RLS : seules les lignes visibles par l’utilisateur sont notifiées. Renvoie la fonction de désabonnement.
+   */
+  subscribeChanges(onChange: (table: RealtimeTable) => void, onStatus?: (status: string) => void): () => void {
+    const channel = this.sb.channel(`diaspay-${newUuid()}`);
+    for (const table of REALTIME_TABLES) {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table }, () => onChange(table));
+    }
+    channel.subscribe((status) => onStatus?.(status));
+    return () => { void this.sb.removeChannel(channel); };
   }
 
   // ——— Démonstration : disponible seulement si le serveur est en mock_mode ———

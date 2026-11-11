@@ -53,7 +53,7 @@ export default function NeedRecap() {
   }
 
   async function saveDraftAndLeave() {
-    await saveNow();
+    await saveNow().catch(() => undefined); // hors connexion : conservé dans le tampon local, synchronisé plus tard
     showToast(t('draftSaved'));
     router.dismissTo('/transactions');
   }

@@ -10,6 +10,7 @@ import { requestOtp, verifyOtp } from '@/state/auth';
 import { startRoute } from '@/lib/flow';
 import { fillDigits, formatCountdown, formatPhoneDisplay } from '@/lib/format';
 import { SHOW_DEMO } from '@/lib/env';
+import { API_MODE } from '@/state/backend';
 import { Banner, Button, Screen, TopBar } from '@/ui';
 
 const EMPTY: string[] = Array.from({ length: OTP_LENGTH }, () => '');
@@ -118,7 +119,7 @@ export default function Otp() {
         <Pressable accessibilityRole="link" onPress={() => router.replace('/login')} style={st.link}>
           <Text style={st.linkText}>{t('changeNumber')}</Text>
         </Pressable>
-        {SHOW_DEMO ? <Text style={st.demo}>{t('simCode', { code: MOCK_OTP_CODE })}</Text> : null}
+        {SHOW_DEMO && API_MODE === 'mock' ? <Text style={st.demo}>{t('simCode', { code: MOCK_OTP_CODE })}</Text> : null}
       </Screen>
     </KeyboardAvoidingView>
   );

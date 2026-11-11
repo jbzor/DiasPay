@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Platform, Share, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import * as Print from 'expo-print';
@@ -6,7 +6,7 @@ import * as Sharing from 'expo-sharing';
 import type { Receipt } from '@diaspay/api-client';
 import { fontSize, palette, semantic, spacing } from '@diaspay/ui-tokens';
 import { useI18n, verticalLabel } from '@/i18n';
-import { api, useTransactions } from '@/state/api';
+import { useReceiptQuery, useTransactions } from '@/state/queries';
 import { receiptHtml, receiptRows, receiptShareText } from '@/features/receipt/receipt';
 import type { ReceiptFormat, ReceiptLabels } from '@/features/receipt/receipt';
 import { Banner, Button, Icon, Row, Screen, TopBar } from '@/ui';
@@ -17,15 +17,10 @@ export default function ReceiptScreen() {
   const { trancheId } = useLocalSearchParams<{ trancheId: string }>();
   const { t, locale, money, date, errorText } = useI18n();
   const txs = useTransactions();
-  const [receipt, setReceipt] = useState<Receipt | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    api.getReceipt(trancheId).then((r) => { if (alive) setReceipt(r); }).catch((e) => { if (alive) setError(errorText(e)); });
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trancheId, txs]);
+  const rq = useReceiptQuery(trancheId);
+  const receipt: Receipt | null = rq.data ?? null;
+  const [actionError, setError] = useState<string | null>(null);
+  const error = actionError ?? (rq.error ? errorText(rq.error) : null);
 
   const tx = txs.find((x) => x.tranches.some((r) => r.id === trancheId));
   const tr = tx?.tranches.find((r) => r.id === trancheId);

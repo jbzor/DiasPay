@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import type { DisputeView } from '@diaspay/api-client';
@@ -6,8 +6,8 @@ import type { DisputeOutcome } from '@diaspay/domain';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { useI18n, verticalLabel } from '@/i18n';
 import type { Key } from '@/i18n';
-import { api, useTransactions } from '@/state/api';
-import { DEMO_REVIEW } from '@/lib/env';
+import { api } from '@/state/api';
+import { useDisputeQuery, useTransactions, useDemo } from '@/state/queries';
 import { canViewReceipt, disputeStatus, disputeSteps, isResolved, reasonKey } from '@/features/dispute/state';
 import { Banner, Button, Field, Icon, Row, Screen, StatusLabel, TopBar } from '@/ui';
 import { Dialog } from '@/ui/Dialog';
@@ -17,19 +17,15 @@ import { Text } from '@/ui/text';
 export default function DisputeTracking() {
   const { trancheId } = useLocalSearchParams<{ trancheId: string }>();
   const { t, locale, money, dateTime, date, errorText } = useI18n();
+  const demo = useDemo();
   const txs = useTransactions();
-  const [dispute, setDispute] = useState<DisputeView | null | undefined>(undefined);
+  const dq = useDisputeQuery(trancheId);
+  // undefined : chargement ; null : aucun litige ou tranche inaccessible.
+  const dispute: DisputeView | null | undefined = dq.isError ? null : dq.data;
   const [deciding, setDeciding] = useState<DisputeOutcome | null>(null);
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    const load = () => { void api.getDispute(trancheId).then((d) => { if (alive) setDispute(d); }).catch(() => { if (alive) setDispute(null); }); };
-    load();
-    const unsub = api.subscribe(load);
-    return () => { alive = false; unsub(); };
-  }, [trancheId]);
 
   const tx = txs.find((x) => x.tranches.some((r) => r.id === trancheId));
   const tr = tx?.tranches.find((r) => r.id === trancheId);
@@ -95,7 +91,7 @@ export default function DisputeTracking() {
         ))}
       </View>
       {!resolved ? <Banner text={t('disputeSuspended')} /> : null}
-      {DEMO_REVIEW && !resolved ? (
+      {demo && !resolved ? (
         <View style={{ gap: spacing.sm }}>
           <Button tone="secondary" label={t('simRelease')} onPress={() => { setNote(''); setDeciding('RELEASED'); }} />
           <Button tone="danger" label={t('simRefund')} onPress={() => { setNote(''); setDeciding('REFUNDED'); }} />

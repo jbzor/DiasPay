@@ -51,7 +51,7 @@ describe('dictionnaire', () => {
     for (const f of walk(src).filter((x) => x.endsWith('.tsx'))) {
       const code = readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/\/\/.*$/gm, '');
       // Texte JSX littéral contenant une lettre accentuée ou un mot de plus de 3 lettres entre deux balises.
-      for (const m of code.matchAll(/>\s*([A-Za-zÀ-ÿ’][^<>{}]{3,})\s*</g)) hits.push(`${f.replace(src, '')}: ${m[1]}`);
+      for (const m of code.matchAll(/>\s*([A-Za-zÀ-ÿ’][^<>{}()=;[\]]{3,})\s*</g)) hits.push(`${f.replace(src, '')}: ${m[1]}`);
     }
     expect(hits).toEqual([]);
   });

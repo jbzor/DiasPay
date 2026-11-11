@@ -15,6 +15,11 @@ export function t(key: Key, params?: Params): string {
   return s;
 }
 
+/** Accord en nombre (français : 0 et 1 au singulier) : clés « base.one » et « base.other ». */
+export function tn(base: string, n: number, params?: Params): string {
+  return t(`${base}.${n <= 1 ? 'one' : 'other'}` as Key, { n, ...params });
+}
+
 /** Clé dynamique (verticale, statut, événement…) ; null si elle n’existe pas. */
 export function tMaybe(key: string, params?: Params): string | null {
   return key in fr ? t(key as Key, params) : null;

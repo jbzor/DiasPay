@@ -1,5 +1,5 @@
-import { t } from '@/i18n';
+import { DossiersScreen } from '@/features/dossiers/DossiersScreen';
 
 export default function Page() {
-  return <main className="main"><h1>{t('nav.dossiers')}</h1></main>;
+  return <DossiersScreen />;
 }

@@ -21,6 +21,7 @@ const PHONES: Record<Party, { phone: string; role: 'PAYER' | 'REQUESTER'; name: 
   OTHER: { phone: '+33639980013', role: 'PAYER', name: 'Paul Payeur (e2e)' },
 };
 const apis = new Map<Party, Promise<SupabaseApi>>();
+const raws = new Map<Party, ReturnType<typeof createDiasPayClient>>();
 
 async function signIn(who: Party): Promise<SupabaseApi> {
   const mem = new Map<string, string>();
@@ -28,6 +29,7 @@ async function signIn(who: Party): Promise<SupabaseApi> {
     url: SUPABASE_URL, anonKey: SUPABASE_KEY,
     storage: { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => { mem.set(k, v); }, removeItem: (k) => { mem.delete(k); } },
   });
+  raws.set(who, sb);
   const auth = new SupabaseAuth(sb, { get: async () => null, set: async () => undefined });
   const { phone, role, name } = PHONES[who];
   await auth.requestOtp(phone);
@@ -116,4 +118,35 @@ export async function landWithPendingEvidence(purpose: string): Promise<string> 
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
   execFileSync(join(root, 'scripts', 'db.sh'), ['seed-evidence', id], { cwd: root, stdio: 'pipe' });
   return id;
+}
+
+/** Client Supabase brut d’une partie (fonctions sans équivalent dans SupabaseApi, comme respond_dispute). */
+export async function partyClient(who: Party) {
+  await party(who);
+  return raws.get(who)!;
+}
+
+/**
+ * Litige ouvert sur la première tranche d’un dossier de scolarité validé (validation par l’API du personnel,
+ * jeton émis en développement), payé par le payeur. Le prestataire est le compte de test OTHER.
+ */
+export async function openedDispute(purpose: string, opts: { by: 'PAYER' | 'PROVIDER'; answer?: string }): Promise<{ txId: string; trancheId: string; disputeId: string }> {
+  const tx = await submittedDossier({ amountMinor: 300_000, purpose, provider: { name: 'École Les Palmiers (e2e)', invitedPhone: PHONES.OTHER.phone } });
+  const staff = await staffClient('validateur.b@diaspay.test');
+  const claim = await staff.rpc('claim_dossier', { p_tx: tx.id });
+  if (claim.error) throw claim.error;
+  const decided = await staff.rpc('decide_tx', { p_tx: tx.id, p_approved: true, p_amount_checked: true });
+  if (decided.error) throw decided.error;
+  const payer = await party('PAYER');
+  const trancheId = (await payer.getTransaction(tx.id)).tranches[0]!.id;
+  await payer.payTranche(trancheId);
+  const opener = opts.by === 'PAYER' ? payer : await party('OTHER');
+  await opener.openDispute(trancheId, opts.by === 'PAYER' ? 'NOT_DELIVERED' : 'OTHER',
+    opts.by === 'PAYER' ? 'L’élève n’a pas reçu les cours prévus.' : 'Le payeur conteste une prestation livrée.');
+  const disputeId = (await payer.getDispute(trancheId))!.id;
+  if (opts.answer) {
+    const res = await (await partyClient(opts.by === 'PAYER' ? 'OTHER' : 'PAYER')).rpc('respond_dispute', { p_dispute: disputeId, p_text: opts.answer });
+    if (res.error) throw res.error;
+  }
+  return { txId: tx.id, trancheId, disputeId };
 }

@@ -29,3 +29,12 @@ test('capture : preuves de jalons', async ({ page }) => {
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `${process.env.E2E_CAPTURE}/bo-preuves.png` });
 });
+
+test('capture : litiges', async ({ page }) => {
+  const { openedDispute } = await import('./fixtures');
+  await openedDispute(`École Les Palmiers ${RUN}`, { by: 'PAYER' });
+  await signIn(page, STAFF.ADMIN.email, '/litiges');
+  await row(page, `École Les Palmiers ${RUN}`).click();
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `${process.env.E2E_CAPTURE}/bo-litiges.png` });
+});

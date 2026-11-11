@@ -46,6 +46,9 @@ En dehors de ces cas, le profil de démonstration suit le rôle choisi à l'insc
 ## Variables d’environnement
 | Variable | Rôle | Défaut |
 |---|---|---|
+| `EXPO_PUBLIC_API` | `mock` : simulateur sur l’appareil ; `supabase` : projet Supabase (lot 4) | `mock` |
+| `EXPO_PUBLIC_SUPABASE_URL` | URL du projet Supabase (mode `supabase`) | vide |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Clé **publique** du projet (`sb_publishable_…`). Jamais la clé `service_role` : l’application la refuse | vide |
 | `EXPO_PUBLIC_DEMO` | `1` : outils de démonstration (voir « Mode démonstration ») ; le rappel du code OTP s’affiche aussi en développement | absent |
 | `EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE` | `1` : autorise le mode démonstration dans un build de production interne (démonstration, captures). Jamais pour les stores | absent |
 | `EXPO_PUBLIC_HELP_URL` | Adresse du centre d’aide (Profil › Centre d’aide) ; vide → « Bientôt disponible » | vide |
@@ -55,6 +58,22 @@ En dehors de ces cas, le profil de démonstration suit le rôle choisi à l'insc
 
 ```
 EXPO_PUBLIC_LINK_BASE=liens.mondomaine.org pnpm --filter @diaspay/mobile start
+```
+
+## Serveur Supabase (lot 4)
+
+Mise en place complète : `docs/supabase-setup.md`. Codes d’erreur : `docs/error-codes.md`. Contrôles avant publication : `docs/release-checklist.md`.
+
+- **Choix à la racine** : `EXPO_PUBLIC_API=supabase` dans `apps/mobile/.env.local` (copier `.env.example`). Les écrans ne connaissent que `TransactionApi` / `AuthApi` ; supabase-js n’est importé que dans `packages/api-client/src/supabase/`.
+- **Serveur** : migrations `supabase/migrations/0001` à `0005` ; 0005 ajoute codes d’erreur stables, brouillons serveur (`save_draft`), invitations, prestataires, limites des pièces, notifications, reçu, litige, démonstration (`mock_mode` seulement) et pg_cron.
+- **Authentification** : SMS (code de 6 chiffres, 300 s). Session chiffrée sur l’appareil (clé AES dans SecureStore, session chiffrée dans AsyncStorage). Supabase ne verrouille pas après 3 codes erronés : décision D5.
+- **Données** : crochets react-query (`apps/mobile/src/state/queries.ts`) communs au simulateur et à Supabase ; temps réel (Realtime, RLS) qui invalide les requêtes ; cache conservé hors connexion avec bandeau « Hors connexion » ; brouillons tamponnés sur l’appareil et synchronisés à chaque étape.
+- **Pièces** : bucket privé `dossiers`, chemin `<tx>/<type>/<uuid>.<ext>`, envoi par URL signée avec progression, consultation par URL signée de 60 s.
+- **Types** : `pnpm db:types` régénère `packages/api-client/src/supabase/database.types.ts` (jamais édité à la main).
+
+```
+pnpm db:test           # tests SQL sur le projet lié (00_smoke, 01_lot4)
+pnpm test:supabase     # suite de contrat contre le simulateur et le projet Supabase de développement
 ```
 
 ## TrustToken, eQR et scan (lot 2)
@@ -86,7 +105,7 @@ Le codec (`encodeEqr`, `decodeEqr`, `formatReference`, `normalizeReference`, `pa
 3. Téléphone (Expo Go) : profil prestataire (Profil → profil de démonstration), onglet Scanner, viser le QR affiché à l’écran de l’ordinateur.
 4. « Confirmer la prestation » : la tranche passe à « Confirmée » avec son délai de contestation. Un second scan du même QR est refusé (« déjà utilisé »).
 
-Les deux appareils ont chacun leur propre jeu de données simulé : pour que l’étape 3 trouve la tranche payée, il faut que le téléphone ait lui aussi payé la tranche 2 (profil payeur, puis profil prestataire), car le mock vit dans l’application et non sur un serveur partagé. Le serveur (lot 4) supprimera cette contrainte.
+Les deux appareils ont chacun leur propre jeu de données simulé : pour que l’étape 3 trouve la tranche payée, il faut que le téléphone ait lui aussi payé la tranche 2 (profil payeur, puis profil prestataire), car le mock vit dans l’application et non sur un serveur partagé. En mode `EXPO_PUBLIC_API=supabase` (lot 4), les deux téléphones partagent le même serveur : la contrainte disparaît.
 
 ## Création d’un besoin (lot 3)
 **Parcours** : Accueil → « Nouveau besoin » (payeur ou demandeur ; caché pour un prestataire) → six étapes, chacune bloquée tant qu’elle est invalide :
@@ -139,10 +158,11 @@ Les deux appareils ont chacun leur propre jeu de données simulé : pour que l�
 - `apps/mobile` : parité des dictionnaires FR/EN (mêmes clés, aucune valeur vide, aucune apostrophe droite, messages d’erreur du scan), minuteur `m:ss`, numéro, initiales, saisie du code, orientation au démarrage, machine d’états du scan (anti-rebond, chaque erreur, succès), décompte d’expiration, matrice du QR, destination des liens profonds.
 - Lot 3 : `packages/domain` (schémas par étape, montants, plans et fins de mois, pièces requises, limites de fichier, RG-12), `packages/api-client` (prestataires, brouillons par utilisateur, envoi de pièces, soumission et chaque erreur, revue simulée, correction et nouvelle soumission), `apps/mobile` (réducteur de l’assistant, reprise, sauvegarde différée, pièces au rechargement).
 - Lot 3 bis : `packages/domain` (statut `CANCELLED`, 3 fichiers par pièce, journal chaîné : chaîne valide, ligne modifiée, ligne supprimée, chaîne vide ; décision de litige), `packages/api-client` (alertes par événement, litiges, reçus, abandon, suppression, pièces multiples, persistance et instantané périmé, préférences, parcours complet avec reçu valide puis falsification détectée), `apps/mobile` (regroupement des alertes, libellés et parité, état du litige, formateur et modèle du reçu, garde de production).
+- Lot 4 : `packages/domain` (table des codes d’erreur confrontée au SQL, au code et à la documentation ; litige réservé à l’administrateur), `packages/api-client` (conversion des lignes et des erreurs, codes OTP de Supabase, refus de la clé de service, **suite de contrat** commune au simulateur et à Supabase), `apps/mobile` (une traduction par code d’erreur, fusion des brouillons locaux et serveur), `supabase/tests` (00_smoke : 67 vérifications, 01_lot4 : 117).
 - `packages/domain` : codec eQR. `packages/api-client` : jetons, `resolveReference`, `confirmByReference` (chaque erreur, usage unique) et parcours complet payer → jeton → confirmer.
 
 ## À venir
-Authentification réelle (Supabase Auth), stockage réel des pièces et code de secours (lot 4), jalons et preuves pour Agro, Immobilier et Terrain (vague 2), photo de profil, dépôt de preuve, ajout de pièces à un litige, vraies notifications push, back-office (lot 5).
+Code de secours, confirmation hors connexion, verrouillage OTP côté serveur (D5), jalons et preuves pour Agro, Immobilier et Terrain (vague 2), photo de profil, dépôt de preuve, ajout de pièces à un litige, vraies notifications push, back-office (lot 5).
 
 ## Règle d'or
 Tout changement de statut passe par les fonctions de `@diaspay/domain`. Le serveur (SQL puis TrustEngine) applique les mêmes règles.

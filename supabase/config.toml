@@ -270,7 +270,8 @@ template = "Your code is {{ .Code }}"
 max_frequency = "5s"
 
 # Numéros de test à code fixe (aucun SMS envoyé) : comptes de démonstration, tranche 06 39 98 réservée à la fiction.
-# Payeur, demandeur, prestataire, validateur A, validateur B, administrateur.
+# Payeur, demandeur, prestataire, validateur A, validateur B, administrateur ; 11 à 13 : tests de contrat automatisés
+# (packages/api-client/test/contract), pour ne jamais toucher aux données des comptes de démonstration.
 # ATTENTION : `supabase config push` recopie cette section sur le projet hébergé. Ne jamais la pousser en production
 # (voir docs/release-checklist.md).
 [auth.sms.test_otp]
@@ -280,6 +281,9 @@ max_frequency = "5s"
 33639980004 = "123456"
 33639980005 = "123456"
 33639980006 = "123456"
+33639980011 = "123456"
+33639980012 = "123456"
+33639980013 = "123456"
 
 # Configure logged in session timeouts.
 # [auth.sessions]

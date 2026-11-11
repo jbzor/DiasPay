@@ -46,7 +46,7 @@ Réglages du projet hébergé (tableau de bord > Authentication > Sign In / Prov
 | Connexion par téléphone | activée | `external_phone_enabled` |
 | Validité du code SMS | **300 s** (cahier US-01) | `sms_otp_exp` |
 | Fournisseur SMS | Twilio, identifiants **factices** en développement : aucun SMS réel | `sms_provider`, `sms_twilio_*` |
-| Numéros de test | les six numéros ci-dessous, code `123456` | `sms_test_otp` (`33639980001=123456,…`) |
+| Numéros de test | les six numéros ci-dessous et trois numéros réservés aux tests automatisés, code `123456` | `sms_test_otp` (`33639980001=123456,…`) |
 | Fin de validité des numéros de test | 30/06/2027 (à avancer avant la mise en service) | `sms_test_otp_valid_until` |
 
 Un fournisseur SMS doit être activé même si seuls les numéros de test sont utilisés. La validité du code n’est pas réglable dans `supabase/config.toml` ; les autres réglages y sont reproduits pour le développement local (`supabase start`) et `supabase config push`. **Ne jamais pousser `[auth.sms.test_otp]` en production.**
@@ -65,6 +65,7 @@ Numéros de la tranche 06 39 98, réservée à la fiction ; code fixe `123456`. 
 | Validateur A | +33 6 39 98 00 04 | `scripts/db.sh seed` (rôle `VALIDATOR`) |
 | Validateur B | +33 6 39 98 00 05 | `scripts/db.sh seed` (rôle `VALIDATOR`) |
 | Administrateur | +33 6 39 98 00 06 | `scripts/db.sh seed` (rôle `ADMIN`) |
+| Tests de contrat (payeur, demandeur, tiers) | +33 6 39 98 00 11, 12, 13 | à la première exécution des tests ; jamais utilisés à la main |
 
 `supabase/seed.sql` crée les comptes de plateforme comme le fait l’authentification (utilisateur et identité « phone ») puis attribue leur rôle ; il refuse de s’exécuter si `app_config.mock_mode` n’est pas `'true'`. Point d’attention constaté sur le projet réel : les colonnes de jetons de `auth.users` doivent valoir `''` et non `NULL`, sinon la connexion échoue (« Database error finding user »).
 
@@ -75,3 +76,35 @@ scripts/db.sh test
 ```
 
 Résultat attendu : `RESULTAT : 67 vérifications, toutes réussies` pour `00_smoke.sql` (et chaque fichier de test suivant entièrement réussi). Les scripts de test s’exécutent dans une transaction annulée (`ROLLBACK`) ; ils créent des utilisateurs fictifs : jamais sur la production.
+
+## 7. Lancer l’application sur Supabase
+
+```
+cp .env.example apps/mobile/.env.local      # puis renseigner l’URL et la clé publique
+# apps/mobile/.env.local : EXPO_PUBLIC_API=supabase (EXPO_PUBLIC_DEMO=1 pour les actions « Simuler »)
+pnpm --filter @diaspay/mobile start
+```
+
+Les actions de démonstration (« Simuler : valider / rejeter », décision de litige, réinitialisation, paiement simulé) n’apparaissent que si `EXPO_PUBLIC_DEMO=1` **et** si le serveur est en `mock_mode` ; sinon le serveur les refuse (`DEMO_DISABLED`).
+
+## 8. Tests de contrat
+
+```
+pnpm test:supabase
+```
+
+La même suite (`packages/api-client/test/contract/contract.ts`) s’exécute contre le simulateur (toujours, dans `pnpm -r test`) et contre `SupabaseApi` quand `SUPABASE_TEST_URL` et `SUPABASE_TEST_ANON_KEY` sont définis (`pnpm test:supabase` les lit dans `apps/mobile/.env.local`). Comptes : numéros réservés +33 6 39 98 00 11 à 13 ; leurs dossiers sont effacés à la fin (`demo_reset`, mock_mode uniquement). Résultat du 11 novembre 2026 : 8 + 8 tests réussis.
+
+## 9. Écarts assumés entre le simulateur et le serveur
+
+| Sujet | Simulateur (`MockApi`) | Serveur (`SupabaseApi`) |
+|---|---|---|
+| Après la soumission | `IN_REVIEW` immédiatement | reste `SUBMITTED` : seul un validateur passe en `IN_REVIEW` (ou `demo_review`) |
+| Identifiant du dossier soumis | nouvel identifiant `tx-…` | identifiant du brouillon conservé |
+| Correction d’un dossier rejeté | nouveau brouillon lié (`correctionOf`) | même identifiant (`correctionOf` = id) |
+| Isolation des dossiers | un profil de démonstration à la fois (payeur / prestataire) | RLS par utilisateur, invitations rattachées à l’inscription |
+| Verrouillage OTP | 3 essais, 15 minutes (US-01) | limite de débit Supabase, sans nombre d’essais (D5) |
+| Déblocage automatique | minuterie dans l’application (30 s) | pg_cron toutes les 10 minutes ; activation des tranches à 06:00 UTC |
+| Identifiant d’une pièce | celui choisi par l’application | attribué par le serveur (`add_document`) |
+| Annuaire des prestataires | jeu de démonstration intégré | table `providers` (seed : 15 prestataires fictifs à Yaoundé et Douala) |
+| Nom du payeur sur une transaction | connu du simulateur | non exposé dans la liste (profils protégés par RLS) ; présent sur le reçu (`get_receipt`) |

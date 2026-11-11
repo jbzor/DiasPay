@@ -38,3 +38,19 @@ test('capture : litiges', async ({ page }) => {
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `${process.env.E2E_CAPTURE}/bo-litiges.png` });
 });
+
+test('capture : journal', async ({ page }) => {
+  const { submittedDossier, staffClient, party } = await import('./fixtures');
+  const tx = await submittedDossier({ amountMinor: 300_000, purpose: `École Les Palmiers ${RUN}` });
+  const sb = await staffClient(STAFF.A.email);
+  await sb.rpc('claim_dossier', { p_tx: tx.id });
+  await sb.rpc('decide_tx', { p_tx: tx.id, p_approved: true, p_amount_checked: true });
+  const payer = await party('PAYER');
+  await payer.payTranche((await payer.getTransaction(tx.id)).tranches[0]!.id);
+  await signIn(page, STAFF.B.email, '/journal');
+  await page.getByRole('combobox').fill(`Palmiers ${RUN}`);
+  await page.getByRole('option').first().click();
+  await page.locator('[data-chain]').waitFor();
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: `${process.env.E2E_CAPTURE}/bo-journal.png` });
+});

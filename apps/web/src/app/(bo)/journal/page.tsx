@@ -1,5 +1,5 @@
-import { t } from '@/i18n';
+import { JournalScreen } from '@/features/journal/JournalScreen';
 
 export default function Page() {
-  return <main className="main"><h1>{t('nav.journal')}</h1></main>;
+  return <JournalScreen />;
 }

@@ -24,6 +24,8 @@ a { color: var(--c-green-dark); }
 .num, .amount { font-variant-numeric: tabular-nums; }
 .amount, .grid td.num, .grid td .muted { white-space: nowrap; }
 .muted { color: var(--s-text-muted); }
+.nowrap { white-space: nowrap; }
+.num-time { font-variant-numeric: tabular-nums; }
 .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; color: var(--bo-hash-text); }
 
 /* ---------- Ossature : navigation 200 px, zone principale, volet de détail 380-400 px ---------- */

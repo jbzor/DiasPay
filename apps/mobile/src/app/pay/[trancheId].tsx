@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text } from '@/ui/text';
 import { router, useLocalSearchParams } from 'expo-router';
+import { newUuid } from '@diaspay/api-client';
 import { fontSize, palette, radius, spacing } from '@diaspay/ui-tokens';
 import { useI18n, verticalLabel } from '@/i18n';
 import { api } from '@/state/api';
@@ -16,6 +17,8 @@ export default function Pay() {
   const [method, setMethod] = useState<'card' | 'momo' | 'sepa'>('card');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Lot X (X5) : une clé d’idempotence par écran ; un nouvel essai (réseau coupé, double appui) ne crée jamais un second paiement.
+  const [idempotencyKey] = useState(newUuid);
   const tx = txs.find((x) => x.tranches.some((r) => r.id === trancheId));
   const tr = tx?.tranches.find((r) => r.id === trancheId);
   if (!tx || !tr) return <Screen><TopBar title={t('notFound')} /></Screen>;
@@ -25,7 +28,7 @@ export default function Pay() {
     setBusy(true); setError(null);
     try {
       if (!(await biometric(t('bioReason')))) { setError(t('bioFailed')); return; }
-      await api.payTranche(tr.id);
+      await api.payTranche(tr.id, idempotencyKey);
       router.replace(`/tx/${tx.id}`);
     } catch (e) {
       setError(errorText(e));

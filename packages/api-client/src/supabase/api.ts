@@ -95,10 +95,15 @@ export class SupabaseApi implements TransactionApi {
     return { tx, tranche };
   }
 
-  /** Paiement simulé (mock_mode du serveur uniquement ; DEMO_DISABLED sinon). */
-  async payTranche(trancheId: string): Promise<Transaction> {
-    const tr = unwrap(await this.sb.rpc('simulate_tranche_system', { p_tranche: trancheId, p_to: 'PAID_LOCKED' }), 'payTranche');
-    return this.getTransaction(tr.tx_id);
+  /**
+   * Lot X (X5) : tentative idempotente (start_payment), puis réponse du partenaire. Tant que TrustPayWay n’est pas branché,
+   * le partenaire simulé répond par un événement appliqué par le même chemin (demo_settle_payment → apply_payment_event ;
+   * mock_mode du serveur uniquement, DEMO_DISABLED sinon). Même clé : même tentative, aucun nouveau paiement.
+   */
+  async payTranche(trancheId: string, idempotencyKey: string = newUuid()): Promise<Transaction> {
+    const a = unwrap(await this.sb.rpc('start_payment', { p_tranche: trancheId, p_idempotency_key: idempotencyKey }), 'payTranche') as Record<string, unknown>;
+    if (a.status === 'PENDING') unwrap(await this.sb.rpc('demo_settle_payment', { p_attempt: String(a.id) }), 'payTranche');
+    return this.getTransaction(String(a.txId));
   }
 
   async getToken(trancheId: string): Promise<TrancheToken> {

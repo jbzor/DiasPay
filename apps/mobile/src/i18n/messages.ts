@@ -467,6 +467,14 @@ export const fr = {
   err_HASH_REQUIRED: 'Le fichier n’a pas pu être lu. Choisissez-le à nouveau.',
   err_HASH_IMMUTABLE: 'Cette pièce est déjà enregistrée : elle ne peut pas être modifiée.',
   err_DOCUMENT_LOCKED: 'Le dossier est soumis : ses pièces ne peuvent plus être modifiées ni retirées.',
+  // Lot X, passe 2 (X5) : paiements.
+  err_IDEMPOTENCY_CONFLICT: 'Ce paiement a déjà été demandé autrement. Revenez à la tranche et réessayez.',
+  err_PAYMENT_IN_PROGRESS: 'Un paiement est déjà en cours pour cette tranche. Patientez quelques instants.',
+  err_PAYMENT_NOT_FOUND: 'Paiement introuvable.',
+  err_NOT_REFUNDABLE: 'Ce paiement ne peut pas être remboursé.',
+  err_REFUND_EXCEEDS_PAID: 'Le remboursement dépasse le montant payé.',
+  err_LEDGER_UNBALANCED: 'Écriture comptable refusée. Réessayez plus tard.',
+  err_LEDGER_IMMUTABLE: 'Écriture comptable définitive : elle ne peut pas être modifiée.',
 } as const;
 
 export type Key = keyof typeof fr;
@@ -937,6 +945,14 @@ export const en: Record<Key, string> = {
   err_HASH_REQUIRED: 'The file could not be read. Choose it again.',
   err_HASH_IMMUTABLE: 'This document is already recorded: it cannot be changed.',
   err_DOCUMENT_LOCKED: 'The file has been submitted: its documents can no longer be changed or removed.',
+  // Lot X, pass 2 (X5): payments.
+  err_IDEMPOTENCY_CONFLICT: 'This payment was already requested differently. Go back to the installment and try again.',
+  err_PAYMENT_IN_PROGRESS: 'A payment is already in progress for this installment. Please wait a moment.',
+  err_PAYMENT_NOT_FOUND: 'Payment not found.',
+  err_NOT_REFUNDABLE: 'This payment cannot be refunded.',
+  err_REFUND_EXCEEDS_PAID: 'The refund exceeds the amount paid.',
+  err_LEDGER_UNBALANCED: 'Accounting entry refused. Try again later.',
+  err_LEDGER_IMMUTABLE: 'Accounting entries are final: they cannot be changed.',
 };
 
 export const dictionaries: Record<Locale, Record<Key, string>> = { fr, en };

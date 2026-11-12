@@ -63,4 +63,7 @@
 29. **Mode `IMMEDIATE` non utilisé** tant que le client n’a pas tranché (K1) : `select vertical from release_rules where release_mode = 'IMMEDIATE';` ne renvoie aucune ligne.
 30. **Empreinte des pièces obligatoire** : `select value from app_config where key = 'require_content_hash';` renvoie `true` (toutes les versions de l’application en circulation envoient l’empreinte). Contrôle : `select count(*) from documents where content_hash is null and created_at > now() - interval '30 days';` est nul.
 31. **Consultations journalisées** : une partie ne lit un fichier du bucket `dossiers` qu’après `get_document_access` (politique `dossiers_read`) ; `supabase/tests/04_lotx_p2.sql` passe sur l’environnement de recette.
+32. **Idempotence et rapprochement testés** sur l’environnement de recette : `supabase/tests/04_lotx_p2.sql` (même clé, événement en double, hors d’ordre, signature invalide, journal équilibré et immuable, remboursement partiel puis total) et `select count(*) from v_reconciliation where cardinality(issues) > 0;` examiné par le personnel (connecté).
+33. **`apply_payment_event` réservée au service** : `select has_function_privilege('authenticated', 'apply_payment_event(text, text, boolean, jsonb)', 'execute');` renvoie `false`. La fonction Edge qui reçoit les webhooks de TrustPayWay vérifie leur signature avant de l’appeler.
+34. **`demo_settle_payment` et `demo_settle_refund` refusées** en production (`mock_mode = 'false'` : `DEMO_DISABLED`) ; `payment_provider` vaut le partenaire réel.
 

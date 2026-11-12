@@ -77,6 +77,14 @@ export const ERROR_CODES = {
   EVIDENCE_MISSING: 'D S — aucune pièce probante déposée',
   NO_EVIDENCE_PENDING: 'S — aucune preuve en attente de décision',
   NOT_RELEASED: 'S C — reçu demandé pour une tranche non débloquée',
+  // Paiements et journal financier (lot X, X5)
+  IDEMPOTENCY_CONFLICT: 'D S — clé d’idempotence déjà utilisée pour un autre paiement ou remboursement',
+  PAYMENT_IN_PROGRESS: 'D S — un paiement est déjà en cours pour cette tranche',
+  PAYMENT_NOT_FOUND: 'D S — paiement introuvable (tentative, référence du partenaire)',
+  NOT_REFUNDABLE: 'D S — aucun paiement réussi à rembourser, ou tranche déjà débloquée',
+  REFUND_EXCEEDS_PAID: 'D S — remboursement au-delà du montant payé',
+  LEDGER_UNBALANCED: 'D S — journal financier déséquilibré (par devise) ou incomplet',
+  LEDGER_IMMUTABLE: 'S — journal financier et événements reçus en ajout seul (correction par contrepassation)',
   // Litiges
   DISPUTE_NOT_ALLOWED: 'D S — litige impossible dans cet état ou après le délai',
   NO_OPEN_DISPUTE: 'D S C — aucun litige en cours',

@@ -1,12 +1,12 @@
 import {
-  DomainError, RELEASE_RULES, answerInfoDecision, appendEntry, canOpenDispute, checkContentHash, checkFile, checkFileCount, effectiveCreatorRole, emptyDraft,
+  DomainError, PaymentEngine, RELEASE_RULES, SimulatedPaymentAdapter, answerInfoDecision, appendEntry, canOpenDispute, checkContentHash, checkFile, checkFileCount, effectiveCreatorRole, emptyDraft,
   otherDossiersWithHash,
   formatReference, isAutoReleasable, messageError, normalizeReference, paymentOutcome, rejectRequestDecision, requestInfoDecision,
   resolveDisputeTransition, shouldActivateTranche, shouldCloseTransaction, toIsoDate, tokenRevocationError, tooManyAttempts, transitionTranche,
   transitionTx, validateNeed, verifyChain, validatorDecisionError,
 } from '@diaspay/domain';
 import type {
-  Actor, ChainedAuditEntry, CreatorRole, DisputeOutcome, DraftDocument, DraftDocumentInput, NeedDraft, RequestMessageKind, TrancheStatus, TxRole, Vertical,
+  Actor, ChainedAuditEntry, CreatorRole, DisputeOutcome, DraftDocument, DraftDocumentInput, IncomingWebhook, LedgerState, NeedDraft, RequestMessageKind, TrancheStatus, TxRole, Vertical,
 } from '@diaspay/domain';
 import type {
   AppNotification, AuditEntry, DisputeView, DocumentAccess, DocumentReuse, NotificationEvent, Persona, Receipt, ReferenceInfo, RequestMessage, Tranche,
@@ -81,6 +81,8 @@ interface Snapshot {
   messages?: StoredMessage[];
   creators?: Record<string, CreatorRole>;
   viewed?: Record<string, string>;
+  /** Lot X (X5) : tentatives, événements, remboursements et journal financier du simulateur. */
+  payments?: LedgerState;
 }
 
 /** Utilisateur connecté vu par la simulation : propriétaire des brouillons et rôle du créateur. */
@@ -194,6 +196,9 @@ export class MockApi implements TransactionApi {
   private failures = new Map<string, number[]>();
   private readonly eqrImage: boolean;
   private readonly hashFile: FileHasher;
+  /** Lot X (X5) : moteur de paiement (miroir de 0010) et partenaire simulé, qui répond par des événements signés. */
+  private payments: PaymentEngine;
+  private readonly paymentPort: SimulatedPaymentAdapter;
   private readonly validityMs: number;
   private visible: Transaction[] = [];
   private readonly drafts: DraftStore;
@@ -218,6 +223,9 @@ export class MockApi implements TransactionApi {
     this.seedNotifs = options.seedNotifications ?? true;
     this.eqrImage = options.eqrImageEnabled ?? true;
     this.hashFile = options.hashFile ?? uriHasher;
+    this.payments = new PaymentEngine(clock);
+    // Secret du simulateur (pas un secret réel) : les événements sont signés et vérifiés comme ceux d’un partenaire.
+    this.paymentPort = new SimulatedPaymentAdapter({ secret: 'diaspay-simulateur', sink: (w) => this.receiveWebhook(w), clock, newId: () => newId('evt') });
     this.initSeed(seed === undefined);
   }
 
@@ -345,6 +353,7 @@ export class MockApi implements TransactionApi {
       version: STATE_VERSION, savedAt: this.clock().toISOString(), txs: this.txs, chains: this.chains, anchors: this.anchors,
       notifications: this.notifications, disputes: this.disputes, tokens: [...this.tokens.values()], submitted: [...this.submitted],
       revoked: this.revoked, withdrawn: [...this.withdrawn], messages: this.messages, creators: this.creators, viewed: this.viewed,
+      payments: this.payments.state(),
     };
   }
   private scheduleSave(): void {
@@ -382,6 +391,7 @@ export class MockApi implements TransactionApi {
     this.messages = snap.messages ?? [];
     this.creators = snap.creators ?? {};
     this.viewed = snap.viewed ?? {};
+    this.payments = new PaymentEngine(this.clock, snap.payments);
     this.refreshVisible();
     this.listeners.forEach((l) => l());
     return true;
@@ -392,6 +402,7 @@ export class MockApi implements TransactionApi {
     this.chains = {}; this.anchors = {}; this.notifications = []; this.disputes = {};
     this.tokens = new Map(); this.submitted = new Map();
     this.revoked = []; this.withdrawn = new Set(); this.messages = []; this.creators = {}; this.viewed = {}; this.failures = new Map();
+    this.payments = new PaymentEngine(this.clock);
     this.initSeed(true);
     for (const d of await this.drafts.list()) await this.drafts.remove(d.id);
     await this.stateStore?.clear();
@@ -424,7 +435,7 @@ export class MockApi implements TransactionApi {
     }, to, actor, now);
     tr.status = res.status;
     tr.contestEndsAt = res.contestEndsAt?.toISOString();
-    if (to === 'RELEASED') tr.releasedAt = now.toISOString();
+    if (to === 'RELEASED') { tr.releasedAt = now.toISOString(); this.payments.release(tr.id); }   // X5 : versement au journal
     this.record(tx.id, event, tr.id, `${tr.label} → ${to}`, actor.kind === 'SYSTEM' ? 'system' : actor.roles.join('+').toLowerCase());
     if (to === 'CONFIRMED') this.notify({ type: 'TRANCHE_CONFIRMED', txId: tx.id, trancheId: tr.id, releaseAt: tr.contestEndsAt });
     if (to === 'RELEASED') this.notify({ type: 'TRANCHE_RELEASED', txId: tx.id, trancheId: tr.id });
@@ -446,14 +457,49 @@ export class MockApi implements TransactionApi {
     if (!tx) throw new DomainError('TX_NOT_FOUND', 'Transaction introuvable');
     return tx;
   }
-  async payTranche(trancheId: string) {
-    const { tr } = this.find(trancheId);
-    if (tr.status !== 'AWAITING_PAYMENT') throw new DomainError('NOT_PAYABLE', 'Cette tranche n’est pas à payer');
-    // Lot X : en mode IMMEDIATE, le paiement débloque directement (DIRECT_PAYMENT), sans verrouillage ni contestation.
-    return paymentOutcome(tr.releaseMode) === 'RELEASED'
-      ? this.apply(trancheId, 'RELEASED', SYSTEM, 'DIRECT_PAYMENT')
-      : this.apply(trancheId, 'PAID_LOCKED', SYSTEM, 'PAYMENT_SIMULATED');
+  /**
+   * Paiement simulé (lot X, X5), par le même chemin que le partenaire : tentative idempotente (start_payment), demande au
+   * partenaire simulé, qui répond par des événements signés, vérifiés puis appliqués (apply_payment_event). Même clé : même
+   * tentative, aucun nouveau paiement.
+   */
+  async payTranche(trancheId: string, idempotencyKey?: string) {
+    const { tx, tr } = this.find(trancheId);
+    if (!this.isParty(tx) && !this.isCreatorOf(tx)) throw new DomainError('TRANCHE_NOT_FOUND', 'Tranche introuvable');
+    if (!this.rolesFor(tx).includes('PAYER')) throw new DomainError('PAYER_ONLY', 'Réservé au payeur');
+    if (tx.status !== 'IN_PROGRESS') throw new DomainError('TX_NOT_ACTIVE', 'La transaction n’est pas active');
+    const { attempt, created } = this.payments.startPayment({
+      txId: tx.id, trancheId, idempotencyKey: idempotencyKey ?? newId('pay'), amountMinor: tr.amountMinor, currency: tx.amount.currency,
+      trancheStatus: tr.status, createdBy: this.user?.id ?? `persona:${this.persona}`,
+    });
+    if (created) {
+      this.record(tx.id, 'PAYMENT_STARTED', tr.id, undefined, 'payer');
+      const res = await this.paymentPort.createPayment({
+        idempotencyKey: attempt.idempotencyKey, trancheId, amount: { amountMinor: tr.amountMinor, currency: tx.amount.currency },
+        payer: { userId: this.user?.id }, payee: { name: tx.providerName }, method: attempt.method,
+      });
+      this.payments.setProviderRef(attempt.id, res.providerRef);
+    }
+    this.emit();
+    return tx;
   }
+
+  /** Réception d’un événement du partenaire (simulé) : signature vérifiée, contenu lu, application idempotente. */
+  private receiveWebhook(w: IncomingWebhook): void {
+    const signatureValid = this.paymentPort.verifyWebhook(w.headers, w.rawBody);
+    const ev = this.paymentPort.parseWebhook(w.rawBody);
+    this.payments.applyEvent({ provider: ev.provider, eventId: ev.eventId, signatureValid, payload: ev.payload }, {
+      tranche: (id) => { const { tx, tr } = this.find(id); return { status: tr.status, active: tx.status === 'IN_PROGRESS' }; },
+      onPaid: (a) => {
+        // Lot X : en mode IMMEDIATE, le paiement débloque directement (DIRECT_PAYMENT), sans verrouillage ni contestation.
+        const { tr } = this.find(a.trancheId);
+        if (paymentOutcome(tr.releaseMode) === 'RELEASED') this.apply(a.trancheId, 'RELEASED', SYSTEM, 'DIRECT_PAYMENT');
+        else this.apply(a.trancheId, 'PAID_LOCKED', SYSTEM, 'PAYMENT_SIMULATED');
+      },
+    });
+  }
+
+  /** Test et démonstration : état du moteur de paiement (tentatives, journal, rapprochement). */
+  paymentLedger(): PaymentEngine { return this.payments; }
   async getTranche(trancheId: string) {
     const { tx, tr } = this.find(trancheId);
     return { tx, tranche: tr };

@@ -142,7 +142,11 @@ export interface ReferenceInfo {
 export interface TransactionApi {
   listTransactions(): Promise<Transaction[]>;
   getTransaction(id: string): Promise<Transaction>;
-  payTranche(trancheId: string): Promise<Transaction>;                    // simulé
+  /**
+   * Paiement d’une tranche (simulé tant que TrustPayWay n’est pas branché). Lot X (X5) : clé d’idempotence ; la même clé
+   * rejouée renvoie le même résultat sans nouveau paiement (absente : une clé neuve à chaque appel).
+   */
+  payTranche(trancheId: string, idempotencyKey?: string): Promise<Transaction>;
   getTranche(trancheId: string): Promise<{ tx: Transaction; tranche: Tranche }>;
   getToken(trancheId: string): Promise<TrancheToken>;                     // TrustToken d'une tranche non PLANNED
   resolveReference(reference: string): Promise<ReferenceInfo>;            // miroir de resolve_tranche_reference

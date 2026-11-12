@@ -174,6 +174,108 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"ledger_accounts": {
+                  Row: {
+                    "code": string,"kind": string,"label_en": string,"label_fr": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "code": string,"kind": string,"label_en": string,"label_fr": string
+                  }
+                  Update: {
+                    "code"?: string,"kind"?: string,"label_en"?: string,"label_fr"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"ledger_entries": {
+                  Row: {
+                    "account_code": string,"created_at": string,"credit_minor": number,"currency": Database["public"]['Enums']["currency"],"debit_minor": number,"id": number,"journal_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "account_code": string,"created_at"?: string,"credit_minor"?: number,"currency": Database["public"]['Enums']["currency"],"debit_minor"?: number,"id"?: never,"journal_id": string
+                  }
+                  Update: {
+                    "account_code"?: string,"created_at"?: string,"credit_minor"?: number,"currency"?: Database["public"]['Enums']["currency"],"debit_minor"?: number,"id"?: never,"journal_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "ledger_entries_account_code_fkey"
+      columns: ["account_code"]
+isOneToOne: false
+      referencedRelation: "ledger_accounts"
+      referencedColumns: ["code"]
+    },{
+      foreignKeyName: "ledger_entries_journal_id_fkey"
+      columns: ["journal_id"]
+isOneToOne: false
+      referencedRelation: "ledger_journals"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"ledger_journals": {
+                  Row: {
+                    "attempt_id": string | null,"created_at": string,"event_id": number | null,"id": string,"kind": string,"memo": string | null,"refund_id": string | null,"reverses_journal_id": string | null,"tranche_id": string,"tx_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "attempt_id"?: string | null,"created_at"?: string,"event_id"?: number | null,"id"?: string,"kind": string,"memo"?: string | null,"refund_id"?: string | null,"reverses_journal_id"?: string | null,"tranche_id": string,"tx_id": string
+                  }
+                  Update: {
+                    "attempt_id"?: string | null,"created_at"?: string,"event_id"?: number | null,"id"?: string,"kind"?: string,"memo"?: string | null,"refund_id"?: string | null,"reverses_journal_id"?: string | null,"tranche_id"?: string,"tx_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "ledger_journals_attempt_id_fkey"
+      columns: ["attempt_id"]
+isOneToOne: false
+      referencedRelation: "payment_attempts"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "ledger_journals_attempt_id_fkey"
+      columns: ["attempt_id"]
+isOneToOne: false
+      referencedRelation: "v_reconciliation"
+      referencedColumns: ["attempt_id"]
+    },{
+      foreignKeyName: "ledger_journals_refund_id_fkey"
+      columns: ["refund_id"]
+isOneToOne: false
+      referencedRelation: "refunds"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "ledger_journals_reverses_journal_id_fkey"
+      columns: ["reverses_journal_id"]
+isOneToOne: false
+      referencedRelation: "ledger_journals"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "ledger_journals_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "bo_evidence_queue"
+      referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "ledger_journals_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "tranches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "ledger_journals_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "ledger_journals_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "transactions"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"notifications": {
                   Row: {
                     "created_at": string,"event": string,"id": string,"payload": NonNullable<Json>,"read_at": string | null,"tx_id": string | null,"user_id": string
@@ -203,6 +305,50 @@ isOneToOne: false
       columns: ["user_id"]
 isOneToOne: false
       referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"payment_attempts": {
+                  Row: {
+                    "amount_minor": number,"completed_at": string | null,"created_at": string,"created_by": string | null,"currency": Database["public"]['Enums']["currency"],"error_code": string | null,"id": string,"idempotency_key": string,"method": string,"provider": string,"provider_ref": string | null,"status": string,"tranche_id": string,"tx_id": string,"updated_at": string,"_attempt_json": Json | null
+                  }
+                  ComputedFields: "_attempt_json"
+                  Insert: {
+                    "amount_minor": number,"completed_at"?: string | null,"created_at"?: string,"created_by"?: string | null,"currency": Database["public"]['Enums']["currency"],"error_code"?: string | null,"id"?: string,"idempotency_key": string,"method": string,"provider": string,"provider_ref"?: string | null,"status"?: string,"tranche_id": string,"tx_id": string,"updated_at"?: string
+                  }
+                  Update: {
+                    "amount_minor"?: number,"completed_at"?: string | null,"created_at"?: string,"created_by"?: string | null,"currency"?: Database["public"]['Enums']["currency"],"error_code"?: string | null,"id"?: string,"idempotency_key"?: string,"method"?: string,"provider"?: string,"provider_ref"?: string | null,"status"?: string,"tranche_id"?: string,"tx_id"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "payment_attempts_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "payment_attempts_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "bo_evidence_queue"
+      referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "payment_attempts_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "tranches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "payment_attempts_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "payment_attempts_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "transactions"
       referencedColumns: ["id"]
     }
                   ]
@@ -300,6 +446,62 @@ isOneToOne: true
       foreignKeyName: "recurrence_plans_tx_id_fkey"
       columns: ["tx_id"]
 isOneToOne: true
+      referencedRelation: "transactions"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"refunds": {
+                  Row: {
+                    "amount_minor": number,"attempt_id": string,"completed_at": string | null,"created_at": string,"currency": Database["public"]['Enums']["currency"],"error_code": string | null,"id": string,"idempotency_key": string,"provider_ref": string | null,"reason": string,"requested_by": string | null,"status": string,"tranche_id": string,"tx_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "amount_minor": number,"attempt_id": string,"completed_at"?: string | null,"created_at"?: string,"currency": Database["public"]['Enums']["currency"],"error_code"?: string | null,"id"?: string,"idempotency_key": string,"provider_ref"?: string | null,"reason": string,"requested_by"?: string | null,"status"?: string,"tranche_id": string,"tx_id": string
+                  }
+                  Update: {
+                    "amount_minor"?: number,"attempt_id"?: string,"completed_at"?: string | null,"created_at"?: string,"currency"?: Database["public"]['Enums']["currency"],"error_code"?: string | null,"id"?: string,"idempotency_key"?: string,"provider_ref"?: string | null,"reason"?: string,"requested_by"?: string | null,"status"?: string,"tranche_id"?: string,"tx_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "refunds_attempt_id_fkey"
+      columns: ["attempt_id"]
+isOneToOne: false
+      referencedRelation: "payment_attempts"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "refunds_attempt_id_fkey"
+      columns: ["attempt_id"]
+isOneToOne: false
+      referencedRelation: "v_reconciliation"
+      referencedColumns: ["attempt_id"]
+    },{
+      foreignKeyName: "refunds_requested_by_fkey"
+      columns: ["requested_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "refunds_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "bo_evidence_queue"
+      referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "refunds_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "tranches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "refunds_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "refunds_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
       referencedRelation: "transactions"
       referencedColumns: ["id"]
     }
@@ -654,6 +856,20 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"webhook_events": {
+                  Row: {
+                    "attempt_id": string | null,"error": string | null,"event_id": string,"id": number,"payload": NonNullable<Json>,"processed_at": string | null,"provider": string,"received_at": string,"refund_id": string | null,"result": string | null,"signature_valid": boolean
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "attempt_id"?: string | null,"error"?: string | null,"event_id": string,"id"?: never,"payload": NonNullable<Json>,"processed_at"?: string | null,"provider": string,"received_at"?: string,"refund_id"?: string | null,"result"?: string | null,"signature_valid": boolean
+                  }
+                  Update: {
+                    "attempt_id"?: string | null,"error"?: string | null,"event_id"?: string,"id"?: never,"payload"?: NonNullable<Json>,"processed_at"?: string | null,"provider"?: string,"received_at"?: string,"refund_id"?: string | null,"result"?: string | null,"signature_valid"?: boolean
+                  }
+                  Relationships: [
+                    
+                  ]
                 }
           }
           Views: {
@@ -717,10 +933,45 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"v_reconciliation": {
+                  Row: {
+                    "amount_minor": number | null,"attempt_id": string | null,"attempt_status": string | null,"currency": string | null,"issues": (string)[] | null,"paid_ledger": number | null,"provider": string | null,"reference": string | null,"refunded_requested": number | null,"refunded_settled": number | null,"rejected_events": number | null,"released_ledger": number | null,"success_events": number | null,"tranche_id": string | null,"tranche_status": string | null,"tx_id": string | null
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    {
+      foreignKeyName: "payment_attempts_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "bo_evidence_queue"
+      referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "payment_attempts_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "tranches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "payment_attempts_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "payment_attempts_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "transactions"
+      referencedColumns: ["id"]
+    }
+                  ]
                 }
           }
           Functions: {
-            "_check_message":
+            "_attempt_json":
+{ Args: { "a": Omit<Database["public"]['Tables']["payment_attempts"]['Row'], Database["public"]['Tables']["payment_attempts"]['ComputedFields']> }; Returns: Json
+                           },
+"_check_message":
 { Args: { "p_text": string }; Returns: string
                            },
 "_check_token_manager":
@@ -800,6 +1051,12 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"_post_journal":
+{ Args: { "p_attempt"?: string,"p_currency": Database["public"]['Enums']["currency"],"p_event"?: number,"p_kind": string,"p_lines": Json,"p_memo"?: string,"p_refund"?: string,"p_reverses"?: string,"p_tranche": string }; Returns: string
+                           },
+"_process_payment_event":
+{ Args: { "p_event": number }; Returns: Json
+                           },
 "_recently_opened":
 { Args: { "p_path": string }; Returns: boolean
                            },
@@ -811,6 +1068,9 @@ isOneToOne: false
                            },
 "_reference_guard":
 { Args: Record<PropertyKey, never>; Returns: undefined
+                           },
+"_refunded":
+{ Args: { "p_attempt": string }; Returns: number
                            },
 "_request_tranche":
 { Args: { "p_tranche": string }; Returns: {
@@ -943,6 +1203,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"apply_payment_event":
+{ Args: { "p_event_id": string,"p_payload": Json,"p_provider": string,"p_signature_valid": boolean }; Returns: Json
+                           },
 "bo_audit":
 { Args: { "p_tx": string }; Returns: {
               "actor_id": string,"actor_name": string,"actor_role": string,"created_at": string,"event": string,"from_status": string,"hash": string,"id": number,"payload": Json,"prev_hash": string,"to_status": string,"tranche_id": string,"tranche_seq": number
@@ -1137,6 +1400,12 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"demo_settle_payment":
+{ Args: { "p_attempt": string,"p_outcome"?: string }; Returns: Json
+                           },
+"demo_settle_refund":
+{ Args: { "p_outcome"?: string,"p_refund": string }; Returns: Json
+                           },
 "document_reuse":
 { Args: { "p_hash": string,"p_tx"?: string }; Returns: Json
                            },
@@ -1313,6 +1582,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"request_refund":
+{ Args: { "p_amount_minor": number,"p_idempotency_key": string,"p_reason": string,"p_tranche": string }; Returns: Json
+                           },
 "required_validations":
 { Args: { "p_tranche"?: string,"p_tx": string }; Returns: number
                            },
@@ -1435,6 +1707,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"start_payment":
+{ Args: { "p_idempotency_key": string,"p_method"?: string,"p_tranche": string }; Returns: Json
+                           },
 "status_ok":
 { Args: { "p_tx": string }; Returns: boolean
                            },

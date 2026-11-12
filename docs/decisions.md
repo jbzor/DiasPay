@@ -159,3 +159,16 @@ Principe : tant que le client n’a pas tranché, le comportement par défaut ne
   - Aucun écran mobile n’affiche aujourd’hui une pièce déjà envoyée ; `documentUrl` passe désormais par `get_document_access`, et le back-office garde `open_document` (lot 5, même journal).
 - **Reste à décider** : passage de `require_content_hash` à `true` ; durée de conservation des pièces et des journaux de consultation (exigence 5.3) ; chiffrement applicatif des pièces au repos (aujourd’hui : chiffrement du stockage Supabase) ; contrôle de réutilisation entre payeurs différents seulement, si les alertes sur les pièces d’identité gênent le bureau.
 
+## X-5 — Fondations des paiements
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - **Aucun appel à TrustPayWay.** `PaymentPort` v2 dans le domaine (`createPayment`, `getPaymentStatus`, `refund`, `verifyWebhook`, `parseWebhook`) ; un adaptateur simulé qui répond par des **événements signés** (HMAC-SHA256), appliqués par le même chemin que ceux du partenaire, dans le simulateur (`PaymentEngine`) comme sur le serveur (`demo_settle_payment` → `apply_payment_event`, mock_mode).
+  - **Paiement de l’application** : `payTranche` passe désormais par `start_payment` puis par l’événement simulé, au lieu de `simulate_tranche_system(…, 'PAID_LOCKED')` (toujours disponible pour les tests existants). Résultat visible identique (tranche payée, fonds bloqués). Clé d’idempotence : une par écran de paiement (nouvel essai, double appui : jamais un second paiement).
+  - **Tentatives** : clé unique de 8 à 200 caractères ; au plus une tentative en cours ou réussie par tranche ; fournisseur `app_config.payment_provider` (`SIMULATED`). Seul le payeur paie (`PAYER_ONLY`).
+  - **Événements** : `apply_payment_event` réservée au rôle `service_role` (ni `anon`, ni `authenticated`) ; la signature est vérifiée par l’appelant, une signature invalide est enregistrée sans être appliquée ; la fonction répond toujours, sans exception, pour que l’événement reste enregistré.
+  - **Journal** : plan de comptes minimal à faire valider (`docs/specs/ledger.md`) ; équilibre par devise vérifié par une contrainte différée ; lignes immuables ; remboursements par contrepassation ; versement au prestataire écrit au déblocage par un déclencheur sur `release_events` (tous les déclencheurs de déblocage sont couverts).
+  - **Remboursements** : administrateur non partie, jamais au-delà du payé, idempotents ; une tranche débloquée n’est pas remboursable par cette voie. **Le litige tranché en faveur du payeur ne crée pas de remboursement** (comportement inchangé) : le rapprochement le signale.
+  - **Rapprochement** : vue `v_reconciliation` (personnel), onze codes d’écart, mêmes règles dans le simulateur.
+- **Reste à décider** : validation du plan de comptes et des frais ; expiration d’une tentative sans réponse ; lien entre litige et remboursement ; fonction Edge de réception des webhooks de TrustPayWay et schéma de signature ; écran de rapprochement pour le bureau de contrôle.
+

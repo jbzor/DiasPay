@@ -106,6 +106,20 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `NO_EVIDENCE_PENDING` | S | Aucune preuve en attente de décision |
 | `NOT_RELEASED` | S, C | Reçu demandé pour une tranche non débloquée |
 
+## Paiements et journal financier (lot X, X5)
+
+| Code | Origine | Signification |
+|---|---|---|
+| `IDEMPOTENCY_CONFLICT` | D, S | Clé d’idempotence déjà utilisée pour un autre paiement (autre tranche, autre payeur) ou un autre remboursement (autre montant) |
+| `PAYMENT_IN_PROGRESS` | D, S | Un paiement est déjà en cours pour cette tranche (une seule tentative en cours ou réussie par tranche) |
+| `PAYMENT_NOT_FOUND` | D, S | Tentative de paiement ou référence du partenaire introuvable |
+| `NOT_REFUNDABLE` | D, S | Aucun paiement réussi à rembourser, ou tranche déjà débloquée (fonds versés au prestataire) |
+| `REFUND_EXCEEDS_PAID` | D, S | Remboursement au-delà du montant payé (`detail` : `{refunded, paid}`) |
+| `LEDGER_UNBALANCED` | D, S | Journal financier déséquilibré pour une devise, ou de moins de deux lignes |
+| `LEDGER_IMMUTABLE` | S | Journal financier et événements reçus en ajout seul : une correction est une contrepassation |
+
+Les résultats de `apply_payment_event` (`APPLIED`, `IGNORED`, `REJECTED`, `INVALID_SIGNATURE`, `DUPLICATE`) et leurs précisions (`UNKNOWN_ATTEMPT`, `AMOUNT_MISMATCH`, `CONTRADICTS_FINAL_STATE`, `STALE_EVENT`, `ALREADY_APPLIED`, `TRANCHE_NOT_AWAITING`…) ne sont pas des erreurs : la fonction répond toujours, pour que l’événement reçu reste enregistré. Voir `docs/specs/ledger.md`.
+
 ## Litiges
 
 | Code | Origine | Signification |

@@ -281,6 +281,24 @@ export function contractSuite(h: Harness): void {
       if (h.partyIsolation) expect(await code((await h.as('OTHER')).getDocumentAccess(quote.id))).toBe('NOT_FOUND');
     }, t * 2);
 
+    it('X5 : paiement idempotent, appliqué par le même chemin que les événements du partenaire', async () => {
+      const api = await h.as('PAYER');
+      const id = newUuid();
+      await api.saveDraft(healthDraft(id));
+      await api.attachDocument(id, h.file('QUOTE'));
+      await api.attachDocument(id, h.file('BENEFICIARY_ID'));
+      const done = await api.simulateReview((await api.submitNeed(id)).id, { approved: true });
+      const tr = done.tranches[0]!;
+      const key = newUuid();
+      expect((await api.payTranche(tr.id, key)).tranches[0]!.status).toBe('PAID_LOCKED');
+      expect((await api.payTranche(tr.id, key)).tranches[0]!.status).toBe('PAID_LOCKED');   // même clé : même résultat, rien de plus
+      expect(await code(api.payTranche(tr.id, newUuid()))).toBe('NOT_PAYABLE');
+      expect(await code(api.payTranche(tr.id, 'court'))).toBe('VALIDATION');
+      const events = (await api.timeline(done.id)).map((e) => e.event);
+      expect(events.filter((e) => e === 'PAYMENT_STARTED')).toHaveLength(1);
+      if (h.partyIsolation) expect(await code((await h.as('OTHER')).payTranche(tr.id, newUuid()))).toBe('TRANCHE_NOT_FOUND');
+    }, t * 2);
+
     it('références et tranches inconnues : codes stables de la table', async () => {
       const api = await h.as('PAYER');
       const e1 = await code(api.resolveReference('ffffffffffffffffff'));

@@ -9,6 +9,11 @@
 --   3. Jeton lisible par le payeur seulement ; référence inconnue et dossier étranger : même réponse
 --   4. Événements de sécurité (security_events) et limitation des résolutions échouées (TOO_MANY_ATTEMPTS)
 --   5. Ouverture d’une demande par le payeur (mark_received, REQUEST_VIEWED)
+-- X2. Décisions du payeur (serveur seulement, sans écran)
+--   6. Statuts INFO_REQUESTED et REJECTED, transitions, clôture
+--   7. Messages d’une demande (request_messages), request_info, answer_info, reject_request
+--   8. Notifications PAYMENT_REQUEST_RECEIVED, INFO_REQUESTED, INFO_ANSWERED, REQUEST_REJECTED
+--   9. Mode de déblocage IMMEDIATE (paiement direct, événement DIRECT_PAYMENT) : aucun type de besoin ne l’utilise
 -- Droits à la fin de chaque partie : rien d’exécutable par anon, fonctions internes réservées.
 -- =====================================================================
 
@@ -286,3 +291,280 @@ grant execute on function resolve_reference_info(text), resolve_tranche_referenc
   to authenticated;
 revoke all on security_events from anon;
 grant select on security_events to authenticated;
+
+-- ---------- X2.6 Statuts et transitions ----------
+-- Les transitions de décision du payeur passent par request_info, answer_info et reject_request (motif obligatoire) ;
+-- transition_tranche les refuse. AWAITING_PAYMENT → RELEASED (système) n’existe que pour le mode IMMEDIATE.
+insert into tranche_transitions values
+ ('AWAITING_PAYMENT','INFO_REQUESTED','PAYER',false),
+ ('INFO_REQUESTED','AWAITING_PAYMENT','REQUESTER',false),
+ ('INFO_REQUESTED','AWAITING_PAYMENT','PROVIDER',false),
+ ('AWAITING_PAYMENT','REJECTED','PAYER',false),
+ ('INFO_REQUESTED','REJECTED','PAYER',false),
+ ('AWAITING_PAYMENT','RELEASED','SYSTEM',false)
+on conflict do nothing;
+
+alter table release_events drop constraint if exists release_events_trigger_check;
+alter table release_events add constraint release_events_trigger_check check (trigger in
+  ('PROVIDER_CONFIRMATION','AUTO_TIMEOUT','ADMIN','PAYER_APPROVAL','VALIDATOR_APPROVAL','DISPUTE_RESOLUTION','DIRECT_PAYMENT'));
+
+-- REJECTED est terminal : il compte pour la clôture de la transaction.
+create or replace function _set_tranche_status(
+  p_tranche uuid, p_to tranche_status, p_actor uuid, p_event text, p_payload jsonb default '{}')
+returns tranches language plpgsql security definer set search_path = public as $$
+declare tr tranches; old tranche_status; open_count int; tx_status_now tx_status;
+begin
+  select * into tr from tranches where id = p_tranche for update;
+  old := tr.status;
+  perform set_config('app.via_transition','on', true);
+  update tranches set
+    status = p_to,
+    contest_ends_at = case when p_to = 'CONFIRMED' and release_mode <> 'EVIDENCE_REVIEW'
+                           then now() + make_interval(hours => contest_hours) else contest_ends_at end,
+    released_at = case when p_to = 'RELEASED' then now() else released_at end
+  where id = p_tranche returning * into tr;
+  insert into audit_log(tx_id, tranche_id, actor_id, event, payload)
+  values (tr.tx_id, tr.id, p_actor, p_event, jsonb_build_object('tranche_from', old, 'tranche_to', p_to) || p_payload);
+  if p_to = 'RELEASED' then
+    insert into release_events(tx_id, tranche_id, trigger) values (tr.tx_id, tr.id, coalesce(p_payload->>'trigger','ADMIN'));
+  end if;
+  if p_to in ('RELEASED','CANCELLED','EXPIRED','REJECTED') then
+    select count(*) into open_count from tranches
+      where tx_id = tr.tx_id and status not in ('RELEASED','CANCELLED','EXPIRED','REJECTED');
+    select status into tx_status_now from transactions where id = tr.tx_id;
+    if open_count = 0 and tx_status_now = 'IN_PROGRESS' then
+      update transactions set status = 'CLOSED' where id = tr.tx_id;
+      insert into audit_log(tx_id, actor_id, event, from_status, to_status)
+      values (tr.tx_id, p_actor, 'TX_CLOSED', 'IN_PROGRESS', 'CLOSED');
+    end if;
+  end if;
+  return tr;
+end $$;
+
+-- Transitions des utilisateurs : celles du payeur (informations, rejet) exigent la fonction dédiée.
+create or replace function transition_tranche(p_tranche uuid, p_to tranche_status, p_reason text default null)
+returns tranches language plpgsql security definer set search_path = public as $$
+declare tr tranches; t transactions; ok boolean := false; r tx_role; trig text;
+begin
+  perform _require_user();
+  select * into tr from tranches where id = p_tranche for update;
+  if not found or not is_party(tr.tx_id) then perform _err('TRANCHE_NOT_FOUND', 'Tranche introuvable'); end if;
+  select * into t from transactions where id = tr.tx_id;
+  if t.status <> 'IN_PROGRESS' then perform _err('TX_NOT_ACTIVE', 'La transaction n’est pas active'); end if;
+  if not exists (select 1 from tranche_transitions where from_status = tr.status and to_status = p_to) then
+    perform _err('TRANSITION_UNKNOWN', format('Transition de tranche %s -> %s inconnue', tr.status, p_to));
+  end if;
+  if p_to in ('INFO_REQUESTED','REJECTED') or tr.status = 'INFO_REQUESTED' then
+    perform _err('TRANSITION_FORBIDDEN', 'Décision du payeur : utiliser request_info, answer_info ou reject_request');
+  end if;
+  foreach r in array array['PAYER','PROVIDER']::tx_role[] loop
+    if has_role(tr.tx_id, r) and exists (select 1 from tranche_transitions
+        where from_status = tr.status and to_status = p_to and role = r and not validator_only) then
+      ok := true;
+    end if;
+  end loop;
+  if not ok then perform _err('TRANSITION_FORBIDDEN', format('Transition de tranche %s -> %s non autorisée', tr.status, p_to)); end if;
+  if tr.status = 'PAID_LOCKED' and p_to = 'CONFIRMED' then
+    if not ((tr.release_mode = 'PROVIDER_CONFIRM' and has_role(tr.tx_id,'PROVIDER'))
+         or (tr.release_mode = 'PAYER_CONFIRM'    and has_role(tr.tx_id,'PAYER'))) then
+      perform _err('WRONG_CONFIRMER', format('Ce rôle ne peut pas confirmer cette tranche (mode %s)', tr.release_mode));
+    end if;
+  end if;
+  if tr.status = 'PAID_LOCKED' and p_to = 'EVIDENCE_SUBMITTED' then
+    if tr.release_mode <> 'EVIDENCE_REVIEW' then perform _err('NO_EVIDENCE_NEEDED', 'Cette tranche ne requiert pas de preuve'); end if;
+    if not exists (select 1 from documents where tranche_id = p_tranche and deleted_at is null) then
+      perform _err('EVIDENCE_MISSING', 'Déposez au moins une pièce probante');
+    end if;
+  end if;
+  if tr.status = 'CONFIRMED' and p_to = 'RELEASED' and not has_role(tr.tx_id,'PAYER') then
+    perform _err('PAYER_ONLY', 'Seul le payeur peut approuver le déblocage anticipé');
+  end if;
+  trig := case when p_to = 'RELEASED' then 'PAYER_APPROVAL' else null end;
+  return _set_tranche_status(p_tranche, p_to, auth.uid(), 'TRANCHE_CHANGE', jsonb_build_object('reason', p_reason, 'trigger', trig));
+end $$;
+
+-- Paiement simulé (mock_mode) : en mode IMMEDIATE, le paiement débloque directement (DIRECT_PAYMENT).
+create or replace function simulate_tranche_system(p_tranche uuid, p_to tranche_status)
+returns tranches language plpgsql security definer set search_path = public as $$
+declare tr tranches; t transactions;
+begin
+  perform _require_user();
+  if not _mock_mode() then perform _err('DEMO_DISABLED', 'Simulation désactivée'); end if;
+  select * into tr from tranches where id = p_tranche for update;
+  if not found or not (is_party(tr.tx_id) or is_validator()) then perform _err('TRANCHE_NOT_FOUND', 'Tranche introuvable'); end if;
+  select * into t from transactions where id = tr.tx_id;
+  if t.status <> 'IN_PROGRESS' then perform _err('TX_NOT_ACTIVE', 'La transaction n’est pas active'); end if;
+  if p_to = 'PAID_LOCKED' and tr.status <> 'AWAITING_PAYMENT' then perform _err('NOT_PAYABLE', 'Cette tranche n’est pas à payer'); end if;
+  if p_to = 'RELEASED' and tr.status = 'AWAITING_PAYMENT' then
+    perform _err('NOT_PAID', 'Seul un paiement débloque directement une tranche (mode IMMEDIATE)');
+  end if;
+  if not exists (select 1 from tranche_transitions
+      where from_status = tr.status and to_status = p_to and role = 'SYSTEM' and not validator_only) then
+    perform _err('TRANSITION_UNKNOWN', format('Transition système %s -> %s invalide', tr.status, p_to));
+  end if;
+  if p_to = 'AWAITING_PAYMENT' then perform _issue_tranche_token(p_tranche); end if;
+  if p_to = 'PAID_LOCKED' then
+    insert into payments(tx_id, tranche_id, provider, status) values (tr.tx_id, p_tranche, 'MOCK', 'SUCCEEDED');
+    if tr.release_mode = 'IMMEDIATE' then
+      return _set_tranche_status(p_tranche, 'RELEASED', auth.uid(), 'DIRECT_PAYMENT', jsonb_build_object('trigger', 'DIRECT_PAYMENT'));
+    end if;
+  end if;
+  return _set_tranche_status(p_tranche, p_to, auth.uid(), 'SYSTEM_SIMULATED',
+           jsonb_build_object('trigger', case when p_to = 'RELEASED' then 'AUTO_TIMEOUT' end));
+end $$;
+
+-- ---------- X2.7 Messages d’une demande ----------
+create table if not exists request_messages (
+  id         uuid primary key default gen_random_uuid(),
+  tx_id      uuid not null references transactions(id) on delete cascade,
+  tranche_id uuid references tranches(id) on delete cascade,
+  author_id  uuid not null references profiles(id),
+  kind       text not null check (kind in ('INFO_REQUEST','INFO_ANSWER','NOTE')),
+  body       text not null check (length(trim(body)) between 3 and 2000),
+  created_at timestamptz not null default now()
+);
+create index if not exists request_messages_tx on request_messages(tx_id, created_at);
+alter table request_messages enable row level security;
+drop policy if exists request_messages_read on request_messages;
+create policy request_messages_read on request_messages for select using (is_party(tx_id) or is_validator());
+revoke insert, update, delete on request_messages from anon, authenticated;
+
+-- Immuable : seule la réinitialisation de démonstration (mock_mode) peut effacer, comme le journal.
+create or replace function _request_messages_immutable() returns trigger language plpgsql as $$
+begin
+  if tg_op = 'DELETE' and coalesce(current_setting('app.demo_reset', true), 'off') = 'on' and _mock_mode() then return old; end if;
+  raise exception 'request_messages est en ajout seul';
+end $$;
+drop trigger if exists request_messages_immutable on request_messages;
+create trigger request_messages_immutable before update or delete on request_messages
+  for each row execute function _request_messages_immutable();
+
+-- Texte d’un message : 3 à 2000 caractères (miroir de messageError, @diaspay/domain).
+create or replace function _check_message(p_text text) returns text
+language plpgsql immutable as $$
+begin
+  if coalesce(length(trim(p_text)), 0) < 3 then perform _err('REASON_REQUIRED', 'Message ou motif obligatoire'); end if;
+  if length(trim(p_text)) > 2000 then perform _err('VALIDATION', 'Message trop long (2000 caractères au plus)'); end if;
+  return trim(p_text);
+end $$;
+
+-- Tranche d’une demande en cours, pour une partie (codes communs aux trois décisions).
+create or replace function _request_tranche(p_tranche uuid) returns tranches
+language plpgsql security definer set search_path = public as $$
+declare tr tranches;
+begin
+  perform _require_user();
+  select * into tr from tranches where id = p_tranche for update;
+  if not found or not is_party(tr.tx_id) then perform _err('TRANCHE_NOT_FOUND', 'Tranche introuvable'); end if;
+  if (select status from transactions where id = tr.tx_id) <> 'IN_PROGRESS' then perform _err('TX_NOT_ACTIVE', 'La transaction n’est pas active'); end if;
+  return tr;
+end $$;
+
+-- Le payeur demande des informations complémentaires à l’initiateur (qui n’est pas lui-même).
+create or replace function request_info(p_tranche uuid, p_message text) returns tranches
+language plpgsql security definer set search_path = public as $$
+declare tr tranches; v_text text; m request_messages;
+begin
+  tr := _request_tranche(p_tranche);
+  if not has_role(tr.tx_id, 'PAYER') then perform _err('PAYER_ONLY', 'Réservé au payeur'); end if;
+  if tr.status <> 'AWAITING_PAYMENT' then perform _err('TRANSITION_UNKNOWN', format('Transition de tranche %s -> INFO_REQUESTED inconnue', tr.status)); end if;
+  if (select created_by from transactions where id = tr.tx_id) = auth.uid() then
+    perform _err('TRANSITION_FORBIDDEN', 'Vous êtes l’initiateur de cette demande');
+  end if;
+  v_text := _check_message(p_message);
+  insert into request_messages(tx_id, tranche_id, author_id, kind, body) values (tr.tx_id, tr.id, auth.uid(), 'INFO_REQUEST', v_text) returning * into m;
+  return _set_tranche_status(p_tranche, 'INFO_REQUESTED', auth.uid(), 'INFO_REQUESTED', jsonb_build_object('message_id', m.id));
+end $$;
+
+-- L’initiateur de la demande répond : la tranche revient à payer. Ses pièces sont des documents de la tranche.
+create or replace function answer_info(p_tranche uuid, p_message text) returns tranches
+language plpgsql security definer set search_path = public as $$
+declare tr tranches; v_text text; m request_messages;
+begin
+  tr := _request_tranche(p_tranche);
+  if (select created_by from transactions where id = tr.tx_id) <> auth.uid() then perform _err('INITIATOR_ONLY', 'Réservé à l’initiateur de la demande'); end if;
+  if tr.status <> 'INFO_REQUESTED' then perform _err('TRANSITION_UNKNOWN', format('Transition de tranche %s -> AWAITING_PAYMENT inconnue', tr.status)); end if;
+  v_text := _check_message(p_message);
+  insert into request_messages(tx_id, tranche_id, author_id, kind, body) values (tr.tx_id, tr.id, auth.uid(), 'INFO_ANSWER', v_text) returning * into m;
+  return _set_tranche_status(p_tranche, 'AWAITING_PAYMENT', auth.uid(), 'INFO_ANSWERED', jsonb_build_object('message_id', m.id));
+end $$;
+
+-- Le payeur rejette la demande : tranche REJECTED (terminale), jeton révoqué, motif conservé.
+create or replace function reject_request(p_tranche uuid, p_reason text) returns tranches
+language plpgsql security definer set search_path = public as $$
+declare tr tranches; v_text text; m request_messages;
+begin
+  tr := _request_tranche(p_tranche);
+  if not has_role(tr.tx_id, 'PAYER') then perform _err('PAYER_ONLY', 'Réservé au payeur'); end if;
+  if tr.status not in ('AWAITING_PAYMENT','INFO_REQUESTED') then
+    perform _err('TRANSITION_UNKNOWN', format('Transition de tranche %s -> REJECTED inconnue', tr.status));
+  end if;
+  v_text := _check_message(p_reason);
+  insert into request_messages(tx_id, tranche_id, author_id, kind, body) values (tr.tx_id, tr.id, auth.uid(), 'NOTE', v_text) returning * into m;
+  perform _revoke_active_token(p_tranche, 'Demande rejetée par le payeur', auth.uid());
+  return _set_tranche_status(p_tranche, 'REJECTED', auth.uid(), 'REQUEST_REJECTED', jsonb_build_object('message_id', m.id, 'reason', v_text));
+end $$;
+
+-- Pièces d’une réponse : déposées par l’initiateur pendant que la tranche attend des informations.
+drop policy if exists docs_insert_info on documents;
+create policy docs_insert_info on documents for insert with check (
+  uploaded_by = auth.uid() and tranche_id is not null
+  and exists (select 1 from tranches tr join transactions t on t.id = tr.tx_id
+              where tr.id = tranche_id and tr.tx_id = documents.tx_id and tr.status = 'INFO_REQUESTED' and t.created_by = auth.uid()));
+drop policy if exists dossiers_insert_info on storage.objects;
+create policy dossiers_insert_info on storage.objects for insert with check (
+  bucket_id = 'dossiers' and exists (
+    select 1 from transactions t join tranches tr on tr.tx_id = t.id
+    where t.id = _storage_tx(name) and tr.status = 'INFO_REQUESTED' and t.created_by = auth.uid()));
+
+-- ---------- X2.8 Notifications ----------
+-- Destinataires : toutes les parties (événements existants, inchangés), les autres parties que l’auteur (décisions
+-- et réponses), ou le payeur seul (demande reçue d’un prestataire). Aucun texte : l’application fait le libellé.
+create or replace function _notify_from_audit() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare v_type text; v_payload jsonb; v_to text; v_outcome text; v_release timestamptz; v_who text := 'ALL';
+begin
+  v_to := new.payload->>'tranche_to';
+  if new.tranche_id is null then
+    if new.to_status = 'VALIDATED' then v_type := 'TX_VALIDATED';
+    elsif new.to_status = 'REJECTED' then v_type := 'TX_REJECTED';
+    elsif new.to_status = 'SUBMITTED' and exists (
+        select 1 from transaction_parties p join transactions t on t.id = p.tx_id
+        where p.tx_id = new.tx_id and p.role = 'PROVIDER' and p.user_id = t.created_by) then
+      v_type := 'PAYMENT_REQUEST_RECEIVED'; v_who := 'PAYER';
+    end if;
+  elsif new.event = 'DISPUTE_OPENED' then v_type := 'DISPUTE_OPENED';
+  elsif new.event = 'DISPUTE_RESOLVED' then
+    v_type := 'DISPUTE_RESOLVED';
+    v_outcome := case new.payload->>'outcome' when 'RELEASE_TO_PROVIDER' then 'RELEASED' else 'REFUNDED' end;
+  elsif new.event in ('INFO_REQUESTED','INFO_ANSWERED','REQUEST_REJECTED') then v_type := new.event; v_who := 'OTHERS';
+  elsif v_to = 'AWAITING_PAYMENT' then v_type := 'PAYMENT_READY';
+  elsif v_to = 'CONFIRMED' then
+    v_type := 'TRANCHE_CONFIRMED';
+    select contest_ends_at into v_release from tranches where id = new.tranche_id;
+  elsif v_to = 'RELEASED' then v_type := 'TRANCHE_RELEASED';
+  end if;
+  if v_type is null then return new; end if;
+
+  v_payload := jsonb_strip_nulls(jsonb_build_object(
+    'type', v_type, 'txId', new.tx_id, 'trancheId', new.tranche_id,
+    'reason', case when v_type = 'TX_REJECTED' then coalesce(new.payload->>'reason', '') end,
+    'releaseAt', case when v_release is not null then to_char(v_release at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') end,
+    'outcome', v_outcome));
+  insert into notifications(user_id, tx_id, event, payload)
+  select distinct p.user_id, new.tx_id, v_type, v_payload from transaction_parties p
+  where p.tx_id = new.tx_id and p.user_id is not null
+    and (v_who = 'ALL' or (v_who = 'OTHERS' and p.user_id is distinct from new.actor_id) or (v_who = 'PAYER' and p.role = 'PAYER'));
+  return new;
+end $$;
+
+-- ---------- Droits (X2) ----------
+revoke all on function _check_message(text), _request_tranche(uuid), _request_messages_immutable(),
+  _set_tranche_status(uuid, tranche_status, uuid, text, jsonb), _notify_from_audit() from public, anon, authenticated;
+revoke all on function request_info(uuid, text), answer_info(uuid, text), reject_request(uuid, text),
+  transition_tranche(uuid, tranche_status, text), simulate_tranche_system(uuid, tranche_status) from public, anon;
+grant execute on function request_info(uuid, text), answer_info(uuid, text), reject_request(uuid, text),
+  transition_tranche(uuid, tranche_status, text), simulate_tranche_system(uuid, tranche_status) to authenticated;
+revoke all on request_messages from anon;
+grant select on request_messages to authenticated;
+alter publication supabase_realtime add table request_messages;

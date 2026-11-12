@@ -202,6 +202,132 @@ select t.hint($$select confirm_by_reference((select v from t.refs where k = 'a1b
 select t.check((select status from confirm_by_reference((select v from t.refs where k = 'a1c'))) = 'CONFIRMED', 'le prestataire confirme avec le jeton actif');
 select t.admin();
 
+-- ===================== X2 : décisions du payeur =====================
+-- ---------- Structure (X2) ----------
+select t.check(not has_table_privilege('authenticated', 'request_messages', 'INSERT') and not has_table_privilege('authenticated', 'request_messages', 'UPDATE')
+           and not has_table_privilege('authenticated', 'request_messages', 'DELETE'),
+  'request_messages : aucune écriture par le client');
+select t.check(not exists (select 1 from release_rules where release_mode = 'IMMEDIATE'), 'aucun type de besoin n’utilise IMMEDIATE (K1)');
+select t.check((select count(*) from tranche_transitions where (from_status, to_status) in
+   (('AWAITING_PAYMENT','INFO_REQUESTED'),('INFO_REQUESTED','AWAITING_PAYMENT'),('AWAITING_PAYMENT','REJECTED'),('INFO_REQUESTED','REJECTED'),('AWAITING_PAYMENT','RELEASED'))) = 6,
+  'transitions de tranche du lot X (miroir de transitionTranche)');
+select t.check(exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'dossiers_insert_info')
+           and exists (select 1 from pg_policies where tablename = 'documents' and policyname = 'docs_insert_info'),
+  'pièces d’une réponse : politiques d’insertion (table et bucket)');
+
+-- ---------- X2 : décisions du payeur (tranche 2) ----------
+select t.login('f9000000-0000-4000-8000-000000000001');
+select simulate_tranche_system((select v from t.ids where k = 'a2'), 'AWAITING_PAYMENT');
+select t.hint($$select simulate_tranche_system((select v from t.ids where k = 'a2'), 'RELEASED')$$, 'NOT_PAID', 'pas de déblocage direct sans paiement (mode non IMMEDIATE)');
+select t.admin();
+select t.login('f9000000-0000-4000-8000-000000000002');
+select t.hint($$select request_info((select v from t.ids where k = 'a2'), 'Pouvez-vous préciser ?')$$, 'PAYER_ONLY', 'request_info réservé au payeur');
+select t.admin();
+select t.login('f9000000-0000-4000-8000-000000000001');
+select t.hint($$select request_info((select v from t.ids where k = 'a2'), ' ')$$, 'REASON_REQUIRED', 'message obligatoire');
+select t.hint($$select transition_tranche((select v from t.ids where k = 'a2'), 'INFO_REQUESTED')$$, 'TRANSITION_FORBIDDEN', 'pas de demande d’informations sans la fonction dédiée');
+select t.hint($$select transition_tranche((select v from t.ids where k = 'a2'), 'REJECTED')$$, 'TRANSITION_FORBIDDEN', 'pas de rejet sans motif (fonction dédiée)');
+select t.check((select status from request_info((select v from t.ids where k = 'a2'), 'Pouvez-vous joindre le relevé de notes ?')) = 'INFO_REQUESTED',
+  'le payeur demande des informations : INFO_REQUESTED');
+select t.hint($$select simulate_tranche_system((select v from t.ids where k = 'a2'), 'PAID_LOCKED')$$, 'NOT_PAYABLE', 'pas de paiement pendant la demande d’informations');
+select t.admin();
+select t.check((select count(*) from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000a' and event = 'INFO_REQUESTED') = 2
+           and not exists (select 1 from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000a' and event = 'INFO_REQUESTED'
+                           and user_id = 'f9000000-0000-4000-8000-000000000001'),
+  'INFO_REQUESTED notifié aux autres parties, pas à son auteur');
+select t.check((select payload - 'type' - 'txId' - 'trancheId' = '{}'::jsonb from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000a' and event = 'INFO_REQUESTED' limit 1),
+  'notification sans texte ni montant (type, dossier, tranche)');
+-- Pièce d’une réponse : par l’initiateur pendant INFO_REQUESTED seulement.
+select t.login('f9000000-0000-4000-8000-000000000006');
+select t.fails($$insert into documents(tx_id, tranche_id, kind, storage_path, mime_type, size_bytes, uploaded_by) values ('f9300000-0000-4000-8000-00000000000a', (select v from t.ids where k = 'a2'), 'SUPPORTING_DOCUMENT', 'f9300000-0000-4000-8000-00000000000a/info/x.pdf', 'application/pdf', 100, auth.uid())$$,
+  'un étranger ne joint pas de pièce');
+select t.admin();
+select t.login('f9000000-0000-4000-8000-000000000002');
+insert into documents(tx_id, tranche_id, kind, storage_path, mime_type, size_bytes, uploaded_by, file_name)
+values ('f9300000-0000-4000-8000-00000000000a', (select v from t.ids where k = 'a2'), 'SUPPORTING_DOCUMENT', 'f9300000-0000-4000-8000-00000000000a/info/notes.pdf', 'application/pdf', 100, auth.uid(), 'notes.pdf');
+select t.check((select count(*) from documents where tranche_id = (select v from t.ids where k = 'a2')) = 1, 'l’initiateur joint une pièce à sa réponse');
+select t.admin();
+select t.login('f9000000-0000-4000-8000-000000000001');
+select t.hint($$select answer_info((select v from t.ids where k = 'a2'), 'Voici')$$, 'INITIATOR_ONLY', 'le payeur ne répond pas à sa propre demande');
+select t.admin();
+select t.login('f9000000-0000-4000-8000-000000000003');
+select t.hint($$select answer_info((select v from t.ids where k = 'a2'), 'Voici le relevé')$$, 'INITIATOR_ONLY', 'le prestataire non initiateur ne répond pas');
+select t.admin();
+select t.login('f9000000-0000-4000-8000-000000000002');
+select t.check((select status from answer_info((select v from t.ids where k = 'a2'), 'Relevé de notes joint.')) = 'AWAITING_PAYMENT', 'l’initiateur répond : à payer de nouveau');
+select t.hint($$select answer_info((select v from t.ids where k = 'a2'), 'Encore')$$, 'TRANSITION_UNKNOWN', 'pas de réponse sans demande en cours');
+select t.fails($$insert into documents(tx_id, tranche_id, kind, storage_path, mime_type, size_bytes, uploaded_by) values ('f9300000-0000-4000-8000-00000000000a', (select v from t.ids where k = 'a2'), 'SUPPORTING_DOCUMENT', 'f9300000-0000-4000-8000-00000000000a/info/y.pdf', 'application/pdf', 100, auth.uid())$$,
+  'plus de pièce de réponse hors demande d’informations');
+select t.admin();
+select t.check((select count(*) from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000a' and event = 'INFO_ANSWERED') = 2
+           and not exists (select 1 from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000a' and event = 'INFO_ANSWERED'
+                           and user_id = 'f9000000-0000-4000-8000-000000000002'),
+  'INFO_ANSWERED notifié au payeur et au prestataire');
+select t.check((select count(*) from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000a' and event = 'PAYMENT_READY'
+                and payload->>'trancheId' = (select v from t.ids where k = 'a2')::text) = 3,
+  'retour à payer après réponse : pas de nouvelle alerte PAYMENT_READY (seulement celle de l’ouverture)');
+select t.login('f9000000-0000-4000-8000-000000000003');
+select t.hint($$select reject_request((select v from t.ids where k = 'a2'), 'Non')$$, 'PAYER_ONLY', 'rejet réservé au payeur');
+select t.admin();
+select t.login('f9000000-0000-4000-8000-000000000001');
+select request_info((select v from t.ids where k = 'a2'), 'Et le certificat de scolarité ?');
+select t.hint($$select reject_request((select v from t.ids where k = 'a2'), '')$$, 'REASON_REQUIRED', 'motif de rejet obligatoire');
+select t.check((select status from reject_request((select v from t.ids where k = 'a2'), 'Je ne reconnais pas cette demande.')) = 'REJECTED',
+  'le payeur rejette depuis INFO_REQUESTED : REJECTED');
+select t.hint($$select request_info((select v from t.ids where k = 'a2'), 'Encore une question')$$, 'TRANSITION_UNKNOWN', 'REJECTED est terminal');
+select t.check((select count(*) from request_messages where tranche_id = (select v from t.ids where k = 'a2')) = 4, 'le payeur lit les messages de la demande');
+select t.fails($$insert into request_messages(tx_id, author_id, kind, body) values ('f9300000-0000-4000-8000-00000000000a', auth.uid(), 'NOTE', 'Intrus')$$,
+  'le client n’écrit pas de message directement');
+select t.admin();
+select t.login('f9000000-0000-4000-8000-000000000006');
+select t.check((select count(*) from request_messages where tx_id = 'f9300000-0000-4000-8000-00000000000a') = 0, 'un étranger ne lit pas les messages');
+select t.admin();
+select t.fails($$update request_messages set body = 'Modifié' where tx_id = 'f9300000-0000-4000-8000-00000000000a'$$, 'messages immuables (même pour le propriétaire)');
+select t.check((select array_agg(kind order by kind)::text from request_messages where tranche_id = (select v from t.ids where k = 'a2'))
+               = '{INFO_ANSWER,INFO_REQUEST,INFO_REQUEST,NOTE}', 'messages : deux demandes, une réponse, le motif du rejet');
+select t.check(not exists (select 1 from tranche_tokens where tranche_id = (select v from t.ids where k = 'a2') and revoked_at is null),
+  'rejet : jeton de la tranche révoqué');
+select t.check((select count(*) from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000a' and event = 'REQUEST_REJECTED') = 2,
+  'REQUEST_REJECTED notifié aux autres parties');
+select t.check((select status from transactions where id = 'f9300000-0000-4000-8000-00000000000a') = 'IN_PROGRESS', 'une tranche confirmée reste ouverte : dossier en cours');
+select t.login('f9000000-0000-4000-8000-000000000001');
+select transition_tranche((select v from t.ids where k = 'a1'), 'RELEASED');
+select t.admin();
+select t.check((select status from transactions where id = 'f9300000-0000-4000-8000-00000000000a') = 'CLOSED', 'clôture avec une tranche débloquée et une tranche rejetée');
+select t.check(verify_audit('f9300000-0000-4000-8000-00000000000a'), 'journal chaîné intact après révocations et décisions');
+select t.check((select reference from tranche_tokens where id = (select k.id from tranche_tokens k where k.tranche_id = (select v from t.ids where k = 'a1') and k.revoked_at is null))
+               = (select v from t.refs where k = 'a1c'), 'reçu : jeton actif');
+select t.login('f9000000-0000-4000-8000-000000000001');
+select t.check((t.j($$select get_receipt((select v from t.ids where k = 'a1'))$$)->>'reference') = (select v from t.refs where k = 'a1c'), 'le reçu porte la référence du jeton actif');
+select t.admin();
+
+-- ---------- X2.6 Mode IMMEDIATE (type de besoin de test, annulé à la fin) ----------
+update release_rules set release_mode = 'IMMEDIATE', contest_hours = 0 where vertical = 'RENT';
+select t.login('f9000000-0000-4000-8000-000000000001');
+select save_draft(jsonb_build_object('id','f9300000-0000-4000-8000-00000000000b','vertical','RENT','amountMinor','150000','currency','XAF',
+  'purpose','Loyer (paiement direct)','beneficiaryName','Moi','provider', jsonb_build_object('name','Bailleur (lot X)','invitedPhone','+237 6 2222 0003'),
+  'planType','SINGLE','tranches', jsonb_build_array(jsonb_build_object('label','Loyer','amountMinor','150000','dueDate',(current_date + 1)::text))));
+select add_document('f9300000-0000-4000-8000-00000000000b', 'LEASE', 'f9300000-0000-4000-8000-00000000000b/LEASE/bail.pdf', 'bail.pdf', 'application/pdf', 1000);
+select transition_tx('f9300000-0000-4000-8000-00000000000b', 'SUBMITTED');
+select t.admin();
+select t.login('f9000000-0000-4000-8000-000000000004');
+select transition_tx('f9300000-0000-4000-8000-00000000000b', 'IN_REVIEW');
+select decide_tx('f9300000-0000-4000-8000-00000000000b', true, true);
+select t.admin();
+insert into t.ids select 'b1', id from tranches where tx_id = 'f9300000-0000-4000-8000-00000000000b' and seq = 1;
+select t.check((select release_mode from tranches where id = (select v from t.ids where k = 'b1')) = 'IMMEDIATE', 'tranche du type de test en mode IMMEDIATE');
+select t.login('f9000000-0000-4000-8000-000000000001');
+select t.check((select status from simulate_tranche_system((select v from t.ids where k = 'b1'), 'PAID_LOCKED')) = 'RELEASED', 'paiement direct : débloquée sans verrouillage');
+select t.admin();
+select t.check(exists (select 1 from audit_log where tranche_id = (select v from t.ids where k = 'b1') and event = 'DIRECT_PAYMENT')
+           and not exists (select 1 from audit_log where tranche_id = (select v from t.ids where k = 'b1') and payload->>'tranche_to' = 'PAID_LOCKED'),
+  'événement DIRECT_PAYMENT, aucun passage par PAID_LOCKED');
+select t.check((select trigger from release_events where tranche_id = (select v from t.ids where k = 'b1')) = 'DIRECT_PAYMENT'
+           and (select count(*) from payments where tranche_id = (select v from t.ids where k = 'b1') and status = 'SUCCEEDED') = 1,
+  'paiement enregistré, déblocage DIRECT_PAYMENT');
+select t.check((select contest_ends_at is null from tranches where id = (select v from t.ids where k = 'b1')), 'aucun délai de contestation');
+select t.check((select status from transactions where id = 'f9300000-0000-4000-8000-00000000000b') = 'CLOSED', 'dossier à paiement direct clôturé');
+
 -- ===================== Fin =====================
 -- ---------- Résumé ----------
 do $$

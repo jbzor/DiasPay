@@ -12,6 +12,7 @@ import { API_MODE, demoAvailable, getSupabaseApi } from './backend';
 import { asyncDraftStore } from './drafts';
 import { mergeDrafts } from '@/features/need/mergeDrafts';
 import { useSession } from './auth';
+import { setModules } from './modules';
 
 /**
  * Données serveur de l’application : une seule source (react-query), mêmes crochets pour le simulateur et
@@ -41,6 +42,7 @@ export const qk = {
   token: (uid: string | undefined, trancheId: string) => [...qk.root(uid), 'token', trancheId] as const,
   receipt: (uid: string | undefined, trancheId: string) => [...qk.root(uid), 'receipt', trancheId] as const,
   dispute: (uid: string | undefined, trancheId: string) => [...qk.root(uid), 'dispute', trancheId] as const,
+  modules: (uid: string | undefined) => [...qk.root(uid), 'modules'] as const,
 };
 
 /** Invalide toutes les données (après une écriture, un événement temps réel, un retour au premier plan). */
@@ -71,6 +73,13 @@ export function assertOnline(): void {
 // ——— Crochets ———
 
 const useUid = () => useSession().session?.userId;
+
+/** Lot X (X6) : types de besoin du serveur, recopiés dans state/modules (libellés, validation de l’assistant). */
+export function useModulesQuery(): void {
+  const uid = useUid();
+  const q = useQuery({ queryKey: qk.modules(uid), queryFn: () => api.listModules(), enabled: !!uid, staleTime: 10 * 60_000 });
+  useEffect(() => { if (q.data) setModules(q.data); }, [q.data]);
+}
 
 export function useTransactionsQuery(): UseQueryResult<Transaction[]> {
   const uid = useUid();

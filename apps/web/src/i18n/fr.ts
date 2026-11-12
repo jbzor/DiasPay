@@ -379,6 +379,7 @@ export const fr = {
   'event.INFO_ANSWERED': 'Réponse de l’initiateur',
   'event.REQUEST_REJECTED': 'Demande rejetée par le payeur',
   'event.DIRECT_PAYMENT': 'Paiement direct (débloqué au paiement)',
+  'event.AUTO_VALIDATED': 'Validé automatiquement (type de besoin sans revue)',
   'event.PAYMENT_STARTED': 'Paiement demandé',
   'event.PAYMENT_SUCCEEDED': 'Paiement confirmé par le partenaire',
   'event.PAYMENT_FAILED': 'Paiement refusé par le partenaire',

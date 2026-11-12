@@ -1,7 +1,7 @@
 import { DomainError, bufferToHex, sha256Hex } from '@diaspay/domain';
-import type { NeedDraft, Vertical } from '@diaspay/domain';
+import type { ModuleCode, NeedDraft } from '@diaspay/domain';
 
-export interface ProviderSummary { id: string; name: string; city: string; verticals: Vertical[]; verified: boolean }
+export interface ProviderSummary { id: string; name: string; city: string; verticals: ModuleCode[]; verified: boolean }
 
 /** Erreur d’API à code stable, avec des détails exploitables par l’écran (pièce manquante, liste des problèmes…). */
 export class ApiError extends DomainError {

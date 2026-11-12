@@ -1,5 +1,5 @@
 import { checkContentHash, checkFile, checkFileCount, emptyDraft, normalizeReference } from '@diaspay/domain';
-import type { CreatorRole, DisputeOutcome, DraftDocument, DraftDocumentInput, NeedDraft, Vertical } from '@diaspay/domain';
+import type { CreatorRole, DisputeOutcome, DraftDocument, DraftDocumentInput, ModuleCode, NeedDraft, RequestModule } from '@diaspay/domain';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ApiError, fetchHasher, newUuid } from '../need';
 import type { FileHasher, ProviderSummary } from '../need';
@@ -9,7 +9,7 @@ import type {
 } from '../types';
 import type { Database } from './database.types';
 import {
-  TX_SELECT, draftFromServer, draftToServer, storagePath, storagePathOf, toAuditEntry, toDispute, toMessage, toNotification, toProvider,
+  TX_SELECT, draftFromServer, draftToServer, storagePath, storagePathOf, toAuditEntry, toDispute, toMessage, toModule, toNotification, toProvider,
   toReceipt, toReferenceInfo, toToken, toTransaction,
 } from './convert';
 import type { TxWithRelations } from './convert';
@@ -150,7 +150,7 @@ export class SupabaseApi implements TransactionApi {
 
   // ——— Création d’un besoin ———
 
-  async searchProviders(query: string, vertical: Vertical): Promise<ProviderSummary[]> {
+  async searchProviders(query: string, vertical: ModuleCode): Promise<ProviderSummary[]> {
     return unwrap(await this.sb.rpc('search_providers', { p_query: query, p_vertical: vertical }), 'searchProviders').map(toProvider);
   }
 
@@ -354,8 +354,14 @@ export class SupabaseApi implements TransactionApi {
   }
 
   /** Brouillon vide enregistré avec son rôle de créateur (save_draft vérifie l’autorisation d’un prestataire). */
-  async createDraft(input: { vertical: Vertical; creatorRole: CreatorRole }): Promise<NeedDraft> {
+  async createDraft(input: { vertical: ModuleCode; creatorRole: CreatorRole }): Promise<NeedDraft> {
     return this.saveDraft({ ...emptyDraft(newUuid(), new Date()), vertical: input.vertical, creatorRole: input.creatorRole });
+  }
+
+  /** Lot X (X6) : types de besoin (request_modules, lisible par tout utilisateur connecté), dans l’ordre d’affichage. */
+  async listModules(): Promise<RequestModule[]> {
+    const rows = unwrap(await this.sb.from('request_modules').select('*').order('display_order').order('code'), 'listModules');
+    return rows.map(toModule);
   }
 
   // ——— Temps réel ———

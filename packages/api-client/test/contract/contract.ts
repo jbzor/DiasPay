@@ -5,7 +5,7 @@
  * dans docs/supabase-setup.md.
  */
 import { describe, expect, it } from 'vitest';
-import { emptyDraft, isErrorCode } from '@diaspay/domain';
+import { DEFAULT_MODULES, emptyDraft, isErrorCode } from '@diaspay/domain';
 import type { DraftDocumentInput, NeedDraft, Vertical } from '@diaspay/domain';
 import { newUuid } from '../../src';
 import type { DisputeOutcome } from '@diaspay/domain';
@@ -298,6 +298,20 @@ export function contractSuite(h: Harness): void {
       expect(events.filter((e) => e === 'PAYMENT_STARTED')).toHaveLength(1);
       if (h.partyIsolation) expect(await code((await h.as('OTHER')).payTranche(tr.id, newUuid()))).toBe('TRANCHE_NOT_FOUND');
     }, t * 2);
+
+    it('X6 : types de besoin lus dans les modules (valeurs du code par défaut), vague 2 refusée', async () => {
+      const api = await h.as('PAYER');
+      const mods = await api.listModules();
+      const known = DEFAULT_MODULES.map((m) => m.code);
+      expect(mods.filter((m) => known.includes(m.code))).toEqual(DEFAULT_MODULES);
+      expect(mods.map((m) => m.displayOrder)).toEqual([...mods.map((m) => m.displayOrder)].sort((a, b) => a - b));
+      const id = newUuid();
+      const due = inDays(3);
+      await api.saveDraft({ ...healthDraft(id), vertical: 'AGRO', tranches: [{ label: 'Achat', amountMinor: 180_000, dueDate: due }] });
+      await api.attachDocument(id, h.file('SUPPORTING_DOCUMENT'));
+      expect(await code(api.submitNeed(id))).toBe('VERTICAL_UNAVAILABLE');
+      await api.deleteDraft(id);
+    }, t);
 
     it('références et tranches inconnues : codes stables de la table', async () => {
       const api = await h.as('PAYER');

@@ -4,6 +4,7 @@ import { Text } from '@/ui/text';
 import { router } from 'expo-router';
 import type { ApiError } from '@diaspay/api-client';
 import { describeRelease } from '@diaspay/domain';
+import { getModules } from '@/state/modules';
 import type { NeedIssue } from '@diaspay/domain';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { useI18n, verticalLabel } from '@/i18n';
@@ -28,7 +29,7 @@ export default function NeedRecap() {
   const total = { amountMinor: d.amountMinor ?? 0, currency };
   const tranches = d.tranches ?? [];
   const docs = d.documents.filter((x) => x.status === 'UPLOADED').length;
-  const rule = describeRelease(vertical);
+  const rule = describeRelease(vertical, getModules());
   const firstDue = tranches[0]?.dueDate;
   const planLine = d.planType === 'SINGLE'
     ? t('planSummary_SINGLE', { amount: money(total) })

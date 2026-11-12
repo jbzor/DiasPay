@@ -33,6 +33,8 @@ begin
 end $$;
 create function t.j(sql text) returns jsonb language plpgsql as $$
 declare r jsonb; begin execute sql into r; return r; end $$;
+create function t.n_updated(sql text) returns int language plpgsql as $$
+declare n int; begin execute sql; get diagnostics n = row_count; return n; end $$;
 create table t.ids (k text primary key, v uuid);
 create table t.res (k text primary key, v jsonb);   -- résultat d’un appel, vérifié par une instruction suivante (autre instantané)
 grant usage on schema t to anon, authenticated;
@@ -404,6 +406,134 @@ select t.check((select issues from v_reconciliation where attempt_id = (select v
   'paiements cohérents : aucun écart (y compris la tentative échouée suivie d’une réussite)');
 select t.check((select issues from v_reconciliation where attempt_id = (select v from t.ids where k = 'att1')) = array['REFUNDED_TRANCHE_OPEN','EVENT_REJECTED'],
   'tranche remboursée en totalité mais toujours ouverte, événements rejetés (montant, état contradictoire) : signalés');
+select t.admin();
+
+-- ===================== X6 : types de besoin configurables =====================
+-- ---------- Structure, amorçage et droits (X6) ----------
+select t.check((select count(*) from request_modules) >= 6
+           and (select array_agg(code order by display_order) from request_modules where code in ('EDUCATION','HEALTH','RENT','AGRO','REAL_ESTATE','LAND'))
+               = array['EDUCATION','HEALTH','RENT','AGRO','REAL_ESTATE','LAND'],
+  'request_modules : les six types de besoin, dans l’ordre d’affichage');
+select t.check((select bool_and(enabled = (code in ('EDUCATION','HEALTH','RENT')) and wave = case when code in ('EDUCATION','HEALTH','RENT') then 1 else 2 end
+                         and platform_review = 'ALWAYS' and not multiple_payers)
+                from request_modules where code in ('EDUCATION','HEALTH','RENT','AGRO','REAL_ESTATE','LAND')),
+  'amorçage : vague 1 ouverte, vague 2 fermée, platform_review ALWAYS et un seul payeur partout');
+select t.check((select string_agg(vertical || ':' || release_mode || ':' || contest_hours || ':' || dual_validation, ',' order by vertical) from release_rules
+                where vertical in ('EDUCATION','HEALTH','RENT','AGRO','REAL_ESTATE','LAND'))
+               = 'AGRO:PAYER_CONFIRM:72:false,EDUCATION:PROVIDER_CONFIRM:72:false,HEALTH:PROVIDER_CONFIRM:48:false,LAND:EVIDENCE_REVIEW:0:true,'
+                 || 'REAL_ESTATE:EVIDENCE_REVIEW:0:true,RENT:PROVIDER_CONFIRM:72:false',
+  'release_rules (vue sur request_modules) : valeurs inchangées');
+select t.check((select relkind from pg_class where oid = 'public.release_rules'::regclass) = 'v'
+           and (select relkind from pg_class where oid = 'public.required_documents'::regclass) = 'v'
+           and to_regclass('public._release_rules_0003') is not null and to_regclass('public._required_documents_0005') is not null,
+  'release_rules et required_documents : vues ; anciennes tables conservées (réversibilité)');
+select t.check((select string_agg(vertical || ':' || kind || ':' || required, ',' order by vertical, kind) from required_documents
+                where vertical in ('EDUCATION','HEALTH','RENT'))
+               = 'EDUCATION:ENROLMENT_CERTIFICATE:true,EDUCATION:SCHOOL_SCHEDULE:false,HEALTH:BENEFICIARY_ID:true,HEALTH:MEDICAL_CERTIFICATE:false,'
+                 || 'HEALTH:QUOTE:true,RENT:LAST_RECEIPT:false,RENT:LEASE:true',
+  'required_documents (vue) : pièces de la vague 1 inchangées (décision D2)');
+select t.check((select data_type from information_schema.columns where table_name = 'transactions' and column_name = 'vertical') = 'text'
+           and exists (select 1 from pg_constraint where conname = 'transactions_vertical_module_fk'),
+  'transactions.vertical : texte, référencé par request_modules(code)');
+select t.fails($$insert into transactions(id, vertical, purpose, amount_minor, currency, created_by)
+  values (gen_random_uuid(), 'INCONNU', 'Essai', 1000, 'XAF', 'fa000000-0000-4000-8000-000000000001')$$, 'type de besoin inconnu refusé (clé étrangère)');
+select t.check(to_regclass('public.bo_dossiers') is not null and to_regclass('public.bo_evidence_queue') is not null and to_regclass('public.bo_disputes') is not null
+           and (select bool_and(reloptions @> array['security_invoker=true']) from pg_class where relname in ('bo_dossiers','bo_evidence_queue','bo_disputes')),
+  'vues du bureau recréées (security_invoker)');
+select t.check(not has_function_privilege('authenticated', '_platform_review(uuid)', 'execute')
+           and not has_function_privilege('anon', 'needs_platform_review(uuid)', 'execute')
+           and has_function_privilege('authenticated', 'needs_platform_review(uuid)', 'execute'),
+  'needs_platform_review : utilisateurs connectés ; décision interne réservée');
+
+-- ---------- Un type de besoin s’ajoute par une ligne de données ----------
+select t.login('fa000000-0000-4000-8000-000000000001');
+select t.fails($$insert into request_modules(code, label_fr, label_en, release_mode) values ('PIRATE', 'Pirate', 'Pirate', 'IMMEDIATE')$$,
+  'un utilisateur ne crée pas de type de besoin');
+select t.check(t.n_updated($$update request_modules set enabled = true where code = 'AGRO'$$) = 0, 'un utilisateur ne modifie pas un type de besoin');
+select t.admin();
+select t.login('fa000000-0000-4000-8000-000000000007');
+insert into request_modules(code, label_fr, label_en, enabled, wave, release_mode, contest_hours, platform_review, required_documents, display_order)
+values ('TEST_NEVER', 'Module de test', 'Test module', true, 1, 'PAYER_CONFIRM', 24, 'NEVER',
+        '[{"kind":"INVOICE","required":true,"maxFiles":1,"labels":{"fr":"Facture","en":"Invoice"}}]', 90),
+       ('TEST_RISK', 'Module à risque', 'Risk module', true, 1, 'PROVIDER_CONFIRM', 48, 'RISK_BASED',
+        '[{"kind":"INVOICE","required":true,"maxFiles":3,"labels":{"fr":"Facture","en":"Invoice"}}]', 91);
+select t.hint($$insert into request_modules(code, label_fr, label_en, release_mode, required_documents)
+  values ('TEST_BAD', 'Mauvais', 'Bad', 'AUTO', '[{"kind":"x","required":true}]')$$, 'VALIDATION', 'pièce de module mal décrite refusée');
+select t.admin();
+
+-- NEVER : validation automatique, journalisée ; pièces et règle de déblocage lues dans le module.
+create function t.module_draft(p_id uuid, p_module text, p_amount int) returns jsonb language sql as $$
+  select jsonb_build_object('id', p_id, 'vertical', p_module, 'amountMinor', p_amount::text, 'currency', 'XAF', 'purpose', 'Besoin (module de test)',
+    'beneficiaryName', 'Awa', 'provider', jsonb_build_object('name', 'Lycée (passe 2)', 'invitedPhone', '+237 6 2333 0003'), 'planType', 'SINGLE',
+    'tranches', jsonb_build_array(jsonb_build_object('label', 'Unique', 'amountMinor', p_amount::text, 'dueDate', (current_date + 2)::text)))
+$$;
+select t.login('fa000000-0000-4000-8000-000000000001');
+select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000a1', 'TEST_NEVER', 40000));
+select t.check((select release_mode::text || ':' || contest_hours from tranches where tx_id = 'fa300000-0000-4000-8000-0000000000a1') = 'PAYER_CONFIRM:24',
+  'règle de déblocage lue dans le module');
+select t.hint($$select transition_tx('fa300000-0000-4000-8000-0000000000a1', 'SUBMITTED')$$, 'TX_NO_DOCUMENT', 'aucune pièce : refus (inchangé)');
+select add_document('fa300000-0000-4000-8000-0000000000a1', 'OTHER', 'fa300000-0000-4000-8000-0000000000a1/OTHER/o.pdf', 'o.pdf', 'application/pdf', 1000);
+select t.hint($$select transition_tx('fa300000-0000-4000-8000-0000000000a1', 'SUBMITTED')$$, 'DOCUMENT_REQUIRED', 'pièce obligatoire du module manquante');
+select add_document('fa300000-0000-4000-8000-0000000000a1', 'INVOICE', 'fa300000-0000-4000-8000-0000000000a1/INVOICE/i.pdf', 'i.pdf', 'application/pdf', 1000);
+select t.hint($$select add_document('fa300000-0000-4000-8000-0000000000a1', 'INVOICE', 'fa300000-0000-4000-8000-0000000000a1/INVOICE/j.pdf', 'j.pdf', 'application/pdf', 1000)$$,
+  'TOO_MANY_FILES', 'nombre maximal de fichiers lu dans le module (1)');
+select t.check(not needs_platform_review('fa300000-0000-4000-8000-0000000000a1'), 'NEVER : pas de revue par le bureau');
+select transition_tx('fa300000-0000-4000-8000-0000000000a1', 'SUBMITTED');
+select t.admin();
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000a1') = 'IN_PROGRESS'
+           and exists (select 1 from audit_log where tx_id = 'fa300000-0000-4000-8000-0000000000a1' and event = 'AUTO_VALIDATED'
+                       and from_status = 'SUBMITTED' and to_status = 'VALIDATED' and actor_id is null and payload->>'mode' = 'NEVER')
+           and not exists (select 1 from validations where tx_id = 'fa300000-0000-4000-8000-0000000000a1'),
+  'NEVER : validation automatique par le système (AUTO_VALIDATED), sans validateur, puis jeton et tranche (développement)');
+select t.check(exists (select 1 from notifications where tx_id = 'fa300000-0000-4000-8000-0000000000a1' and event = 'TX_VALIDATED'),
+  'NEVER : alerte de validation comme après une décision du bureau');
+-- NEVER au seuil de double validation : toujours le bureau (double validation toujours appliquée).
+select t.login('fa000000-0000-4000-8000-000000000001');
+select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000a2', 'TEST_NEVER', 3000000));
+select add_document('fa300000-0000-4000-8000-0000000000a2', 'INVOICE', 'fa300000-0000-4000-8000-0000000000a2/INVOICE/i.pdf', 'i.pdf', 'application/pdf', 1000);
+select transition_tx('fa300000-0000-4000-8000-0000000000a2', 'SUBMITTED');
+select t.admin();
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000a2') = 'SUBMITTED'
+           and (_platform_review('fa300000-0000-4000-8000-0000000000a2')->'reasons') = '["DUAL_VALIDATION"]'
+           and required_validations('fa300000-0000-4000-8000-0000000000a2') = 2,
+  'NEVER au seuil : file du bureau, deux validateurs exigés');
+
+-- RISK_BASED : automatique sauf première demande ou doublon.
+select t.login('fa000000-0000-4000-8000-000000000001');
+select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000b1', 'TEST_RISK', 70000));
+select add_document('fa300000-0000-4000-8000-0000000000b1', 'INVOICE', 'fa300000-0000-4000-8000-0000000000b1/INVOICE/i.pdf', 'i.pdf', 'application/pdf', 1000);
+select transition_tx('fa300000-0000-4000-8000-0000000000b1', 'SUBMITTED');
+select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000b2', 'TEST_RISK', 70000));
+select add_document('fa300000-0000-4000-8000-0000000000b2', 'INVOICE', 'fa300000-0000-4000-8000-0000000000b2/INVOICE/i.pdf', 'i.pdf', 'application/pdf', 1000);
+select transition_tx('fa300000-0000-4000-8000-0000000000b2', 'SUBMITTED');
+select t.admin();
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000b1') = 'IN_PROGRESS',
+  'RISK_BASED : demandeur connu, montant sous le seuil, pas de doublon : validation automatique');
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000b2') = 'SUBMITTED'
+           and (_platform_review('fa300000-0000-4000-8000-0000000000b2')->'reasons') = '["DUPLICATE"]',
+  'RISK_BASED : doublon possible → bureau de contrôle');
+select t.login('fa000000-0000-4000-8000-000000000006');
+select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000b3', 'TEST_RISK', 20000));
+select add_document('fa300000-0000-4000-8000-0000000000b3', 'INVOICE', 'fa300000-0000-4000-8000-0000000000b3/INVOICE/i.pdf', 'i.pdf', 'application/pdf', 1000);
+select transition_tx('fa300000-0000-4000-8000-0000000000b3', 'SUBMITTED');
+select t.admin();
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000b3') = 'SUBMITTED'
+           and (_platform_review('fa300000-0000-4000-8000-0000000000b3')->'reasons') = '["FIRST_REQUEST"]',
+  'RISK_BASED : première demande de ce demandeur → bureau de contrôle');
+-- ALWAYS (défaut) : comportement inchangé.
+select t.check((_platform_review('fa300000-0000-4000-8000-00000000000c')->'reasons') = '["ALWAYS"]'
+           and (select status from transactions where id = 'fa300000-0000-4000-8000-00000000000c') = 'SUBMITTED',
+  'ALWAYS (défaut) : file du bureau, comme avant');
+-- Vague 2 fermée : refusée à la soumission.
+select t.login('fa000000-0000-4000-8000-000000000001');
+select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000c1', 'AGRO', 10000));
+select add_document('fa300000-0000-4000-8000-0000000000c1', 'SUPPORTING_DOCUMENT', 'fa300000-0000-4000-8000-0000000000c1/SUPPORTING_DOCUMENT/s.pdf', 's.pdf', 'application/pdf', 1000);
+select t.hint($$select transition_tx('fa300000-0000-4000-8000-0000000000c1', 'SUBMITTED')$$, 'VERTICAL_UNAVAILABLE', 'type de la vague 2 désactivé : refusé');
+select t.hint($$select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000c2', 'INCONNU', 10000))$$, 'VALIDATION', 'brouillon d’un type inconnu refusé');
+select t.check(needs_platform_review('fa300000-0000-4000-8000-0000000000c1'), 'needs_platform_review : vrai pour un module ALWAYS');
+select t.admin();
+select t.login('fa000000-0000-4000-8000-000000000006');
+select t.hint($$select needs_platform_review('fa300000-0000-4000-8000-0000000000c1')$$, 'TX_NOT_FOUND', 'needs_platform_review : dossier étranger introuvable');
 select t.admin();
 
 -- ===================== Fin =====================

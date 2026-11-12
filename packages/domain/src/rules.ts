@@ -1,5 +1,10 @@
 import type { Currency, ReleaseMode, Vertical } from './types';
 
+/** Types de besoin connus du code (valeurs par défaut des modules, lot X : X6). Ordre d’affichage. */
+export const VERTICALS: readonly Vertical[] = ['EDUCATION', 'HEALTH', 'RENT', 'AGRO', 'REAL_ESTATE', 'LAND'];
+/** Vague 1 : verticales ouvertes à la création. Les autres arrivent avec les jalons et preuves (vague 2). */
+export const WAVE1_VERTICALS: readonly Vertical[] = ['EDUCATION', 'HEALTH', 'RENT'];
+
 export interface ReleaseRule {
   releaseMode: ReleaseMode;
   contestHours: number;

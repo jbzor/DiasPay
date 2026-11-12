@@ -1,12 +1,14 @@
 import {
-  DomainError, PaymentEngine, RELEASE_RULES, SimulatedPaymentAdapter, answerInfoDecision, appendEntry, canOpenDispute, checkContentHash, checkFile, checkFileCount, effectiveCreatorRole, emptyDraft,
+  DEFAULT_MODULES, DomainError, PaymentEngine, RELEASE_RULES, SimulatedPaymentAdapter, answerInfoDecision, findModule, maxFilesFor, platformReviewDecision,
+  requiredValidationsFor, sortModules, appendEntry, canOpenDispute, checkContentHash, checkFile, checkFileCount, effectiveCreatorRole, emptyDraft,
   otherDossiersWithHash,
   formatReference, isAutoReleasable, messageError, normalizeReference, paymentOutcome, rejectRequestDecision, requestInfoDecision,
   resolveDisputeTransition, shouldActivateTranche, shouldCloseTransaction, toIsoDate, tokenRevocationError, tooManyAttempts, transitionTranche,
   transitionTx, validateNeed, verifyChain, validatorDecisionError,
 } from '@diaspay/domain';
 import type {
-  Actor, ChainedAuditEntry, CreatorRole, DisputeOutcome, DraftDocument, DraftDocumentInput, IncomingWebhook, LedgerState, NeedDraft, RequestMessageKind, TrancheStatus, TxRole, Vertical,
+  Actor, ChainedAuditEntry, CreatorRole, DisputeOutcome, DraftDocument, DraftDocumentInput, IncomingWebhook, LedgerState, ModuleCode, NeedDraft,
+  RequestModule, RequestMessageKind, TrancheStatus, TxRole,
 } from '@diaspay/domain';
 import type {
   AppNotification, AuditEntry, DisputeView, DocumentAccess, DocumentReuse, NotificationEvent, Persona, Receipt, ReferenceInfo, RequestMessage, Tranche,
@@ -55,6 +57,8 @@ export interface MockApiOptions {
   eqrImageEnabled?: boolean;
   /** Lot X (X4) : empreinte d’un fichier avant l’envoi. L’application passe la même fonction qu’au serveur ; défaut : uriHasher. */
   hashFile?: FileHasher;
+  /** Lot X (X6) : types de besoin (défaut : DEFAULT_MODULES, valeurs du code). */
+  modules?: readonly RequestModule[];
 }
 
 /** Jeton révoqué (lot X) : conservé pour refuser explicitement sa référence (TOKEN_REVOKED). */
@@ -109,8 +113,9 @@ const SYSTEM: Actor = { kind: 'SYSTEM' };
 let counter = 0;
 const uid = (p: string) => `${p}-${++counter}`;
 
-function mkTranche(seq: number, label: string, amountMinor: number, over: Partial<Tranche> & { vertical: keyof typeof RELEASE_RULES }): Tranche {
-  const rule = RELEASE_RULES[over.vertical];
+function mkTranche(seq: number, label: string, amountMinor: number, over: Partial<Tranche> & { vertical: ModuleCode }): Tranche {
+  // Règle du code pour le jeu de démonstration ; un module ajouté par des données passe releaseMode et contestHours.
+  const rule = RELEASE_RULES[over.vertical as keyof typeof RELEASE_RULES] ?? { releaseMode: 'PROVIDER_CONFIRM', contestHours: 0 };
   const { vertical: _v, ...rest } = over;
   return {
     id: uid('tr'), seq, label, amountMinor, status: 'PLANNED',
@@ -196,6 +201,7 @@ export class MockApi implements TransactionApi {
   private failures = new Map<string, number[]>();
   private readonly eqrImage: boolean;
   private readonly hashFile: FileHasher;
+  private readonly modules: readonly RequestModule[];
   /** Lot X (X5) : moteur de paiement (miroir de 0010) et partenaire simulé, qui répond par des événements signés. */
   private payments: PaymentEngine;
   private readonly paymentPort: SimulatedPaymentAdapter;
@@ -223,6 +229,7 @@ export class MockApi implements TransactionApi {
     this.seedNotifs = options.seedNotifications ?? true;
     this.eqrImage = options.eqrImageEnabled ?? true;
     this.hashFile = options.hashFile ?? uriHasher;
+    this.modules = options.modules ?? DEFAULT_MODULES;
     this.payments = new PaymentEngine(clock);
     // Secret du simulateur (pas un secret réel) : les événements sont signés et vérifiés comme ceux d’un partenaire.
     this.paymentPort = new SimulatedPaymentAdapter({ secret: 'diaspay-simulateur', sink: (w) => this.receiveWebhook(w), clock, newId: () => newId('evt') });
@@ -660,7 +667,7 @@ export class MockApi implements TransactionApi {
     return d;
   }
 
-  async searchProviders(query: string, vertical: Vertical): Promise<ProviderSummary[]> {
+  async searchProviders(query: string, vertical: ModuleCode): Promise<ProviderSummary[]> {
     const q = foldText(query);
     return this.providers
       .filter((p) => p.verticals.includes(vertical))
@@ -706,7 +713,8 @@ export class MockApi implements TransactionApi {
   async attachDocument(draftId: string, file: DraftDocumentInput, onProgress?: (p: number) => void): Promise<DraftDocument> {
     const mimeType = checkFile(file);
     const current = await this.ownDraft(draftId);
-    checkFileCount(current.documents.filter((x) => x.kind === file.kind && x.status === 'UPLOADED' && x.id !== file.id).length);
+    checkFileCount(current.documents.filter((x) => x.kind === file.kind && x.status === 'UPLOADED' && x.id !== file.id).length,
+      maxFilesFor(findModule(current.vertical, this.modules), file.kind));
     // Lot X (X4) : empreinte calculée avant l’envoi, comme pour le serveur (HASH_INVALID si une empreinte fournie est mal formée).
     const contentHash = checkContentHash(file.contentHash ?? await this.hashFile(file));
     for (const p of [0.1, 0.35, 0.6, 0.85]) { onProgress?.(p); await sleep(this.uploadDelayMs); }
@@ -734,8 +742,9 @@ export class MockApi implements TransactionApi {
   async submitNeed(draftId: string): Promise<Transaction> {
     const user = this.requireUser();
     const draft = await this.ownDraft(draftId);
-    const issues = validateNeed(draft, { today: this.today(), creatorRole: user.role });
+    const issues = validateNeed(draft, { today: this.today(), creatorRole: user.role, modules: this.modules });
     // Une verticale absente ou indisponible prime : le reste du dossier n’a pas de sens sans elle.
+    if (issues.some((i) => i.code === 'VERTICAL_UNAVAILABLE')) throw new ApiError('VERTICAL_UNAVAILABLE', 'Ce type de besoin n’est pas encore ouvert');
     if (issues.some((i) => i.path === 'vertical')) throw new ApiError('VALIDATION', 'Dossier incomplet', { issues });
     const sum = issues.find((i) => i.code === 'PLAN_SUM_MISMATCH');
     if (sum) throw new ApiError('PLAN_SUM_MISMATCH', 'La somme des tranches ne correspond pas au montant', { ...sum.params });
@@ -743,7 +752,8 @@ export class MockApi implements TransactionApi {
     if (missing) throw new ApiError('DOCUMENT_REQUIRED', 'Pièce obligatoire manquante', { kind: missing.params?.kind });
     if (issues.length) throw new ApiError('VALIDATION', 'Dossier incomplet', { issues });
 
-    const vertical = draft.vertical as Vertical;
+    const vertical = draft.vertical as ModuleCode;
+    const module = findModule(vertical, this.modules) as RequestModule;   // validateNeed garantit un module connu et ouvert
     const tranches = draft.tranches ?? [];
     const totalMinor = draft.amountMinor as number;
     const uploaded = draft.documents.filter((d) => d.status === 'UPLOADED');
@@ -761,7 +771,8 @@ export class MockApi implements TransactionApi {
     Object.assign(tx, {
       vertical, purpose: (draft.purpose ?? '').trim(), amount: { amountMinor: totalMinor, currency: draft.currency ?? 'XAF' },
       status, providerName: draft.provider?.name ?? (creatorRole === 'PROVIDER' ? user.name ?? '' : ''), beneficiaryName: (draft.beneficiaryName ?? '').trim(),
-      tranches: tranches.map((t, i) => mkTranche(i + 1, t.label.trim(), t.amountMinor, { vertical, dueDate: t.dueDate })),
+      tranches: tranches.map((t, i) => mkTranche(i + 1, t.label.trim(), t.amountMinor,
+        { vertical, dueDate: t.dueDate, releaseMode: module.releaseMode, contestHours: module.contestHours })),
       createdAt: previous?.createdAt ?? now, submittedAt: now, planType: draft.planType, documentCount: uploaded.length,
       ownerId: user.id, rejectionReason: undefined, payerName: creatorRole === 'PAYER' ? user.name : undefined,
     } satisfies Partial<Transaction>);
@@ -772,10 +783,27 @@ export class MockApi implements TransactionApi {
     this.record(tx.id, previous ? 'NEED_RESUBMITTED' : 'NEED_SUBMITTED');
     // Lot X : demande initiée par un prestataire → alerte au payeur (sans texte ni montant).
     if (creatorRole === 'PROVIDER') this.notify({ type: 'PAYMENT_REQUEST_RECEIVED', txId: tx.id });
+    // Lot X (X6) : le module décide de la revue (miroir de _platform_review). Sans revue : validation automatique.
+    const decision = platformReviewDecision(module, {
+      requiredValidations: requiredValidationsFor(module, tx.amount.currency, tx.amount.amountMinor),
+      firstRequest: !this.txs.some((o) => o.id !== tx.id && o.ownerId === user.id && ['VALIDATED', 'TOKEN_ISSUED', 'IN_PROGRESS', 'CLOSED', 'DISPUTED'].includes(o.status)),
+      duplicate: this.txs.some((o) => o.id !== tx.id && o.ownerId === user.id && !['DRAFT', 'CANCELLED', 'REJECTED'].includes(o.status)
+        && o.amount.amountMinor === tx.amount.amountMinor && o.amount.currency === tx.amount.currency
+        && o.providerName.trim().toLowerCase() === tx.providerName.trim().toLowerCase()
+        && Math.abs(Date.parse(o.createdAt) - Date.parse(tx.createdAt)) <= 30 * 24 * HOUR),
+    });
+    if (!decision.review) {
+      tx.status = 'SUBMITTED';
+      this.approve(tx, 'AUTO_VALIDATED', 'system');
+      return tx;
+    }
     this.record(tx.id, 'REVIEW_STARTED');
     this.emit();
     return tx;
   }
+
+  /** Lot X (X6) : types de besoin, dans l’ordre d’affichage. */
+  async listModules(): Promise<RequestModule[]> { return sortModules(this.modules).map((m) => structuredClone(m)); }
 
   /** Dossier rejeté → brouillon de correction (REJECTED → DRAFT par le domaine). */
   async reopenForCorrection(txId: string): Promise<NeedDraft> {
@@ -818,7 +846,17 @@ export class MockApi implements TransactionApi {
       this.emit();
       return tx;
     }
-    tx.status = transitionTx(tx.status, 'VALIDATED', VALIDATOR);
+    this.approve(tx, 'NEED_VALIDATED', 'validator');
+    return tx;
+  }
+
+  /**
+   * Validation (bureau simulé, ou automatique : lot X, X6) puis étapes système : jeton, en cours, première tranche (RG-12).
+   * Depuis SUBMITTED, seule la validation automatique (système) est possible.
+   */
+  private approve(tx: Transaction, event: 'NEED_VALIDATED' | 'AUTO_VALIDATED', actor: 'validator' | 'system'): void {
+    const txId = tx.id;
+    tx.status = transitionTx(tx.status, 'VALIDATED', tx.status === 'SUBMITTED' ? SYSTEM : VALIDATOR);
     tx.status = transitionTx(tx.status, 'TOKEN_ISSUED', SYSTEM);
     tx.status = transitionTx(tx.status, 'IN_PROGRESS', SYSTEM);
     const first = tx.tranches[0];
@@ -827,11 +865,10 @@ export class MockApi implements TransactionApi {
       this.ensureToken(first);
       this.record(tx.id, 'TRANCHE_ACTIVATED', first.id);
     }
-    this.record(tx.id, 'NEED_VALIDATED', undefined, undefined, 'validator');
+    this.record(tx.id, event, undefined, undefined, actor);
     this.notify({ type: 'TX_VALIDATED', txId });
     if (first?.status === 'AWAITING_PAYMENT') this.notify({ type: 'PAYMENT_READY', txId, trancheId: first.id });
     this.emit();
-    return tx;
   }
 
 
@@ -987,7 +1024,7 @@ export class MockApi implements TransactionApi {
     return { reused: others.length > 0, count: others.length };
   }
 
-  async createDraft(input: { vertical: Vertical; creatorRole: CreatorRole }): Promise<NeedDraft> {
+  async createDraft(input: { vertical: ModuleCode; creatorRole: CreatorRole }): Promise<NeedDraft> {
     return this.saveDraft({ ...emptyDraft(newId('need'), this.clock()), vertical: input.vertical, creatorRole: input.creatorRole });
   }
 

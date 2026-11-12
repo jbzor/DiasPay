@@ -62,9 +62,13 @@ export const trancheStatusKey = (s: TrancheStatus): Key => ({
   INFO_REQUESTED: 'trInfoRequested', REJECTED: 'trRejected',
 } as const)[s];
 
+import { findModule } from '@diaspay/domain';
 import type { Vertical } from '@diaspay/domain';
+import { getModules } from '../state/modules';
 const VERTICALS: Record<Vertical, { fr: string; en: string }> = {
   EDUCATION: { fr: 'Scolarité', en: 'Education' }, HEALTH: { fr: 'Santé', en: 'Health' }, RENT: { fr: 'Loyer', en: 'Rent' },
   AGRO: { fr: 'Agro', en: 'Agri' }, REAL_ESTATE: { fr: 'Immobilier', en: 'Real estate' }, LAND: { fr: 'Terrain', en: 'Land' },
 };
-export const verticalLabel = (v: Vertical, l: Locale) => VERTICALS[v][l];
+/** Libellé d’un type de besoin : textes de l’application pour les six connus, sinon ceux du module (lot X, X6), sinon le code. */
+export const verticalLabel = (v: string, l: Locale): string =>
+  (VERTICALS as Partial<Record<string, { fr: string; en: string }>>)[v]?.[l] ?? findModule(v, getModules())?.labels[l] ?? v;

@@ -48,7 +48,9 @@ describe('conversion des lignes du serveur', () => {
 
   it('valeur hors domaine : UNEXPECTED, jamais propagée', () => {
     expect(() => convert.toTransaction(txRow({ status: 'BIDON' as never }))).toThrow(expect.objectContaining({ code: 'UNEXPECTED' }));
-    expect(() => convert.toTransaction(txRow({ vertical: 'CASINO' as never }))).toThrow(expect.objectContaining({ code: 'UNEXPECTED' }));
+    // Lot X (X6) : un type de besoin s’ajoute par une ligne de données ; seul un code mal formé est hors domaine.
+    expect(() => convert.toTransaction(txRow({ vertical: 'casino !' as never }))).toThrow(expect.objectContaining({ code: 'UNEXPECTED' }));
+    expect(convert.toTransaction(txRow({ vertical: 'CASINO' as never })).vertical).toBe('CASINO');
   });
 
   it('jeton renvoyé sous forme de tableau (relation non unique) : accepté', () => {

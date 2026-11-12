@@ -183,6 +183,10 @@ select t.fails($$delete from audit_log where tx_id='10000000-0000-0000-0000-0000
 
 -- ---------- Double validation (terrain) ----------
 update app_config set value = value || ',LAND' where key = 'open_verticals';  -- 0005 : terrain ouvert le temps du test (vague 2)
+-- Lot X (0011) : l’ouverture d’un type de besoin se lit dans request_modules (open_verticals n’est plus lu).
+do $$ begin
+  if to_regclass('public.request_modules') is not null then execute 'update request_modules set enabled = true where code = ''LAND'''; end if;
+end $$;
 select t.login('00000000-0000-0000-0000-000000000001');
 insert into transactions(id, vertical, purpose, amount_minor, currency, created_by)
  values ('20000000-0000-0000-0000-000000000001','LAND','Parcelle',12500000,'XAF','00000000-0000-0000-0000-000000000001');

@@ -2,8 +2,11 @@
  * Conversion entre les lignes du serveur (snake_case, bigint, NULL) et les types du domaine.
  * Aucune valeur inattendue ne traverse : un statut ou un montant hors domaine lève UNEXPECTED.
  */
-import { TRANCHE_STATUSES, TX_STATUSES, VERTICALS } from '@diaspay/domain';
-import type { Currency, DocumentKind, DraftDocument, NeedDraft, PlanType, ReleaseMode, RequestMessageKind, TrancheStatus, TxStatus, Vertical } from '@diaspay/domain';
+import { MODULE_CODE_RE, PLATFORM_REVIEWS, TRANCHE_STATUSES, TX_STATUSES } from '@diaspay/domain';
+import type {
+  Currency, DocumentKind, DraftDocument, ModuleCode, ModuleDocument, NeedDraft, PlanType, PlatformReview, ReleaseMode, RequestMessageKind, RequestModule, TrancheStatus,
+  TxStatus,
+} from '@diaspay/domain';
 import { ApiError } from '../need';
 import type { ProviderSummary } from '../need';
 import type {
@@ -35,6 +38,35 @@ const PLAN_TYPES: readonly string[] = ['SINGLE', 'PARTIAL', 'INSTALLMENTS', 'REC
 
 function bad(what: string, value: unknown): never {
   throw new ApiError('UNEXPECTED', `Valeur inattendue du serveur (${what})`, { what, value });
+}
+
+/** Code d’un type de besoin (module, lot X : X6) : tout code bien formé, y compris un module ajouté par des données. */
+export function moduleCode(v: unknown): ModuleCode {
+  if (typeof v !== 'string' || !MODULE_CODE_RE.test(v)) bad('type de besoin', v);
+  return v;
+}
+
+export type ModuleRow = Tables['request_modules']['Row'];
+
+/** Ligne de request_modules → RequestModule (pièces requises : JSON contrôlé par la base, relu ici). */
+export function toModule(row: ModuleRow): RequestModule {
+  const docs = Array.isArray(row.required_documents) ? row.required_documents : bad('pièces du module', row.required_documents);
+  return {
+    code: moduleCode(row.code),
+    labels: { fr: row.label_fr, en: row.label_en },
+    descriptions: { ...(row.description_fr ? { fr: row.description_fr } : {}), ...(row.description_en ? { en: row.description_en } : {}) },
+    enabled: row.enabled, wave: row.wave,
+    releaseMode: oneOf<ReleaseMode>(row.release_mode, RELEASE_MODES, 'mode de déblocage'),
+    contestHours: row.contest_hours, dualValidation: row.dual_validation,
+    platformReview: oneOf<PlatformReview>(row.platform_review, PLATFORM_REVIEWS, 'platform_review'),
+    multiplePayers: row.multiple_payers,
+    requiredDocuments: docs.map((d): ModuleDocument => {
+      const o = asObject(d, 'pièce du module');
+      const labels = asObject(o.labels as Json, 'libellés de la pièce');
+      return { kind: String(o.kind), required: o.required === true, maxFiles: Number(o.maxFiles ?? 3), labels: { fr: String(labels.fr ?? ''), en: String(labels.en ?? '') } };
+    }),
+    displayOrder: row.display_order,
+  };
 }
 
 /** bigint PostgreSQL → nombre JS exact (les montants restent bien en deçà de 2^53). */
@@ -81,7 +113,7 @@ export function toTransaction(row: TxWithRelations): Transaction {
   const docs = row.documents ?? [];
   return {
     id: row.id,
-    vertical: oneOf<Vertical>(row.vertical, VERTICALS, 'verticale'),
+    vertical: moduleCode(row.vertical),
     purpose: row.purpose ?? '',
     amount: {
       amountMinor: row.amount_minor === null ? 0 : toMinor(row.amount_minor),
@@ -144,7 +176,7 @@ export function toAuditEntry(row: AuditRow): AuditEntry {
 }
 
 export function toProvider(row: { id: string; name: string; city: string; verticals: string[]; verified: boolean }): ProviderSummary {
-  return { id: row.id, name: row.name, city: row.city, verified: row.verified, verticals: row.verticals.filter((v): v is Vertical => VERTICALS.includes(v as Vertical)) };
+  return { id: row.id, name: row.name, city: row.city, verified: row.verified, verticals: row.verticals.filter((v) => MODULE_CODE_RE.test(v)) };
 }
 
 function asObject(v: Json, what: string): Record<string, unknown> {
@@ -217,7 +249,7 @@ export function draftFromServer(v: Json): NeedDraft {
   const o = asObject(v, 'brouillon');
   const docs = Array.isArray(o.documents) ? o.documents.map(toDraftDocument).filter((d): d is DraftDocument => d !== null) : [];
   const draft = { ...o, documents: docs } as unknown as NeedDraft & { storagePath?: unknown };
-  if (draft.vertical !== undefined && !VERTICALS.includes(draft.vertical)) bad('verticale', draft.vertical);
+  if (draft.vertical !== undefined && draft.vertical !== null) draft.vertical = moduleCode(draft.vertical);
   if (draft.amountMinor !== undefined && draft.amountMinor !== null) draft.amountMinor = Number(draft.amountMinor);
   draft.updatedAt = toIso(String(o.updatedAt));
   return draft;

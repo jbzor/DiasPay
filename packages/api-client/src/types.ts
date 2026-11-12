@@ -1,5 +1,6 @@
 import type {
-  CreatorRole, Currency, DraftDocument, DraftDocumentInput, Money, NeedDraft, PlanType, ReleaseMode, RequestMessageKind, TrancheStatus, TxStatus, Vertical,
+  CreatorRole, Currency, DraftDocument, DraftDocumentInput, ModuleCode, Money, NeedDraft, PlanType, ReleaseMode, RequestMessageKind, RequestModule,
+  TrancheStatus, TxStatus,
 } from '@diaspay/domain';
 import type { ProviderSummary } from './need';
 
@@ -20,7 +21,8 @@ export interface Tranche {
 
 export interface Transaction {
   id: string;
-  vertical: Vertical;
+  /** Code du type de besoin (module, lot X : X6). */
+  vertical: ModuleCode;
   purpose: string;
   amount: Money;
   status: TxStatus;
@@ -156,7 +158,7 @@ export interface TransactionApi {
   timeline(txId: string): Promise<AuditEntry[]>;
 
   // Lot 3 : création d’un besoin.
-  searchProviders(query: string, vertical: Vertical): Promise<ProviderSummary[]>;
+  searchProviders(query: string, vertical: ModuleCode): Promise<ProviderSummary[]>;
   listDrafts(): Promise<NeedDraft[]>;
   getDraft(id: string): Promise<NeedDraft>;
   saveDraft(draft: NeedDraft): Promise<NeedDraft>;            // crée ou met à jour
@@ -191,11 +193,14 @@ export interface TransactionApi {
   listMessages(trancheId: string): Promise<RequestMessage[]>;
 
   // Lot X (X3) : création avec un rôle explicite (PROVIDER : prestataire autorisé, payeur désigné par téléphone).
-  createDraft(input: { vertical: Vertical; creatorRole: CreatorRole }): Promise<NeedDraft>;
+  createDraft(input: { vertical: ModuleCode; creatorRole: CreatorRole }): Promise<NeedDraft>;
 
   // Lot X (X4) : TrustVault.
   /** Consultation d’une pièce par une partie (ou le personnel) : DOCUMENT_VIEWED journalisé, puis URL de courte durée. */
   getDocumentAccess(documentId: string): Promise<DocumentAccess>;
   /** Cette empreinte apparaît-elle dans d’autres dossiers ? (pièce visible par l’utilisateur ; sinon NOT_FOUND) */
   documentReuse(contentHash: string, txId?: string): Promise<DocumentReuse>;
+
+  // Lot X (X6) : types de besoin décrits par des données (request_modules), lus par l’assistant de création.
+  listModules(): Promise<RequestModule[]>;
 }

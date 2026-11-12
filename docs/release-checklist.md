@@ -66,4 +66,6 @@
 32. **Idempotence et rapprochement testés** sur l’environnement de recette : `supabase/tests/04_lotx_p2.sql` (même clé, événement en double, hors d’ordre, signature invalide, journal équilibré et immuable, remboursement partiel puis total) et `select count(*) from v_reconciliation where cardinality(issues) > 0;` examiné par le personnel (connecté).
 33. **`apply_payment_event` réservée au service** : `select has_function_privilege('authenticated', 'apply_payment_event(text, text, boolean, jsonb)', 'execute');` renvoie `false`. La fonction Edge qui reçoit les webhooks de TrustPayWay vérifie leur signature avant de l’appeler.
 34. **`demo_settle_payment` et `demo_settle_refund` refusées** en production (`mock_mode = 'false'` : `DEMO_DISABLED`) ; `payment_provider` vaut le partenaire réel.
+35. **`platform_review` décidé** pour chaque type de besoin (K2) : `select code, platform_review from request_modules order by display_order;`. Par défaut, `ALWAYS` partout. Un module `NEVER` ou `RISK_BASED` ne dispense jamais de la double validation.
+36. **Retour arrière de 0011 décidé** : tant que `supabase/rollbacks/0011_lotx_x6_down.sql` peut servir, garder l’enum `vertical` et les tables `_release_rules_0003`, `_required_documents_0005` ; ne pas ajouter de module en production avant d’y avoir renoncé (le retour arrière refuse un dossier d’un module ajouté).
 

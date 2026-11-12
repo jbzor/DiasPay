@@ -136,7 +136,8 @@ describe('soumission', () => {
       expect((e as ApiError).details.issues).toEqual([{ path: 'purpose', code: 'PURPOSE_TOO_SHORT', params: undefined }]);
     }
     await api.saveDraft({ ...d, vertical: 'LAND' });
-    expect(await code(api.submitNeed(d.id))).toBe('VALIDATION');
+    // Lot X (X6) : même code que le serveur (transition_tx), au lieu de VALIDATION.
+    expect(await code(api.submitNeed(d.id))).toBe('VERTICAL_UNAVAILABLE');
   });
   // Lot X : comme save_draft, un profil « prestataire » sans rôle explicite crée en payeur (le simulateur refusait, le serveur acceptait).
   it('un profil prestataire sans rôle explicite soumet en payeur, comme le serveur', async () => {

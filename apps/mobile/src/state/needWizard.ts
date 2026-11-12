@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { newUuid } from '@diaspay/api-client';
 import { emptyDraft, toIsoDate } from '@diaspay/domain';
 import type { NeedContext, NeedDraft, NeedStep } from '@diaspay/domain';
+import { getModules } from './modules';
 import { createAutosaver } from '@/features/need/autosave';
 import { resumeStep, wizardReducer } from '@/features/need/wizard';
 import type { WizardAction, WizardState } from '@/features/need/wizard';
@@ -46,7 +47,7 @@ export function useWizard(): WizardState | null {
 export const getWizard = () => state;
 
 export function needContext(): NeedContext {
-  return { today: toIsoDate(new Date()), creatorRole: getCurrentUser()?.role };
+  return { today: toIsoDate(new Date()), creatorRole: getCurrentUser()?.role, modules: getModules() };
 }
 
 /** Démarre un nouveau besoin (le brouillon est enregistré à la première saisie). */

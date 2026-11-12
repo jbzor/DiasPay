@@ -9,6 +9,8 @@ const TX_TRANSITIONS: ReadonlyArray<readonly [TxStatus, TxStatus, readonly Who[]
   // Lot X (X3) : un prestataire autorisé initie aussi une demande ; il n’agit que sur un brouillon qu’il a créé.
   ['DRAFT', 'SUBMITTED', ['REQUESTER', 'PAYER', 'PROVIDER']],
   ['SUBMITTED', 'IN_REVIEW', ['VALIDATOR']],
+  // Lot X (X6) : validation automatique quand le module ne demande pas de revue (platform_review NEVER ou RISK_BASED).
+  ['SUBMITTED', 'VALIDATED', ['SYSTEM']],
   ['IN_REVIEW', 'VALIDATED', ['VALIDATOR']],
   ['IN_REVIEW', 'REJECTED', ['VALIDATOR']],
   ['REJECTED', 'DRAFT', ['REQUESTER', 'PAYER', 'PROVIDER']],

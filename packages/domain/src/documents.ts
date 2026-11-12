@@ -12,6 +12,9 @@ export type DocumentKind =
   | 'LAST_RECEIPT'           // dernière quittance
   | 'SUPPORTING_DOCUMENT';   // pièce justificative générique (vague 2, provisoire)
 
+/** Type de pièce d’un module : les types connus du code, ou tout type déclaré par un module (lot X, X6). */
+export type ModuleDocumentKind = DocumentKind | (string & {});
+
 export interface RequiredDocument { kind: DocumentKind; required: boolean }
 
 // Vague 1 (Santé, Scolarité, Loyer) : Décision D2, 10/11/2026 (docs/decisions.md).
@@ -42,8 +45,9 @@ export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_FILES_PER_KIND = 3;
 
 /** Refuse un fichier de plus pour ce type de pièce (TOO_MANY_FILES au-delà de 3). */
-export function checkFileCount(existingForKind: number): void {
-  if (existingForKind >= MAX_FILES_PER_KIND) throw new DomainError('TOO_MANY_FILES', `Au plus ${MAX_FILES_PER_KIND} fichiers par pièce`);
+export function checkFileCount(existingForKind: number, max: number = MAX_FILES_PER_KIND): void {
+  // Lot X (X6) : le maximum peut venir du module (maxFiles) ; 3 par défaut (décision D2).
+  if (existingForKind >= max) throw new DomainError('TOO_MANY_FILES', `Au plus ${max} fichiers par pièce`);
 }
 
 const BY_EXTENSION: Record<string, AllowedMimeType> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', pdf: 'application/pdf' };

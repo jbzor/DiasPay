@@ -6,7 +6,35 @@ export type Database = {
   
   "public": {
           Tables: {
-            "allowed_transitions": {
+            "_release_rules_0003": {
+                  Row: {
+                    "contest_hours": number,"dual_validation": boolean,"release_mode": Database["public"]['Enums']["release_mode"],"vertical": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "contest_hours"?: number,"dual_validation"?: boolean,"release_mode": Database["public"]['Enums']["release_mode"],"vertical": string
+                  }
+                  Update: {
+                    "contest_hours"?: number,"dual_validation"?: boolean,"release_mode"?: Database["public"]['Enums']["release_mode"],"vertical"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"_required_documents_0005": {
+                  Row: {
+                    "kind": string,"required": boolean,"vertical": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "kind": string,"required": boolean,"vertical": string
+                  }
+                  Update: {
+                    "kind"?: string,"required"?: boolean,"vertical"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"allowed_transitions": {
                   Row: {
                     "from_status": Database["public"]['Enums']["tx_status"],"role": Database["public"]['Enums']["tx_role"],"to_status": Database["public"]['Enums']["tx_status"],"validator_only": boolean
                   }
@@ -544,20 +572,6 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
-                },"release_rules": {
-                  Row: {
-                    "contest_hours": number,"dual_validation": boolean,"release_mode": Database["public"]['Enums']["release_mode"],"vertical": string
-                  }
-                  ComputedFields: never
-                  Insert: {
-                    "contest_hours"?: number,"dual_validation"?: boolean,"release_mode": Database["public"]['Enums']["release_mode"],"vertical": string
-                  }
-                  Update: {
-                    "contest_hours"?: number,"dual_validation"?: boolean,"release_mode"?: Database["public"]['Enums']["release_mode"],"vertical"?: string
-                  }
-                  Relationships: [
-                    
-                  ]
                 },"request_messages": {
                   Row: {
                     "author_id": string,"body": string,"created_at": string,"id": string,"kind": string,"tranche_id": string | null,"tx_id": string
@@ -602,16 +616,16 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
-                },"required_documents": {
+                },"request_modules": {
                   Row: {
-                    "kind": string,"required": boolean,"vertical": string
+                    "code": string,"contest_hours": number,"created_at": string,"description_en": string | null,"description_fr": string | null,"display_order": number,"dual_validation": boolean,"enabled": boolean,"label_en": string,"label_fr": string,"multiple_payers": boolean,"platform_review": string,"release_mode": Database["public"]['Enums']["release_mode"],"required_documents": NonNullable<Json>,"updated_at": string,"wave": number
                   }
                   ComputedFields: never
                   Insert: {
-                    "kind": string,"required": boolean,"vertical": string
+                    "code": string,"contest_hours"?: number,"created_at"?: string,"description_en"?: string | null,"description_fr"?: string | null,"display_order"?: number,"dual_validation"?: boolean,"enabled"?: boolean,"label_en": string,"label_fr": string,"multiple_payers"?: boolean,"platform_review"?: string,"release_mode": Database["public"]['Enums']["release_mode"],"required_documents"?: NonNullable<Json>,"updated_at"?: string,"wave"?: number
                   }
                   Update: {
-                    "kind"?: string,"required"?: boolean,"vertical"?: string
+                    "code"?: string,"contest_hours"?: number,"created_at"?: string,"description_en"?: string | null,"description_fr"?: string | null,"display_order"?: number,"dual_validation"?: boolean,"enabled"?: boolean,"label_en"?: string,"label_fr"?: string,"multiple_payers"?: boolean,"platform_review"?: string,"release_mode"?: Database["public"]['Enums']["release_mode"],"required_documents"?: NonNullable<Json>,"updated_at"?: string,"wave"?: number
                   }
                   Relationships: [
                     
@@ -762,14 +776,14 @@ isOneToOne: false
                   ]
                 },"transactions": {
                   Row: {
-                    "amount_minor": number | null,"beneficiary_name": string | null,"created_at": string,"created_by": string,"currency": Database["public"]['Enums']["currency"] | null,"draft_data": NonNullable<Json>,"due_date": string | null,"expires_at": string | null,"id": string,"plan_type": string | null,"provider_id": string | null,"provider_name": string | null,"purpose": string | null,"reject_reason": string | null,"status": Database["public"]['Enums']["tx_status"],"updated_at": string,"vertical": Database["public"]['Enums']["vertical"]
+                    "amount_minor": number | null,"beneficiary_name": string | null,"created_at": string,"created_by": string,"currency": Database["public"]['Enums']["currency"] | null,"draft_data": NonNullable<Json>,"due_date": string | null,"expires_at": string | null,"id": string,"plan_type": string | null,"provider_id": string | null,"provider_name": string | null,"purpose": string | null,"reject_reason": string | null,"status": Database["public"]['Enums']["tx_status"],"updated_at": string,"vertical": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "amount_minor"?: number | null,"beneficiary_name"?: string | null,"created_at"?: string,"created_by": string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical": Database["public"]['Enums']["vertical"]
+                    "amount_minor"?: number | null,"beneficiary_name"?: string | null,"created_at"?: string,"created_by": string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical": string
                   }
                   Update: {
-                    "amount_minor"?: number | null,"beneficiary_name"?: string | null,"created_at"?: string,"created_by"?: string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical"?: Database["public"]['Enums']["vertical"]
+                    "amount_minor"?: number | null,"beneficiary_name"?: string | null,"created_at"?: string,"created_by"?: string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical"?: string
                   }
                   Relationships: [
                     {
@@ -784,6 +798,24 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "providers"
       referencedColumns: ["id"]
+    },{
+      foreignKeyName: "transactions_vertical_module_fk"
+      columns: ["vertical"]
+isOneToOne: false
+      referencedRelation: "release_rules"
+      referencedColumns: ["vertical"]
+    },{
+      foreignKeyName: "transactions_vertical_module_fk"
+      columns: ["vertical"]
+isOneToOne: false
+      referencedRelation: "request_modules"
+      referencedColumns: ["code"]
+    },{
+      foreignKeyName: "transactions_vertical_module_fk"
+      columns: ["vertical"]
+isOneToOne: false
+      referencedRelation: "required_documents"
+      referencedColumns: ["vertical"]
     }
                   ]
                 },"trust_tokens": {
@@ -903,6 +935,24 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "transactions"
       referencedColumns: ["id"]
+    },{
+      foreignKeyName: "transactions_vertical_module_fk"
+      columns: ["vertical"]
+isOneToOne: false
+      referencedRelation: "release_rules"
+      referencedColumns: ["vertical"]
+    },{
+      foreignKeyName: "transactions_vertical_module_fk"
+      columns: ["vertical"]
+isOneToOne: false
+      referencedRelation: "request_modules"
+      referencedColumns: ["code"]
+    },{
+      foreignKeyName: "transactions_vertical_module_fk"
+      columns: ["vertical"]
+isOneToOne: false
+      referencedRelation: "required_documents"
+      referencedColumns: ["vertical"]
     }
                   ]
                 },"bo_dossiers": {
@@ -911,7 +961,25 @@ isOneToOne: false
                   }
                   ComputedFields: never
                   Relationships: [
-                    
+                    {
+      foreignKeyName: "transactions_vertical_module_fk"
+      columns: ["vertical"]
+isOneToOne: false
+      referencedRelation: "release_rules"
+      referencedColumns: ["vertical"]
+    },{
+      foreignKeyName: "transactions_vertical_module_fk"
+      columns: ["vertical"]
+isOneToOne: false
+      referencedRelation: "request_modules"
+      referencedColumns: ["code"]
+    },{
+      foreignKeyName: "transactions_vertical_module_fk"
+      columns: ["vertical"]
+isOneToOne: false
+      referencedRelation: "required_documents"
+      referencedColumns: ["vertical"]
+    }
                   ]
                 },"bo_evidence_queue": {
                   Row: {
@@ -931,7 +999,47 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "transactions"
       referencedColumns: ["id"]
+    },{
+      foreignKeyName: "transactions_vertical_module_fk"
+      columns: ["vertical"]
+isOneToOne: false
+      referencedRelation: "release_rules"
+      referencedColumns: ["vertical"]
+    },{
+      foreignKeyName: "transactions_vertical_module_fk"
+      columns: ["vertical"]
+isOneToOne: false
+      referencedRelation: "request_modules"
+      referencedColumns: ["code"]
+    },{
+      foreignKeyName: "transactions_vertical_module_fk"
+      columns: ["vertical"]
+isOneToOne: false
+      referencedRelation: "required_documents"
+      referencedColumns: ["vertical"]
     }
+                  ]
+                },"release_rules": {
+                  Row: {
+                    "contest_hours": number | null,"dual_validation": boolean | null,"release_mode": Database["public"]['Enums']["release_mode"] | null,"vertical": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                           "contest_hours"?: number | null,"dual_validation"?: boolean | null,"release_mode"?: Database["public"]['Enums']["release_mode"] | null,"vertical"?: string | null
+                         }
+                        Update: {
+                           "contest_hours"?: number | null,"dual_validation"?: boolean | null,"release_mode"?: Database["public"]['Enums']["release_mode"] | null,"vertical"?: string | null
+                         }
+                        Relationships: [
+                    
+                  ]
+                },"required_documents": {
+                  Row: {
+                    "kind": string | null,"required": boolean | null,"vertical": string | null
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    
                   ]
                 },"v_reconciliation": {
                   Row: {
@@ -1003,6 +1111,9 @@ isOneToOne: false
 "_draft_json":
 { Args: { "p_tx": string }; Returns: Json
                            },
+"_duplicate_refs":
+{ Args: { "p_tx": string }; Returns: (string)[]
+                           },
 "_err":
 { Args: { "p_code": string,"p_detail"?: string,"p_message": string }; Returns: undefined
                            },
@@ -1051,6 +1162,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"_platform_review":
+{ Args: { "p_tx": string }; Returns: Json
+                           },
 "_post_journal":
 { Args: { "p_attempt"?: string,"p_currency": Database["public"]['Enums']["currency"],"p_event"?: number,"p_kind": string,"p_lines": Json,"p_memo"?: string,"p_refund"?: string,"p_reverses"?: string,"p_tranche": string }; Returns: string
                            },
@@ -1242,7 +1356,7 @@ isOneToOne: false
 "reject_reason": string | null,
 "status": Database["public"]['Enums']["tx_status"],
 "updated_at": string,
-"vertical": Database["public"]['Enums']["vertical"]
+"vertical": string
             }
                           SetofOptions: {
         from: "*"
@@ -1337,7 +1451,7 @@ isOneToOne: false
 "reject_reason": string | null,
 "status": Database["public"]['Enums']["tx_status"],
 "updated_at": string,
-"vertical": Database["public"]['Enums']["vertical"]
+"vertical": string
             }
                           SetofOptions: {
         from: "*"
@@ -1392,7 +1506,7 @@ isOneToOne: false
 "reject_reason": string | null,
 "status": Database["public"]['Enums']["tx_status"],
 "updated_at": string,
-"vertical": Database["public"]['Enums']["vertical"]
+"vertical": string
             }
                           SetofOptions: {
         from: "*"
@@ -1501,6 +1615,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"needs_platform_review":
+{ Args: { "p_tx": string }; Returns: boolean
+                           },
 "open_dispute":
 { Args: { "p_reason": string,"p_reason_code"?: string,"p_tranche": string }; Returns: {
               "id": string,
@@ -1676,7 +1793,7 @@ isOneToOne: false
 "reject_reason": string | null,
 "status": Database["public"]['Enums']["tx_status"],
 "updated_at": string,
-"vertical": Database["public"]['Enums']["vertical"]
+"vertical": string
             }
                           SetofOptions: {
         from: "*"
@@ -1754,7 +1871,7 @@ isOneToOne: false
 "reject_reason": string | null,
 "status": Database["public"]['Enums']["tx_status"],
 "updated_at": string,
-"vertical": Database["public"]['Enums']["vertical"]
+"vertical": string
             }
                           SetofOptions: {
         from: "*"

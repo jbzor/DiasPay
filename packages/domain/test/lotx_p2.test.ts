@@ -6,7 +6,8 @@ import {
   DomainError, HASH_ALGO, LEDGER_ACCOUNTS, PaymentEngine, RECONCILIATION_ISSUES, SIMULATED_SIGNATURE_HEADER, SimulatedPaymentAdapter, bufferToHex,
   checkContentHash, documentLockError, isContentHash, journalBalanced, normalizeContentHash, otherDossiersWithHash, reconcile, sha256Hex,
 } from '../src';
-import type { IncomingWebhook, PaymentAttempt, PaymentContext, TrancheStatus } from '../src';
+import { DEFAULT_MODULES, checkModule, describeRelease, maxFilesFor, moduleLabel, platformReviewDecision, sortModules, validateStep } from '../src';
+import type { IncomingWebhook, PaymentAttempt, PaymentContext, PlatformReview, RequestModule, TrancheStatus } from '../src';
 
 const root = join(__dirname, '..', '..', '..');
 const sql = (f: string) => readFileSync(join(root, 'supabase', 'migrations', f), 'utf8');
@@ -254,5 +255,65 @@ describe('X5 — paiements, événements, journal financier', () => {
     const view = sql('0010_lotx_x5.sql');
     const sqlCodes = [...view.slice(view.indexOf('create or replace view v_reconciliation')).matchAll(/then '([A-Z_]+)' end/g)].map((m) => m[1]);
     expect(sqlCodes).toEqual([...RECONCILIATION_ISSUES]);
+  });
+});
+
+// ——— X6 : types de besoin configurables ———
+describe('X6 — modules (types de besoin) décrits par des données', () => {
+  const testModule = (over: Partial<RequestModule> = {}): RequestModule => ({
+    code: 'TEST_NEVER', labels: { fr: 'Module de test', en: 'Test module' }, enabled: true, wave: 1, releaseMode: 'PAYER_CONFIRM', contestHours: 24,
+    dualValidation: false, platformReview: 'NEVER', multiplePayers: false, displayOrder: 90,
+    requiredDocuments: [{ kind: 'INVOICE', required: true, maxFiles: 1, labels: { fr: 'Facture', en: 'Invoice' } }], ...over,
+  });
+
+  it('DEFAULT_MODULES (RELEASE_RULES, REQUIRED_DOCUMENTS, vague 1) coïncide avec l’amorçage SQL de request_modules', () => {
+    const mig = sql('0011_lotx_x6.sql');
+    const block = mig.slice(mig.indexOf('-- seed:begin'), mig.indexOf('-- seed:end'));
+    const json = block.slice(block.indexOf('$seed$') + 6, block.lastIndexOf('$seed$'));
+    const seed = JSON.parse(json) as Array<Record<string, unknown>>;
+    const fromSql: RequestModule[] = seed.map((x) => ({
+      code: String(x.code), labels: { fr: String(x.label_fr), en: String(x.label_en) },
+      descriptions: { fr: String(x.description_fr), en: String(x.description_en) },
+      enabled: x.enabled as boolean, wave: x.wave as number, releaseMode: x.release_mode as RequestModule['releaseMode'],
+      contestHours: x.contest_hours as number, dualValidation: x.dual_validation as boolean, platformReview: x.platform_review as PlatformReview,
+      multiplePayers: x.multiple_payers as boolean, requiredDocuments: x.required_documents as RequestModule['requiredDocuments'],
+      displayOrder: x.display_order as number,
+    }));
+    expect(fromSql).toEqual(DEFAULT_MODULES);
+    for (const m of DEFAULT_MODULES) expect(() => checkModule(m)).not.toThrow();
+    expect(DEFAULT_MODULES.every((m) => m.platformReview === 'ALWAYS' && !m.multiplePayers)).toBe(true);
+  });
+
+  it('platform_review : ALWAYS, NEVER, RISK_BASED ; double validation toujours appliquée (miroir de _platform_review)', () => {
+    const base = { requiredValidations: 1 as const, firstRequest: false, duplicate: false };
+    expect(platformReviewDecision(DEFAULT_MODULES[0], base)).toEqual({ review: true, reasons: ['ALWAYS'] });
+    expect(platformReviewDecision(testModule(), base)).toEqual({ review: false, reasons: [] });
+    expect(platformReviewDecision(testModule(), { ...base, requiredValidations: 2 })).toEqual({ review: true, reasons: ['DUAL_VALIDATION'] });
+    const risk = testModule({ platformReview: 'RISK_BASED' });
+    expect(platformReviewDecision(risk, base).review).toBe(false);
+    expect(platformReviewDecision(risk, { ...base, firstRequest: true }).reasons).toEqual(['FIRST_REQUEST']);
+    expect(platformReviewDecision(risk, { ...base, duplicate: true }).reasons).toEqual(['DUPLICATE']);
+    expect(platformReviewDecision(testModule(), { ...base, firstRequest: true, duplicate: true }).review).toBe(false);   // NEVER : ni l’un ni l’autre
+    expect(platformReviewDecision(undefined, base).reasons).toEqual(['ALWAYS']);
+    const fn = sql('0011_lotx_x6.sql');
+    expect([...fn.matchAll(/array_append\(v_reasons, '([A-Z_]+)'\)/g)].map((m) => m[1])).toEqual(['ALWAYS', 'DUAL_VALIDATION', 'FIRST_REQUEST', 'DUPLICATE']);
+  });
+
+  it('un module ajouté par des données guide l’assistant sans changer le code : type, pièces, règle de déblocage', () => {
+    const modules = [...DEFAULT_MODULES, testModule()];
+    const draft = { id: 'd1', vertical: 'TEST_NEVER', documents: [], updatedAt: '' };
+    expect(validateStep('type', draft, { today: '2026-11-12', modules })).toEqual([]);
+    expect(validateStep('type', draft, { today: '2026-11-12' })).toEqual([{ path: 'vertical', code: 'VERTICAL_REQUIRED' }]);
+    expect(validateStep('documents', draft, { today: '2026-11-12', modules }))
+      .toEqual([{ path: 'documents.INVOICE', code: 'DOCUMENT_REQUIRED', params: { kind: 'INVOICE' } }]);
+    expect(describeRelease('TEST_NEVER', modules)).toEqual({ releaseMode: 'PAYER_CONFIRM', contestHours: 24, dualValidation: false });
+    expect(maxFilesFor(testModule(), 'INVOICE')).toBe(1);
+    expect(maxFilesFor(DEFAULT_MODULES[0], 'ENROLMENT_CERTIFICATE')).toBe(3);
+    expect(moduleLabel('TEST_NEVER', 'en', modules)).toBe('Test module');
+    // Vague 2 désactivée : refusée.
+    expect(validateStep('type', { ...draft, vertical: 'AGRO' }, { today: '2026-11-12', modules })).toEqual([{ path: 'vertical', code: 'VERTICAL_UNAVAILABLE' }]);
+    expect(sortModules([testModule({ displayOrder: 0 }), ...DEFAULT_MODULES])[0]?.code).toBe('TEST_NEVER');
+    expect(() => checkModule(testModule({ code: 'x' }))).toThrow(DomainError);
+    expect(() => checkModule(testModule({ requiredDocuments: [testModule().requiredDocuments[0]!, testModule().requiredDocuments[0]!] }))).toThrow(DomainError);
   });
 });

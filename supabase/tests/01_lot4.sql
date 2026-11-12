@@ -255,7 +255,8 @@ select t.check((select count(*) from notifications where event = 'PAYMENT_READY'
 create temp table ref1 as select reference from tranche_tokens where tranche_id = (select v from t.ids where k = 'tr1');
 grant select on ref1 to authenticated;
 select t.login('e1000000-0000-4000-8000-000000000007');
-select t.hint($$select resolve_reference_info((select reference from ref1))$$, 'NOT_A_PARTY', 'référence : un tiers est refusé');
+-- Lot X (X1.6) : un tiers reçoit la même réponse qu’une référence inconnue (null), au lieu de NOT_A_PARTY.
+select t.check((select resolve_reference_info((select reference from ref1))) is null, 'référence : un tiers est refusé (même réponse qu’une référence inconnue)');
 select t.admin();
 select t.login('e1000000-0000-4000-8000-000000000001');
 select t.hint($$select confirm_by_reference((select reference from ref1))$$, 'PROVIDER_ONLY', 'le payeur ne confirme pas par scan');

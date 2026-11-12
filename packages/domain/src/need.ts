@@ -55,6 +55,10 @@ export interface DraftDocumentInput {
 
 export interface NeedProvider { id?: string; name: string; invitedPhone?: string }
 
+/** Rôle du créateur dans la demande. PROVIDER (lot X, X3) : demande initiée par un prestataire autorisé. */
+export type CreatorRole = 'PAYER' | 'REQUESTER' | 'PROVIDER';
+export const CREATOR_ROLES: readonly CreatorRole[] = ['PAYER', 'REQUESTER', 'PROVIDER'];
+
 export interface NeedDraft {
   id: string;
   vertical?: Vertical;
@@ -64,7 +68,12 @@ export interface NeedDraft {
   beneficiaryName?: string;
   desiredDate?: string;            // AAAA-MM-JJ
   provider?: NeedProvider;
-  counterpartyPhone?: string;      // payeur invité quand le créateur est demandeur
+  counterpartyPhone?: string;      // payeur invité quand le créateur est demandeur (ou prestataire initiateur)
+  /**
+   * Rôle explicite du créateur (lot X). Absent : déduit du profil (demandeur, sinon payeur), comportement inchangé.
+   * PROVIDER : exige l’autorisation can_initiate_requests et le téléphone du payeur ; le prestataire est le créateur.
+   */
+  creatorRole?: CreatorRole;
   planType?: PlanType;
   recurrence?: { frequency: RecurrenceFreq; installments: number; startDate: string };
   tranches?: TrancheDraft[];
@@ -82,8 +91,8 @@ export interface NeedDraft {
 export interface NeedContext {
   /** Date du jour (AAAA-MM-JJ, heure locale de l’utilisateur). */
   today: string;
-  /** Rôle principal du créateur : un demandeur doit indiquer le téléphone du payeur. */
-  creatorRole?: 'PAYER' | 'REQUESTER' | 'PROVIDER';
+  /** Rôle principal du créateur (profil) : un demandeur doit indiquer le téléphone du payeur. */
+  creatorRole?: CreatorRole;
 }
 
 export interface NeedIssue {
@@ -131,7 +140,7 @@ function detailsSchema(c: NeedContext) {
       else if (d.desiredDate < c.today) issue(ctx, ['desiredDate'], 'DATE_IN_PAST');
     }
     const phone = d.counterpartyPhone?.trim();
-    if (c.creatorRole === 'REQUESTER' && !phone) issue(ctx, ['counterpartyPhone'], 'PAYER_PHONE_REQUIRED');
+    if ((c.creatorRole === 'REQUESTER' || c.creatorRole === 'PROVIDER') && !phone) issue(ctx, ['counterpartyPhone'], 'PAYER_PHONE_REQUIRED');
     else if (phone && !isNormalizablePhone(phone)) issue(ctx, ['counterpartyPhone'], 'PHONE_INVALID');
   });
 }
@@ -200,12 +209,24 @@ function toIssues(r: z.ZodSafeParseResult<unknown>, prefix = ''): NeedIssue[] {
   }));
 }
 
+/**
+ * Rôle effectif du créateur, comme save_draft : le rôle explicite du brouillon, sinon demandeur si le profil l’est,
+ * sinon payeur (un profil « prestataire » sans rôle explicite crée en payeur, comme avant le lot X).
+ */
+export function effectiveCreatorRole(draft: Pick<NeedDraft, 'creatorRole'>, profileRole?: CreatorRole): CreatorRole | undefined {
+  if (draft.creatorRole) return draft.creatorRole;
+  if (profileRole === undefined) return undefined;
+  return profileRole === 'REQUESTER' ? 'REQUESTER' : 'PAYER';
+}
+
 /** Problèmes de l’étape (vide = étape valide). Le récapitulatif reprend tout le dossier. */
-export function validateStep(step: NeedStep, draft: NeedDraft, ctx: NeedContext): NeedIssue[] {
+export function validateStep(step: NeedStep, draft: NeedDraft, context: NeedContext): NeedIssue[] {
+  const ctx: NeedContext = { ...context, creatorRole: effectiveCreatorRole(draft, context.creatorRole) };
   switch (step) {
     case 'type': return toIssues(typeSchema.safeParse(draft));
     case 'details': return toIssues(detailsSchema(ctx).safeParse(draft));
-    case 'provider': return toIssues(providerSchema.safeParse(draft));
+    // Demande initiée par un prestataire : le prestataire est le créateur, l’étape n’a rien à vérifier.
+    case 'provider': return ctx.creatorRole === 'PROVIDER' ? [] : toIssues(providerSchema.safeParse(draft));
     case 'plan': return toIssues(planSchema(ctx, draft.amountMinor, draft.vertical).safeParse(draft));
     case 'documents': {
       if (!draft.vertical) return [{ path: 'vertical', code: 'VERTICAL_REQUIRED' }];

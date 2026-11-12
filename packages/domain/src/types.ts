@@ -14,14 +14,17 @@ export type TxStatus = (typeof TX_STATUSES)[number];
 export const TRANCHE_STATUSES = [
   'PLANNED', 'AWAITING_PAYMENT', 'PAID_LOCKED', 'EVIDENCE_SUBMITTED',
   'CONFIRMED', 'RELEASED', 'DISPUTED', 'CANCELLED', 'EXPIRED',
+  // Lot X (X2) : décisions du payeur. INFO_REQUESTED : informations complémentaires demandées ; REJECTED : demande rejetée (terminal).
+  'INFO_REQUESTED', 'REJECTED',
 ] as const;
 export type TrancheStatus = (typeof TRANCHE_STATUSES)[number];
 
-export const TERMINAL_TRANCHE_STATUSES: readonly TrancheStatus[] = ['RELEASED', 'CANCELLED', 'EXPIRED'];
+export const TERMINAL_TRANCHE_STATUSES: readonly TrancheStatus[] = ['RELEASED', 'CANCELLED', 'EXPIRED', 'REJECTED'];
 
 export type TxRole = 'PAYER' | 'REQUESTER' | 'PROVIDER';
 export type Vertical = 'EDUCATION' | 'HEALTH' | 'RENT' | 'AGRO' | 'REAL_ESTATE' | 'LAND';
-export type ReleaseMode = 'PROVIDER_CONFIRM' | 'PAYER_CONFIRM' | 'EVIDENCE_REVIEW' | 'AUTO';
+/** IMMEDIATE (lot X, X2.6) : paiement direct, débloqué dès le paiement. Aucun type de besoin ne l’utilise (K1). */
+export type ReleaseMode = 'PROVIDER_CONFIRM' | 'PAYER_CONFIRM' | 'EVIDENCE_REVIEW' | 'AUTO' | 'IMMEDIATE';
 export type Currency = 'EUR' | 'USD' | 'XAF';
 export type RecurrenceFreq = 'WEEKLY' | 'MONTHLY' | 'QUARTERLY';
 
@@ -34,7 +37,11 @@ export interface Money {
 export type Actor =
   | { kind: 'SYSTEM' }
   /** isAdmin : rôle de plateforme ADMIN (is_admin() côté serveur), seul habilité à trancher un litige. */
-  | { kind: 'USER'; roles: readonly TxRole[]; isValidator: boolean; isAdmin?: boolean };
+  | {
+      kind: 'USER'; roles: readonly TxRole[]; isValidator: boolean; isAdmin?: boolean;
+      /** Créateur (initiateur) de la demande (transactions.created_by) : lot X, réponses et actions du prestataire initiateur. */
+      isCreator?: boolean;
+    };
 
 export interface TrancheDraft {
   label: string;

@@ -1,12 +1,14 @@
-import { checkFile, checkFileCount, normalizeReference } from '@diaspay/domain';
-import type { DisputeOutcome, DraftDocument, DraftDocumentInput, NeedDraft, Vertical } from '@diaspay/domain';
+import { checkFile, checkFileCount, emptyDraft, normalizeReference } from '@diaspay/domain';
+import type { CreatorRole, DisputeOutcome, DraftDocument, DraftDocumentInput, NeedDraft, Vertical } from '@diaspay/domain';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ApiError, newUuid } from '../need';
 import type { ProviderSummary } from '../need';
-import type { AppNotification, AuditEntry, DisputeView, Receipt, ReferenceInfo, Tranche, TrancheToken, Transaction, TransactionApi } from '../types';
+import type {
+  AppNotification, AuditEntry, DisputeView, Receipt, ReferenceInfo, RequestMessage, Tranche, TrancheToken, Transaction, TransactionApi,
+} from '../types';
 import type { Database } from './database.types';
 import {
-  TX_SELECT, draftFromServer, draftToServer, storagePath, storagePathOf, toAuditEntry, toDispute, toNotification, toProvider,
+  TX_SELECT, draftFromServer, draftToServer, storagePath, storagePathOf, toAuditEntry, toDispute, toMessage, toNotification, toProvider,
   toReceipt, toReferenceInfo, toToken, toTransaction,
 } from './convert';
 import type { TxWithRelations } from './convert';
@@ -95,7 +97,8 @@ export class SupabaseApi implements TransactionApi {
   }
 
   async getToken(trancheId: string): Promise<TrancheToken> {
-    const row = unwrapMaybe(await this.sb.from('tranche_tokens').select('*').eq('tranche_id', trancheId).maybeSingle(), 'getToken');
+    // Lot X : seul le jeton actif ; la RLS ne le montre qu’au payeur de la tranche.
+    const row = unwrapMaybe(await this.sb.from('tranche_tokens').select('*').eq('tranche_id', trancheId).is('revoked_at', null).maybeSingle(), 'getToken');
     if (!row) {
       await this.txOfTranche(trancheId); // TRANCHE_NOT_FOUND si la tranche est inaccessible
       throw new ApiError('NO_TOKEN', 'Jeton pas encore émis');
@@ -103,8 +106,11 @@ export class SupabaseApi implements TransactionApi {
     return toToken(row);
   }
 
+  /** Lot X : le serveur répond null pour une référence inconnue comme pour un dossier étranger (échec enregistré). */
   async resolveReference(reference: string): Promise<ReferenceInfo> {
-    return toReferenceInfo(unwrap(await this.sb.rpc('resolve_reference_info', { p_ref: normalizeReference(reference) }), 'resolveReference'));
+    const info = unwrapMaybe(await this.sb.rpc('resolve_reference_info', { p_ref: normalizeReference(reference) }), 'resolveReference');
+    if (info === null) throw new ApiError('UNKNOWN_REFERENCE', 'Référence inconnue');
+    return toReferenceInfo(info);
   }
 
   async confirmByReference(reference: string, deviceTime?: string): Promise<Transaction> {
@@ -269,6 +275,52 @@ export class SupabaseApi implements TransactionApi {
 
   async getReceipt(trancheId: string): Promise<Receipt> {
     return toReceipt(unwrap(await this.sb.rpc('get_receipt', { p_tranche: trancheId }), 'getReceipt'));
+  }
+
+  // ——— Lot X : sécurité du TrustLink, décisions du payeur, création par un prestataire ———
+
+  async revokeToken(trancheId: string, reason: string): Promise<void> {
+    unwrap(await this.sb.rpc('revoke_token', { p_tranche: trancheId, p_reason: reason }), 'revokeToken');
+  }
+
+  async reissueToken(trancheId: string, reason?: string): Promise<void> {
+    unwrap(await this.sb.rpc('reissue_token', { p_tranche: trancheId, ...(reason ? { p_reason: reason } : {}) }), 'reissueToken');
+  }
+
+  /** app_config.eqr_image_enabled (lisible par tout utilisateur connecté) ; absent = oui. */
+  async eqrImageEnabled(): Promise<boolean> {
+    const row = unwrapMaybe(await this.sb.from('app_config').select('value').eq('key', 'eqr_image_enabled').maybeSingle(), 'eqrImageEnabled');
+    return row?.value !== 'false';
+  }
+
+  async markReceived(trancheId: string): Promise<void> {
+    unwrap(await this.sb.rpc('mark_received', { p_tranche: trancheId }), 'markReceived');
+  }
+
+  async requestInfo(trancheId: string, message: string): Promise<Transaction> {
+    const tr = unwrap(await this.sb.rpc('request_info', { p_tranche: trancheId, p_message: message }), 'requestInfo');
+    return this.getTransaction(tr.tx_id);
+  }
+
+  async answerInfo(trancheId: string, message: string): Promise<Transaction> {
+    const tr = unwrap(await this.sb.rpc('answer_info', { p_tranche: trancheId, p_message: message }), 'answerInfo');
+    return this.getTransaction(tr.tx_id);
+  }
+
+  async rejectRequest(trancheId: string, reason: string): Promise<Transaction> {
+    const tr = unwrap(await this.sb.rpc('reject_request', { p_tranche: trancheId, p_reason: reason }), 'rejectRequest');
+    return this.getTransaction(tr.tx_id);
+  }
+
+  async listMessages(trancheId: string): Promise<RequestMessage[]> {
+    const { data } = await this.sb.auth.getSession();
+    const rows = unwrap(await this.sb.from('request_messages').select('*').eq('tranche_id', trancheId).order('created_at').order('id'), 'listMessages');
+    return rows.map((r) => toMessage(r, data.session?.user.id));
+  }
+
+  /** Brouillon vide enregistré avec son rôle de créateur (save_draft vérifie l’autorisation d’un prestataire). */
+  async createDraft(input: { vertical: Vertical; creatorRole: CreatorRole }): Promise<NeedDraft> {
+    return this.saveDraft({ ...emptyDraft(newUuid(), new Date()), vertical: input.vertical, creatorRole: input.creatorRole });
   }
 
   // ——— Temps réel ———

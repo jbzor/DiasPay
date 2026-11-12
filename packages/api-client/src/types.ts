@@ -1,4 +1,6 @@
-import type { Currency, DraftDocument, DraftDocumentInput, Money, NeedDraft, PlanType, ReleaseMode, TrancheStatus, TxStatus, Vertical } from '@diaspay/domain';
+import type {
+  CreatorRole, Currency, DraftDocument, DraftDocumentInput, Money, NeedDraft, PlanType, ReleaseMode, RequestMessageKind, TrancheStatus, TxStatus, Vertical,
+} from '@diaspay/domain';
 import type { ProviderSummary } from './need';
 
 export interface Tranche {
@@ -61,7 +63,12 @@ export type NotificationEvent =
   | { type: 'TRANCHE_CONFIRMED'; txId: string; trancheId: string; releaseAt?: string }
   | { type: 'TRANCHE_RELEASED'; txId: string; trancheId: string }
   | { type: 'DISPUTE_OPENED'; txId: string; trancheId: string }
-  | { type: 'DISPUTE_RESOLVED'; txId: string; trancheId: string; outcome: 'RELEASED' | 'REFUNDED' };
+  | { type: 'DISPUTE_RESOLVED'; txId: string; trancheId: string; outcome: 'RELEASED' | 'REFUNDED' }
+  // Lot X : demande initiée par un prestataire (au payeur), décisions du payeur et réponse de l’initiateur (aux autres parties).
+  | { type: 'PAYMENT_REQUEST_RECEIVED'; txId: string }
+  | { type: 'INFO_REQUESTED'; txId: string; trancheId: string }
+  | { type: 'INFO_ANSWERED'; txId: string; trancheId: string }
+  | { type: 'REQUEST_REJECTED'; txId: string; trancheId: string };
 export interface AppNotification { id: string; event: NotificationEvent; at: string; readAt?: string }
 
 /** Motif d’un litige : code stable, libellé traduit par l’application. */
@@ -87,6 +94,18 @@ export interface TrancheToken {
   simulated: boolean;
   expiresAt: string;       // ISO
   usedAt?: string;
+}
+
+/** Message d’une demande (lot X) : demande d’informations, réponse de l’initiateur, motif d’un rejet. Immuable. */
+export interface RequestMessage {
+  id: string;
+  txId: string;
+  trancheId?: string;
+  kind: RequestMessageKind;
+  body: string;
+  at: string;
+  /** Écrit par l’utilisateur connecté. */
+  mine: boolean;
 }
 
 export interface ReferenceInfo {
@@ -137,4 +156,23 @@ export interface TransactionApi {
   getDispute(trancheId: string): Promise<DisputeView | null>;
   getReceipt(trancheId: string): Promise<Receipt>;
   abandonRejected(txId: string): Promise<Transaction>;         // REJECTED → CANCELLED (D4)
+
+  // Lot X (X1) : sécurité du TrustLink. Aucun lien n’est produit : le jeton ne se lit que par le payeur, dans l’application.
+  /** Révocation par l’initiateur (tranche non payée) : le QR et la référence ne valent plus rien (TOKEN_REVOKED). */
+  revokeToken(trancheId: string, reason: string): Promise<void>;
+  /** Révoque le jeton actif et en émet un nouveau (nouvelle référence, lue ensuite par le payeur avec getToken). */
+  reissueToken(trancheId: string, reason?: string): Promise<void>;
+  /** Réglage serveur eqr_image_enabled : l’image du QR peut être affichée au payeur (défaut : oui). */
+  eqrImageEnabled(): Promise<boolean>;
+
+  // Lot X (X2) : décisions du payeur, sans écran pour l’instant (lot Y).
+  /** Le payeur ouvre la demande : première ouverture journalisée (REQUEST_VIEWED), idempotent. */
+  markReceived(trancheId: string): Promise<void>;
+  requestInfo(trancheId: string, message: string): Promise<Transaction>;   // payeur : AWAITING_PAYMENT → INFO_REQUESTED
+  answerInfo(trancheId: string, message: string): Promise<Transaction>;    // initiateur : INFO_REQUESTED → AWAITING_PAYMENT
+  rejectRequest(trancheId: string, reason: string): Promise<Transaction>;  // payeur : → REJECTED (terminal), jeton révoqué
+  listMessages(trancheId: string): Promise<RequestMessage[]>;
+
+  // Lot X (X3) : création avec un rôle explicite (PROVIDER : prestataire autorisé, payeur désigné par téléphone).
+  createDraft(input: { vertical: Vertical; creatorRole: CreatorRole }): Promise<NeedDraft>;
 }

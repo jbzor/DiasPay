@@ -93,7 +93,7 @@ Les actions de démonstration (« Simuler : valider / rejeter », décision de l
 pnpm test:supabase
 ```
 
-La même suite (`packages/api-client/test/contract/contract.ts`) s’exécute contre le simulateur (toujours, dans `pnpm -r test`) et contre `SupabaseApi` quand `SUPABASE_TEST_URL` et `SUPABASE_TEST_ANON_KEY` sont définis (`pnpm test:supabase` les lit dans `apps/mobile/.env.local`). Comptes : numéros réservés +33 6 39 98 00 11 à 13 ; leurs dossiers sont effacés à la fin (`demo_reset`, mock_mode uniquement). Résultat du 11 novembre 2026 : 8 + 8 tests réussis.
+La même suite (`packages/api-client/test/contract/contract.ts`) s’exécute contre le simulateur (toujours, dans `pnpm -r test`) et contre `SupabaseApi` quand `SUPABASE_TEST_URL` et `SUPABASE_TEST_ANON_KEY` sont définis (`pnpm test:supabase` les lit dans `apps/mobile/.env.local`). Comptes : numéros réservés +33 6 39 98 00 11 à 13 ; leurs dossiers sont effacés à la fin (`demo_reset`, mock_mode uniquement). Résultat du 11 novembre 2026 : 8 + 8 tests réussis. Lot X (12 novembre 2026) : 11 + 11 (jeton révoqué et réémis, décisions du payeur, demande initiée par un prestataire). Le compte +33 6 39 98 00 12 est aussi autorisé à initier une demande en prestataire (`seed.sql`). Chaque passage enregistre une à deux résolutions échouées par compte (`security_events`, en ajout seul) : au-delà d’une dizaine de passages dans la même heure, les résolutions de ces comptes reçoivent `TOO_MANY_ATTEMPTS` jusqu’à ce que la fenêtre d’une heure soit écoulée.
 
 ## 9. Écarts assumés entre le simulateur et le serveur
 
@@ -108,3 +108,9 @@ La même suite (`packages/api-client/test/contract/contract.ts`) s’exécute co
 | Identifiant d’une pièce | celui choisi par l’application | attribué par le serveur (`add_document`) |
 | Annuaire des prestataires | jeu de démonstration intégré | table `providers` (seed : 15 prestataires fictifs à Yaoundé et Douala) |
 | Nom du payeur sur une transaction | connu du simulateur | non exposé dans la liste (profils protégés par RLS) ; présent sur le reçu (`get_receipt`) |
+| Rôles au dossier (lot X) | le créateur garde son rôle de création ; pour tout autre dossier, le profil de démonstration courant (payeur par défaut). Aucun rapprochement par numéro de téléphone | parties réelles (`transaction_parties`), payeur désigné par son numéro, invitation rattachée à l’inscription |
+| Destinataires des alertes du lot X | une seule liste d’alertes pour tous les profils | `INFO_REQUESTED`, `INFO_ANSWERED`, `REQUEST_REJECTED` aux autres parties que l’auteur ; `PAYMENT_REQUEST_RECEIVED` au payeur seul |
+| Échecs de résolution d’une référence (lot X) | comptés en mémoire, par utilisateur, perdus au redémarrage | `security_events`, en ajout seul ; plus de 10 échecs dans l’heure : `TOO_MANY_ATTEMPTS`, événement `SUSPICIOUS_ACTIVITY` |
+| Échec à la confirmation (`confirmByReference`) | non compté, comme le serveur | non compté : l’erreur annule la transaction qui l’enregistrerait (la limite s’applique quand même) |
+| Pièces jointes à une réponse (lot X) | non simulées | documents de la tranche, déposés par l’initiateur pendant `INFO_REQUESTED` (`docs_insert_info`, `dossiers_insert_info`) |
+| Administrateur (révocation après paiement) | absent du simulateur | `revoke_token` et `reissue_token` par un administrateur non partie, à tout moment |

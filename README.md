@@ -54,12 +54,6 @@ En dehors de ces cas, le profil de démonstration suit le rôle choisi à l'insc
 | `EXPO_PUBLIC_HELP_URL` | Adresse du centre d’aide (Profil › Centre d’aide) ; vide → « Bientôt disponible » | vide |
 | `EXPO_PUBLIC_TERMS_URL` | Adresse des conditions et de la confidentialité (Profil) ; vide → « Bientôt disponible » | vide |
 | `EXPO_PUBLIC_UPLOAD_FAILURE_RATE` | Probabilité (0 à 1) d’échec simulé de l’envoi d’une pièce, pour tester la reprise | `0` (désactivé) |
-| `EXPO_PUBLIC_LINK_BASE` | Hôte (ou URL de base) des DiasPay Links `https://<hôte>/t/<référence>` ; aucun domaine n’est figé dans le code | `links.diaspay.example` (domaine réservé, sans site réel : lien de développement) |
-
-```
-EXPO_PUBLIC_LINK_BASE=liens.mondomaine.org pnpm --filter @diaspay/mobile start
-```
-
 ## Serveur Supabase (lot 4)
 
 Mise en place complète : `docs/supabase-setup.md`. Codes d’erreur : `docs/error-codes.md`. Contrôles avant publication : `docs/release-checklist.md`.
@@ -100,20 +94,11 @@ Variables, comptes du personnel, second facteur, déploiement Vercel, rotation d
 - `kid` : identifiant de clé, `SIMULATED` en simulation ;
 - `signature` : texte sans `:` ; `SIMULATED.<hex>` en simulation (la vraie signature Ed25519 et la vérification hors ligne viennent à la vague 2).
 
-Le codec (`encodeEqr`, `decodeEqr`, `formatReference`, `normalizeReference`, `parseDeepLink`) est dans `packages/domain/src/eqr.ts`. Le QR est dessiné en noir sur blanc quel que soit le thème, correction d’erreur M, marge de silence de 4 modules. Il est calculé avec `qrcode-generator` (JavaScript pur) et dessiné avec `react-native-svg`.
+Le codec (`encodeEqr`, `decodeEqr`, `formatReference`, `normalizeReference`) est dans `packages/domain/src/eqr.ts` ; le lien interne (`parseInternalLink`) dans `packages/domain/src/links.ts`. Le QR est dessiné en noir sur blanc quel que soit le thème, correction d’erreur M, marge de silence de 4 modules. Il est calculé avec `qrcode-generator` (JavaScript pur) et dessiné avec `react-native-svg`.
 
-**Jeton** : une tranche qui n’est plus « prévue » a un jeton, valable 7 jours (`TOKEN_VALIDITY_HOURS`, configurable dans `MockApi`), à usage unique. Erreurs de `confirmByReference` : `UNKNOWN_REFERENCE`, `NOT_A_PARTY`, `PROVIDER_ONLY`, `TOKEN_USED`, `DEVICE_TIME_INVALID` (heure de l’appareil à plus de 5 minutes dans le futur), `TOKEN_EXPIRED`, `NOT_PAID`, `WRONG_MODE`.
+**Jeton** : une tranche qui n’est plus « prévue » a un jeton, valable 7 jours (`TOKEN_VALIDITY_HOURS`, configurable dans `MockApi`), à usage unique. Lot X : le jeton ne se lit que par le payeur de la tranche (RLS). Erreurs de `confirmByReference` : `TOO_MANY_ATTEMPTS`, `UNKNOWN_REFERENCE` (référence inconnue ou dossier étranger : même réponse), `TOKEN_REVOKED`, `PROVIDER_ONLY`, `TOKEN_USED`, `DEVICE_TIME_INVALID` (heure de l’appareil à plus de 5 minutes dans le futur), `TOKEN_EXPIRED`, `NOT_PAID`, `WRONG_MODE`.
 
-**Liens profonds** : `diaspay://t/<référence>` et `https://<hôte>/t/<référence>`.
-| Utilisateur | État de la tranche | Destination |
-|---|---|---|
-| Payeur | À payer | Écran de paiement |
-| Prestataire | Payée et verrouillée | Onglet Scanner, feuille de confirmation |
-| Partie à la transaction | Autre état | Détail de la transaction, avec un message d’état |
-| Non connecté | — | Connexion ; le lien est mémorisé puis rejoué après l’authentification (en mémoire : perdu si l’application est fermée en cours d’inscription) |
-| Référence inconnue, expirée ou hors transaction | — | Écran d’information avec retour à l’accueil |
-
-**Liens universels (iOS) et App Links (Android) : à faire au lot de production.** Rien n’est configuré ni inventé ici : seul le schéma `diaspay://` fonctionne. Il faudra : choisir et réserver le domaine ; publier `/.well-known/apple-app-site-association` (identifiant d’équipe Apple et `com.diaspay.app`, chemin `/t/*`) et `/.well-known/assetlinks.json` (empreinte SHA-256 du certificat de signature de `com.diaspay.app`) ; déclarer `ios.associatedDomains` et les `android.intentFilters` (avec `autoVerify`) dans `app.json` ; renseigner `EXPO_PUBLIC_LINK_BASE`.
+**Aucun lien externe (lot X, exigence 5.1 du cahier).** Le TrustLink n’est jamais transmis par WhatsApp, SMS ou e-mail : ces canaux n’envoient qu’une invitation fixe à ouvrir l’application (`packages/domain/src/notificationTemplates.ts`, sans adresse ni montant ni nom, vérifié par test). L’écran du jeton n’a ni partage, ni copie, ni enregistrement, ni adresse de lien ; il n’affiche le QR qu’au payeur connecté pour sa propre tranche payée, interdit la capture d’écran (`expo-screen-capture`) et masque l’image du QR si `app_config.eqr_image_enabled = 'false'` (la référence reste lisible pour la saisie manuelle). Aucune adresse `https://…` n’ouvre l’application ; le schéma `diaspay://` ne sert qu’aux ouvertures internes et ne porte qu’un identifiant de tranche (`diaspay://tranche/<id>`, filtré par `src/app/+native-intent.tsx` et `parseInternalLink`) : toute autre adresse est ignorée, la navigation exige une session et la lecture passe par la RLS. Le jeton peut être révoqué ou réémis par l’initiateur avant paiement (`revokeToken`, `reissueToken`) ; un jeton révoqué est refusé partout (`TOKEN_REVOKED`).
 
 **Caméra** : sur le web, le scan par caméra n’est pas proposé (saisie manuelle de la référence seulement). Si l’autorisation est refusée, un écran l’explique et renvoie aux réglages ; la saisie manuelle reste toujours disponible.
 

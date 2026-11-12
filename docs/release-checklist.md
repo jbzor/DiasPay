@@ -4,7 +4,7 @@
 
 1. **Le mode démonstration est désactivé.** `EXPO_PUBLIC_DEMO` et `EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE` ne sont pas définis dans l’environnement du build. Contrôle automatique : un build de production (`!__DEV__`) avec `EXPO_PUBLIC_DEMO=1` affiche un écran bloquant « Build non conforme » et journalise l’anomalie (`apps/mobile/src/lib/releaseGuard.ts`). `EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE=1` ne sert qu’aux builds internes de démonstration et aux captures de conformité.
 2. `EXPO_PUBLIC_UPLOAD_FAILURE_RATE` n’est pas défini (pas d’échec d’envoi simulé).
-3. `EXPO_PUBLIC_LINK_BASE` désigne le domaine réservé des DiasPay Links, et les fichiers `apple-app-site-association` et `assetlinks.json` sont publiés (voir README, lot 2).
+3. **Aucun lien ouvrable de l’extérieur** (lot X) : `app.json` ne déclare ni `ios.associatedDomains` ni `android.intentFilters` ; aucun fichier `apple-app-site-association` ni `assetlinks.json` n’est publié pour l’application (`pnpm --filter @diaspay/mobile test` vérifie l’absence de route `/t/` et de partage).
 4. `EXPO_PUBLIC_HELP_URL` et `EXPO_PUBLIC_TERMS_URL` pointent vers les pages publiées du centre d’aide et des conditions.
 5. `pnpm -r test`, `pnpm --filter @diaspay/mobile typecheck` et `pnpm --filter @diaspay/mobile exec expo export --platform web` passent.
 6. Le numéro de version (`expo.version` dans `app.json`) a été incrémenté ; l’écran Profil › À propos l’affiche.
@@ -50,3 +50,15 @@
 22. **Domaine du bureau de contrôle** déclaré dans Supabase Auth (Site URL et Redirect URLs, `…/auth/confirm`). En-têtes vérifiés : `curl -sI https://<domaine>/connexion` doit montrer la CSP à nonce, `X-Frame-Options: DENY` et `Referrer-Policy: no-referrer`.
 23. **`supabase/seed-evidence.sql` jamais exécuté** en production. Il refuse de toute façon si `mock_mode <> 'true'`.
 24. **Longueur minimale des mots de passe** : dans Supabase Auth, `password_min_length` est à 12 (6 par défaut). Le bureau de contrôle impose déjà 12 caractères lors d’une réinitialisation.
+
+## Fondations du cahier d’extension (lot X)
+
+25. **Aucun gabarit de notification externe ne contient d’adresse** : `pnpm --filter @diaspay/domain test` (test d’architecture de `notificationTemplates.ts` : ni lien, ni domaine, ni référence, ni chiffre, ni paramètre). Tout envoi SMS, e-mail ou WhatsApp passe par `externalNotification()`, jamais par un texte libre.
+26. **`eqr_image_enabled` décidé** par le client et fixé en production :
+    ```sql
+    select value from app_config where key = 'eqr_image_enabled';   -- 'true' (QR affiché au payeur) ou 'false' (référence seule)
+    ```
+27. **Limitation des résolutions** : `select value from app_config where key = 'reference_failure_limit';` renvoie `10` ; le personnel surveille `security_events` (`SUSPICIOUS_ACTIVITY`).
+28. **`can_initiate_requests`** n’est accordé qu’à des comptes enrôlés par un administrateur (`select count(*) from profiles where can_initiate_requests;`), en attendant la politique d’enrôlement (K3).
+29. **Mode `IMMEDIATE` non utilisé** tant que le client n’a pas tranché (K1) : `select vertical from release_rules where release_mode = 'IMMEDIATE';` ne renvoie aucune ligne.
+

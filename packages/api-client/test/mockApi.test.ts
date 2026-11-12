@@ -113,14 +113,14 @@ describe('MockApi — TrustToken et eQR', () => {
     const info = await api.resolveReference('7B31-D0A9-C5E2-4F8A-61');
     expect(info).toMatchObject({ txId: 'tx-school', label: 'Scolarité T1', amountMinor: 300_000, currency: 'XAF', status: 'AWAITING_PAYMENT', used: false, seq: 2, contestHours: 72 });
   });
-  it('resolveReference : UNKNOWN_REFERENCE et NOT_A_PARTY', async () => {
+  it('resolveReference : UNKNOWN_REFERENCE, y compris pour un dossier étranger (lot X : même réponse)', async () => {
     const { api } = make();
     expect(await code(api.resolveReference('ffffffffffffffffff'))).toBe('UNKNOWN_REFERENCE');
     expect(await code(api.resolveReference('court'))).toBe('UNKNOWN_REFERENCE');
     const seed = seedTransactions(T0);
     seed[0]!.parties = ['PROVIDER'];
     const other = new MockApi(() => T0, seed);
-    expect(await code(other.resolveReference(seed[0]!.tranches[1]!.reference!))).toBe('NOT_A_PARTY');
+    expect(await code(other.resolveReference(seed[0]!.tranches[1]!.reference!))).toBe('UNKNOWN_REFERENCE');
     other.setPersona('PROVIDER');
     expect(await code(other.resolveReference(seed[0]!.tranches[1]!.reference!))).toBe('NO_ERROR');
   });
@@ -129,7 +129,7 @@ describe('MockApi — TrustToken et eQR', () => {
     await payT2(api);
     expect(await code(api.confirmByReference(REF2))).toBe('PROVIDER_ONLY');
   });
-  it('confirmByReference : référence inconnue et non partie', async () => {
+  it('confirmByReference : référence inconnue et dossier étranger, même code (lot X)', async () => {
     const { api } = make();
     api.setPersona('PROVIDER');
     expect(await code(api.confirmByReference('ffffffffffffffffff'))).toBe('UNKNOWN_REFERENCE');
@@ -137,7 +137,7 @@ describe('MockApi — TrustToken et eQR', () => {
     seed[0]!.parties = ['PAYER'];
     const other = new MockApi(() => T0, seed);
     other.setPersona('PROVIDER');
-    expect(await code(other.confirmByReference(seed[0]!.tranches[1]!.reference!))).toBe('NOT_A_PARTY');
+    expect(await code(other.confirmByReference(seed[0]!.tranches[1]!.reference!))).toBe('UNKNOWN_REFERENCE');
   });
   it('confirmByReference : tranche non payée', async () => {
     const { api } = make();
@@ -176,8 +176,11 @@ describe('MockApi — TrustToken et eQR', () => {
     const t2 = tx.tranches[1]!;
     expect(t2.status).toBe('CONFIRMED');
     expect(t2.contestEndsAt).toBe('2026-11-11T10:00:00.000Z');
+    expect(await code(api.getToken(t2.id))).toBe('NO_TOKEN');   // lot X : le jeton ne se lit que par le payeur
+    api.setPersona('PAYER');
     const tok = await api.getToken(t2.id);
     expect(tok.usedAt).toBe('2026-11-08T10:00:00.000Z');
+    api.setPersona('PROVIDER');
     expect(await code(api.confirmByReference(REF2))).toBe('TOKEN_USED');
     expect((await api.resolveReference(REF2)).used).toBe(true);
   });
@@ -185,6 +188,7 @@ describe('MockApi — TrustToken et eQR', () => {
     const { api } = make();
     api.setPersona('PROVIDER');
     expect(await code(api.confirmByReference(REF2))).toBe('NOT_PAID');
+    api.setPersona('PAYER');
     expect((await api.getToken((await school(api)).tranches[1]!.id)).usedAt).toBeUndefined();
   });
   it('durée de validité configurable', async () => {
@@ -227,6 +231,7 @@ describe('parcours complet du mock (démonstration)', () => {
 
     // 3. Usage unique : un second scan est refusé, y compris avec le même QR.
     expect(await code(api.confirmByReference(decoded.reference))).toBe('TOKEN_USED');
+    api.setPersona('PAYER');   // lot X : le jeton ne se lit que par le payeur
     expect((await api.getToken(t2.id)).usedAt).toBe(now.toISOString());
 
     // 4. À l’échéance du délai, la tranche est débloquée automatiquement.

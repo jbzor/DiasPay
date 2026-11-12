@@ -16,7 +16,7 @@ function txRow(over: Partial<TxWithRelations> = {}): TxWithRelations {
         contest_hours: 72, contest_ends_at: null, released_at: null, created_at: T, updated_at: T, tranche_tokens: null },
       { id: 't1', tx_id: TX, seq: 1, label: 'Inscription', amount_minor: 400000, due_date: '2026-11-15', status: 'CONFIRMED', release_mode: 'PROVIDER_CONFIRM',
         contest_hours: 72, contest_ends_at: '2026-11-14T10:00:00+00:00', released_at: null, created_at: T, updated_at: T,
-        tranche_tokens: { reference: '4f9a2c71b8e01d3ca9' } },
+        tranche_tokens: { reference: '4f9a2c71b8e01d3ca9', revoked_at: null } },
     ],
     documents: [
       { id: 'd1', tranche_id: null, deleted_at: null },
@@ -53,7 +53,7 @@ describe('conversion des lignes du serveur', () => {
 
   it('jeton renvoyé sous forme de tableau (relation non unique) : accepté', () => {
     const row = txRow();
-    row.tranches[1]!.tranche_tokens = [{ reference: 'aaaaaaaaaaaaaaaaaa' }];
+    row.tranches[1]!.tranche_tokens = [{ reference: 'bbbbbbbbbbbbbbbbbb', revoked_at: T }, { reference: 'aaaaaaaaaaaaaaaaaa', revoked_at: null }];
     expect(convert.toTransaction(row).tranches[0]!.reference).toBe('aaaaaaaaaaaaaaaaaa');
   });
 

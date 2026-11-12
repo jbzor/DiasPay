@@ -6,13 +6,14 @@ type Who = TxRole | 'SYSTEM' | 'VALIDATOR';
 
 // Miroir de allowed_transitions (SQL v0.1 + v0.2, niveau transaction).
 const TX_TRANSITIONS: ReadonlyArray<readonly [TxStatus, TxStatus, readonly Who[]]> = [
-  ['DRAFT', 'SUBMITTED', ['REQUESTER', 'PAYER']],
+  // Lot X (X3) : un prestataire autorisé initie aussi une demande ; il n’agit que sur un brouillon qu’il a créé.
+  ['DRAFT', 'SUBMITTED', ['REQUESTER', 'PAYER', 'PROVIDER']],
   ['SUBMITTED', 'IN_REVIEW', ['VALIDATOR']],
   ['IN_REVIEW', 'VALIDATED', ['VALIDATOR']],
   ['IN_REVIEW', 'REJECTED', ['VALIDATOR']],
-  ['REJECTED', 'DRAFT', ['REQUESTER', 'PAYER']],
+  ['REJECTED', 'DRAFT', ['REQUESTER', 'PAYER', 'PROVIDER']],
   // Décision D4 : abandon d’un dossier rejeté (aucune autre transition vers CANCELLED).
-  ['REJECTED', 'CANCELLED', ['REQUESTER', 'PAYER']],
+  ['REJECTED', 'CANCELLED', ['REQUESTER', 'PAYER', 'PROVIDER']],
   ['VALIDATED', 'TOKEN_ISSUED', ['SYSTEM']],
   ['TOKEN_ISSUED', 'IN_PROGRESS', ['SYSTEM']],
   ['IN_PROGRESS', 'CLOSED', ['SYSTEM']],
@@ -37,7 +38,9 @@ export function canTransitionTx(from: TxStatus, to: TxStatus, actor: Actor): boo
     // Un validateur ne peut pas être partie au dossier.
     return actor.isValidator && actor.roles.length === 0;
   }
-  return actor.roles.some((r) => who.includes(r));
+  // Miroir de transition_tx : le rôle PROVIDER n’agit sur un brouillon ou un dossier rejeté que s’il en est le créateur.
+  const editing = from === 'DRAFT' || from === 'REJECTED';
+  return actor.roles.some((r) => who.includes(r) && (r !== 'PROVIDER' || !editing || actor.isCreator === true));
 }
 
 /** Renvoie le nouveau statut ou lève une DomainError. Fonction pure. */

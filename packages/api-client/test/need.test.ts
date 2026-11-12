@@ -138,11 +138,21 @@ describe('soumission', () => {
     await api.saveDraft({ ...d, vertical: 'LAND' });
     expect(await code(api.submitNeed(d.id))).toBe('VALIDATION');
   });
-  it('le domaine refuse la soumission par un prestataire', async () => {
+  // Lot X : comme save_draft, un profil « prestataire » sans rôle explicite crée en payeur (le simulateur refusait, le serveur acceptait).
+  it('un profil prestataire sans rôle explicite soumet en payeur, comme le serveur', async () => {
     const { api } = make();
     const d = await healthDraft(api);
     api.setUser({ id: 'u-marie', role: 'PROVIDER' });
-    expect(await code(api.submitNeed(d.id))).toBe('TRANSITION_FORBIDDEN');
+    expect((await api.submitNeed(d.id)).status).toBe('IN_REVIEW');
+  });
+  it('rôle PROVIDER explicite : autorisation exigée (INITIATION_NOT_ALLOWED), jamais soi-même payeur (SELF_PAYER)', async () => {
+    const { api } = make();
+    api.setUser({ id: 'u-ecole', role: 'PROVIDER', phone: '+237699000777' });
+    expect(await code(api.createDraft({ vertical: 'EDUCATION', creatorRole: 'PROVIDER' }))).toBe('INITIATION_NOT_ALLOWED');
+    api.setUser({ id: 'u-ecole', role: 'PROVIDER', phone: '+237699000777', canInitiateRequests: true });
+    const d = await api.createDraft({ vertical: 'EDUCATION', creatorRole: 'PROVIDER' });
+    expect(d).toMatchObject({ vertical: 'EDUCATION', creatorRole: 'PROVIDER', ownerId: 'u-ecole' });
+    expect(await code(api.saveDraft({ ...d, counterpartyPhone: '+237 6 99 00 07 77' }))).toBe('SELF_PAYER');
   });
 });
 

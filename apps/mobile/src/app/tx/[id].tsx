@@ -102,7 +102,6 @@ function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boo
         {persona === 'PAYER' && tr.status === 'AWAITING_PAYMENT' ? (
           <View style={st.actions}>
             <Button small tone="accent" label={t('pay')} onPress={() => router.push(`/pay/${tr.id}`)} />
-            <Button small tone="secondary" label={t('showQr')} onPress={() => router.push(`/token/${tr.id}`)} />
           </View>
         ) : null}
         {persona === 'PAYER' && tr.status === 'CONFIRMED' ? (
@@ -138,7 +137,7 @@ export default function TransactionDetail() {
     if (q.data === undefined) return <Screen><TopBar title={t('loadingData')} /><QueryGate query={q} rows={4}>{null}</QueryGate></Screen>;
     return <Screen><TopBar title={t('notFound')} /></Screen>;
   }
-  // Arrivée par un lien /t/<référence> sur une tranche qui n’appelle aucune action immédiate : on explique son état.
+  // Arrivée par un lien interne (/tranche/<id>, depuis une notification) : on rappelle l’état de la tranche.
   const linked = linkedTranche ? tx.tranches.find((x) => x.id === linkedTranche) : undefined;
   return (
     <Screen refreshing={q.isRefetching} onRefresh={() => void q.refetch()}>

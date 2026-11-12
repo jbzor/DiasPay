@@ -59,6 +59,7 @@ export const txStatusKey = (s: TxStatus): Key => ({
 export const trancheStatusKey = (s: TrancheStatus): Key => ({
   PLANNED: 'trPlanned', AWAITING_PAYMENT: 'trAwaiting', PAID_LOCKED: 'trPaid', EVIDENCE_SUBMITTED: 'trEvidence',
   CONFIRMED: 'trConfirmed', RELEASED: 'trReleased', DISPUTED: 'trDisputed', CANCELLED: 'trCancelled', EXPIRED: 'trExpired',
+  INFO_REQUESTED: 'trInfoRequested', REJECTED: 'trRejected',
 } as const)[s];
 
 import type { Vertical } from '@diaspay/domain';

@@ -70,8 +70,16 @@ export function alertKeys(n: AppNotification, txs: readonly Transaction[], f: Al
     case 'TRANCHE_RELEASED': return { title: 'alert_TRANCHE_RELEASED_title', body: 'alert_TRANCHE_RELEASED_body', params: base };
     case 'DISPUTE_OPENED': return { title: 'alert_DISPUTE_OPENED_title', body: 'alert_DISPUTE_OPENED_body', params: base };
     case 'DISPUTE_RESOLVED': return { title: 'alert_DISPUTE_RESOLVED_title', body: 'alert_DISPUTE_RESOLVED_body', params: { ...base, outcome: f.outcome(e.outcome) } };
+    // Lot X : textes génériques, sans montant ni motif (le détail se lit dans le dossier).
+    case 'PAYMENT_REQUEST_RECEIVED': return { title: 'alert_PAYMENT_REQUEST_RECEIVED_title', body: 'alert_PAYMENT_REQUEST_RECEIVED_body', params: base };
+    case 'INFO_REQUESTED': return { title: 'alert_INFO_REQUESTED_title', body: 'alert_INFO_REQUESTED_body', params: base };
+    case 'INFO_ANSWERED': return { title: 'alert_INFO_ANSWERED_title', body: 'alert_INFO_ANSWERED_body', params: base };
+    case 'REQUEST_REJECTED': return { title: 'alert_REQUEST_REJECTED_title', body: 'alert_REQUEST_REJECTED_body', params: base };
   }
 }
 
 /** Tous les types d’événement (parité des libellés). */
-export const ALERT_TYPES = ['TX_VALIDATED', 'TX_REJECTED', 'PAYMENT_READY', 'TRANCHE_CONFIRMED', 'TRANCHE_RELEASED', 'DISPUTE_OPENED', 'DISPUTE_RESOLVED'] as const;
+export const ALERT_TYPES = [
+  'TX_VALIDATED', 'TX_REJECTED', 'PAYMENT_READY', 'TRANCHE_CONFIRMED', 'TRANCHE_RELEASED', 'DISPUTE_OPENED', 'DISPUTE_RESOLVED',
+  'PAYMENT_REQUEST_RECEIVED', 'INFO_REQUESTED', 'INFO_ANSWERED', 'REQUEST_REJECTED',
+] as const;

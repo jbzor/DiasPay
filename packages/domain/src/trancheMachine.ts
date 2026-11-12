@@ -1,7 +1,9 @@
 import { DomainError, TERMINAL_TRANCHE_STATUSES } from './types';
 import type { Actor, ReleaseMode, TrancheStatus, TxRole } from './types';
 
-type Who = TxRole | 'SYSTEM';
+/** Auteur d’une transition de tranche (rôle au dossier ou système). */
+export type TrancheActor = TxRole | 'SYSTEM';
+type Who = TrancheActor;
 
 // Miroir de tranche_transitions (hors transitions réservées au validateur).
 const TRANSITIONS: ReadonlyArray<readonly [TrancheStatus, TrancheStatus, readonly Who[]]> = [
@@ -12,7 +14,17 @@ const TRANSITIONS: ReadonlyArray<readonly [TrancheStatus, TrancheStatus, readonl
   ['PAID_LOCKED', 'CONFIRMED', ['PROVIDER', 'PAYER', 'SYSTEM']],
   ['PAID_LOCKED', 'EVIDENCE_SUBMITTED', ['PROVIDER']],
   ['CONFIRMED', 'RELEASED', ['PAYER', 'SYSTEM']],
+  // Lot X (X2) : décisions du payeur et réponse de l’initiateur (fonctions request_info, answer_info, reject_request).
+  ['AWAITING_PAYMENT', 'INFO_REQUESTED', ['PAYER']],
+  ['INFO_REQUESTED', 'AWAITING_PAYMENT', ['REQUESTER', 'PROVIDER']],
+  ['AWAITING_PAYMENT', 'REJECTED', ['PAYER']],
+  ['INFO_REQUESTED', 'REJECTED', ['PAYER']],
+  // Paiement direct (mode IMMEDIATE seulement) : débloqué dès le paiement, sans verrouillage ni contestation.
+  ['AWAITING_PAYMENT', 'RELEASED', ['SYSTEM']],
 ];
+
+/** Toutes les transitions de tranche hors validateur, miroir de tranche_transitions (test de parité avec le SQL). */
+export const TRANCHE_TRANSITIONS: ReadonlyArray<readonly [TrancheStatus, TrancheStatus, readonly TrancheActor[]]> = TRANSITIONS;
 
 export interface TrancheState {
   status: TrancheStatus;
@@ -41,9 +53,22 @@ export function transitionTranche(
   if (!row) throw new DomainError('TRANSITION_UNKNOWN', `Transition de tranche ${tr.status} -> ${to} non autorisée`);
   const who = row[2];
 
+  // Lot X : seul l’initiateur répond à une demande d’informations (même code qu’answer_info, avant le contrôle du rôle).
+  if (tr.status === 'INFO_REQUESTED' && to === 'AWAITING_PAYMENT' && actor.kind === 'USER' && !actor.isCreator) {
+    throw new DomainError('INITIATOR_ONLY', 'Réservé à l’initiateur de la demande');
+  }
+
   const allowed =
     actor.kind === 'SYSTEM' ? who.includes('SYSTEM') : actor.roles.some((r) => who.includes(r));
   if (!allowed) throw new DomainError('TRANSITION_FORBIDDEN', 'Rôle non autorisé pour cette transition');
+
+  // Lot X : la demande d’informations vient d’un payeur qui n’est pas l’initiateur.
+  if (tr.status === 'AWAITING_PAYMENT' && to === 'INFO_REQUESTED' && actor.kind === 'USER' && actor.isCreator) {
+    throw new DomainError('TRANSITION_FORBIDDEN', 'Vous êtes l’initiateur de cette demande');
+  }
+  if (tr.status === 'AWAITING_PAYMENT' && to === 'RELEASED' && tr.releaseMode !== 'IMMEDIATE') {
+    throw new DomainError('NOT_PAID', 'Seul un paiement débloque directement une tranche (mode IMMEDIATE)');
+  }
 
   if (tr.status === 'PAID_LOCKED' && to === 'CONFIRMED' && actor.kind === 'USER') {
     const ok =
@@ -60,6 +85,14 @@ export function transitionTranche(
     return { status: to, contestEndsAt: new Date(now.getTime() + tr.contestHours * 3_600_000) };
   }
   return { status: to, contestEndsAt: tr.contestEndsAt };
+}
+
+/**
+ * Issue d’un paiement réussi (miroir de simulate_tranche_system, puis du webhook du partenaire) :
+ * mode IMMEDIATE → débloquée directement (événement DIRECT_PAYMENT), sinon fonds verrouillés.
+ */
+export function paymentOutcome(releaseMode: ReleaseMode): 'RELEASED' | 'PAID_LOCKED' {
+  return releaseMode === 'IMMEDIATE' ? 'RELEASED' : 'PAID_LOCKED';
 }
 
 /** Une tranche confirmée est débloquée automatiquement une fois le délai écoulé (jamais en mode preuve). */

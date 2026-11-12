@@ -29,6 +29,8 @@ export interface Harness {
   submittedStatuses: readonly string[];
   /** Isolation des transactions par partie (RLS). Le simulateur n’a qu’un profil de démonstration à la fois : écart assumé. */
   partyIsolation: boolean;
+  /** Numéros des comptes (E.164). Lot X : le payeur désigné par un demandeur ou un prestataire, refus de se désigner soi-même. */
+  phones: Record<Who, string>;
   timeout: number;
 }
 
@@ -39,6 +41,7 @@ async function code(p: Promise<unknown>): Promise<string> {
 
 /** Date AAAA-MM-JJ dans n jours (une tranche à moins de 7 jours est activée à la validation, RG-12). */
 const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+const tx = (t: Transaction) => t.id;
 
 function healthDraft(id: string, over: Partial<NeedDraft> = {}): NeedDraft {
   const due = inDays(3);
@@ -117,7 +120,8 @@ export function contractSuite(h: Harness): void {
       expect(await code(api.getReceipt(tr.id))).toBe('NOT_RELEASED');
       if (h.partyIsolation) {
         const other = await h.as('OTHER');
-        expect(['NOT_A_PARTY', 'TRANCHE_NOT_FOUND']).toContain(await code(other.resolveReference(token.reference)));
+        // Lot X (X1.6) : même réponse qu’une référence inconnue, l’existence de la référence n’est pas révélée.
+        expect(await code(other.resolveReference(token.reference))).toBe('UNKNOWN_REFERENCE');
         expect((await other.listTransactions()).some((x) => x.id === tx.id)).toBe(false);
       }
     }, t * 2);
@@ -157,6 +161,95 @@ export function contractSuite(h: Harness): void {
       await api.markAllNotificationsRead();
       expect((await api.listNotifications()).every((n) => n.readAt)).toBe(true);
     }, t);
+
+    // ——— Lot X ———
+
+    it('X1 : jeton révoqué refusé partout, réémis avec une nouvelle référence', async () => {
+      const api = await h.as('PAYER');
+      const id = newUuid();
+      await api.saveDraft(healthDraft(id));
+      await api.attachDocument(id, h.file('QUOTE'));
+      await api.attachDocument(id, h.file('BENEFICIARY_ID'));
+      const done = await api.simulateReview((await api.submitNeed(id)).id, { approved: true });
+      const tr = done.tranches[0]!;
+      expect(await api.eqrImageEnabled()).toBe(true);
+      const before = (await api.getToken(tr.id)).reference;
+      expect(await code(api.revokeToken(tr.id, ''))).toBe('REASON_REQUIRED');
+      await api.revokeToken(tr.id, 'Lien compromis');
+      expect(await code(api.resolveReference(before))).toBe('TOKEN_REVOKED');
+      expect(await code(api.getToken(tr.id))).toBe('NO_TOKEN');
+      expect(await code(api.revokeToken(tr.id, 'Encore'))).toBe('NO_TOKEN');
+      await api.reissueToken(tr.id, 'Nouveau QR');
+      const after = (await api.getToken(tr.id)).reference;
+      expect(after).toMatch(/^[0-9a-f]{18}$/);
+      expect(after).not.toBe(before);
+      expect((await api.resolveReference(after)).trancheId).toBe(tr.id);
+      if (h.partyIsolation) {
+        const other = await h.as('OTHER');
+        expect(await code(other.resolveReference(after))).toBe('UNKNOWN_REFERENCE');   // même réponse qu’une référence inconnue
+        expect(await code(other.revokeToken(tr.id, 'Intrus'))).toBe('TRANCHE_NOT_FOUND');
+      }
+    }, t * 2);
+
+    it('X2 : le payeur ouvre, demande des informations, l’initiateur répond, le payeur rejette ; clôture', async () => {
+      const requester = await h.as('REQUESTER');
+      const id = newUuid();
+      await requester.saveDraft(healthDraft(id, { counterpartyPhone: h.phones.PAYER }));
+      await requester.attachDocument(id, h.file('QUOTE'));
+      await requester.attachDocument(id, h.file('BENEFICIARY_ID'));
+      const done = await requester.simulateReview((await requester.submitNeed(id)).id, { approved: true });
+      const tr = done.tranches[0]!;
+      expect(tr.status).toBe('AWAITING_PAYMENT');
+      expect(await code(requester.markReceived(tr.id))).toBe('PAYER_ONLY');
+      expect(await code(requester.requestInfo(tr.id, 'Question'))).toBe('PAYER_ONLY');
+
+      const payer = await h.as('PAYER');
+      await payer.markReceived(tr.id);
+      await payer.markReceived(tr.id);   // idempotent
+      expect(await code(payer.requestInfo(tr.id, ' '))).toBe('REASON_REQUIRED');
+      const asked = await payer.requestInfo(tr.id, 'Pouvez-vous joindre le devis signé ?');
+      expect(asked.tranches[0]!.status).toBe('INFO_REQUESTED');
+      expect(await code(payer.answerInfo(tr.id, 'Réponse'))).toBe('INITIATOR_ONLY');
+
+      const back = await (await h.as('REQUESTER')).answerInfo(tr.id, 'Devis signé joint.');
+      expect(back.tranches[0]!.status).toBe('AWAITING_PAYMENT');
+      expect((await (await h.as('REQUESTER')).listNotifications()).some((n) => n.event.type === 'INFO_REQUESTED' && n.event.txId === tx(done))).toBe(true);
+
+      const p2 = await h.as('PAYER');
+      const msgs = await p2.listMessages(tr.id);
+      expect(msgs.map((m) => m.kind)).toEqual(['INFO_REQUEST', 'INFO_ANSWER']);
+      expect(msgs.map((m) => m.mine)).toEqual([true, false]);
+      expect((await p2.listNotifications()).some((n) => n.event.type === 'INFO_ANSWERED' && n.event.txId === tx(done))).toBe(true);
+      expect(await code(p2.rejectRequest(tr.id, ''))).toBe('REASON_REQUIRED');
+      const closed = await p2.rejectRequest(tr.id, 'Je ne reconnais pas cette demande.');
+      expect(closed.tranches[0]!.status).toBe('REJECTED');
+      expect(closed.status).toBe('CLOSED');
+      expect(await code(p2.requestInfo(tr.id, 'Encore ?'))).toBe('TX_NOT_ACTIVE');
+      expect(await code(p2.getToken(tr.id))).toBe('NO_TOKEN');   // jeton révoqué au rejet
+      expect((await p2.listMessages(tr.id)).map((m) => m.kind)).toEqual(['INFO_REQUEST', 'INFO_ANSWER', 'NOTE']);
+      expect((await (await h.as('REQUESTER')).listNotifications()).some((n) => n.event.type === 'REQUEST_REJECTED' && n.event.txId === tx(done))).toBe(true);
+    }, t * 3);
+
+    it('X3 : demande initiée par un prestataire autorisé, refusée sans autorisation', async () => {
+      const other = await h.as('OTHER');
+      expect(await code(other.createDraft({ vertical: 'EDUCATION', creatorRole: 'PROVIDER' }))).toBe('INITIATION_NOT_ALLOWED');
+      const prov = await h.as('REQUESTER');   // compte de test autorisé à initier (seed : can_initiate_requests)
+      const draft = await prov.createDraft({ vertical: 'EDUCATION', creatorRole: 'PROVIDER' });
+      expect(draft.creatorRole).toBe('PROVIDER');
+      const due = inDays(3);
+      const full: NeedDraft = {
+        ...draft, amountMinor: 120_000, currency: 'XAF', purpose: 'Frais d’inscription (test de contrat)', beneficiaryName: 'Élève',
+        counterpartyPhone: h.phones.REQUESTER, planType: 'SINGLE', tranches: [{ label: 'Inscription', amountMinor: 120_000, dueDate: due }], step: 'recap',
+      };
+      expect(await code(prov.saveDraft(full))).toBe('SELF_PAYER');
+      await prov.saveDraft({ ...full, counterpartyPhone: h.phones.PAYER });
+      await prov.attachDocument(draft.id, h.file('ENROLMENT_CERTIFICATE'));
+      const sent = await prov.submitNeed(draft.id);
+      expect(h.submittedStatuses).toContain(sent.status);
+      const payer = await h.as('PAYER');
+      expect((await payer.listNotifications()).some((n) => n.event.type === 'PAYMENT_REQUEST_RECEIVED' && n.event.txId === sent.id)).toBe(true);
+      expect((await payer.listTransactions()).some((x) => x.id === sent.id)).toBe(true);
+    }, t * 2);
 
     it('références et tranches inconnues : codes stables de la table', async () => {
       const api = await h.as('PAYER');

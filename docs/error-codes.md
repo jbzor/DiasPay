@@ -22,7 +22,9 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `TRANCHE_NOT_FOUND` | S, C | Tranche introuvable, ou inaccessible |
 | `NOT_A_PARTY` | D, S | L’utilisateur n’est pas partie au dossier |
 | `PROVIDER_ONLY` | D, S | Réservé au prestataire |
-| `PAYER_ONLY` | S | Réservé au payeur (déblocage anticipé) |
+| `PAYER_ONLY` | D, S | Réservé au payeur : déblocage anticipé ; lot X : demande reçue (`mark_received`), demande d’informations, rejet |
+| `INITIATOR_ONLY` | D, S | Réservé à l’initiateur de la demande : réponse à une demande d’informations, révocation ou réémission du jeton (lot X) |
+| `INITIATION_NOT_ALLOWED` | D, S | Compte non autorisé à initier une demande de paiement (`profiles.can_initiate_requests`, réglé par un administrateur ; lot X) |
 | `VALIDATOR_ONLY` | D, S | Réservé aux validateurs |
 | `VALIDATOR_IS_PARTY` | D, S | Un validateur ou administrateur partie au dossier ne peut pas décider |
 | `ADMIN_ONLY` | D, S | Réservé aux administrateurs (litiges, RG-09) |
@@ -51,6 +53,7 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `AMOUNT_NOT_CHECKED` | S | Approbation sans la case « J’ai vérifié que le montant correspond aux pièces » (D6, lot 5 : `decide_tx`) |
 | `BAD_DATE` | D | Date invalide |
 | `PHONE_INVALID` | D, S | Numéro de téléphone invalide |
+| `SELF_PAYER` | D, S | Un prestataire initiateur ne se désigne pas lui-même payeur (lot X) |
 | `REASON_REQUIRED` | S, C | Motif obligatoire (rejet, décision de litige) |
 | `REASON_TOO_SHORT` | D, S | Description de litige trop courte (10 caractères) |
 | `PROFILE_INVALID` | C | Nom ou pays de résidence manquant |
@@ -83,7 +86,10 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 |---|---|---|
 | `NO_TOKEN` | C | Jeton pas encore émis pour cette tranche |
 | `EQR_MALFORMED` | D | QR illisible ou étranger à DiasPay |
-| `UNKNOWN_REFERENCE` | D, S | Référence d’eQR inconnue |
+| `UNKNOWN_REFERENCE` | D, S | Référence d’eQR inconnue, ou d’un dossier dont l’utilisateur n’est pas partie : même réponse, pour ne pas révéler l’existence de la référence (lot X). `resolve_reference_info` renvoie `null` dans ces deux cas, que le client traduit par ce code |
+| `TOKEN_REVOKED` | D, S | eQR révoqué par l’initiateur ou un administrateur, ou après rejet de la demande (lot X) |
+| `NOT_REVOCABLE` | D, S | Tranche déjà payée : seul un administrateur non partie révoque ou réémet son jeton (lot X) |
+| `TOO_MANY_ATTEMPTS` | D, S | Plus de 10 résolutions de référence échouées par l’utilisateur dans l’heure ; événement `SUSPICIOUS_ACTIVITY` dans `security_events` (lot X) |
 | `TOKEN_USED` | D, S | EQR déjà utilisé |
 | `TOKEN_EXPIRED` | D, S | EQR expiré |
 | `DEVICE_TIME_INVALID` | D, S | Heure de l’appareil incohérente |

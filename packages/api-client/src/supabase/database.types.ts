@@ -246,14 +246,14 @@ isOneToOne: false
                   ]
                 },"profiles": {
                   Row: {
-                    "country": string | null,"created_at": string,"full_name": string,"id": string,"kyc_status": string,"locale": string,"phone": string | null,"platform_role": Database["public"]['Enums']["platform_role"],"primary_role": string | null,"push_enabled": boolean
+                    "can_initiate_requests": boolean,"country": string | null,"created_at": string,"full_name": string,"id": string,"kyc_status": string,"locale": string,"phone": string | null,"platform_role": Database["public"]['Enums']["platform_role"],"primary_role": string | null,"push_enabled": boolean
                   }
                   ComputedFields: never
                   Insert: {
-                    "country"?: string | null,"created_at"?: string,"full_name": string,"id": string,"kyc_status"?: string,"locale"?: string,"phone"?: string | null,"platform_role"?: Database["public"]['Enums']["platform_role"],"primary_role"?: string | null,"push_enabled"?: boolean
+                    "can_initiate_requests"?: boolean,"country"?: string | null,"created_at"?: string,"full_name": string,"id": string,"kyc_status"?: string,"locale"?: string,"phone"?: string | null,"platform_role"?: Database["public"]['Enums']["platform_role"],"primary_role"?: string | null,"push_enabled"?: boolean
                   }
                   Update: {
-                    "country"?: string | null,"created_at"?: string,"full_name"?: string,"id"?: string,"kyc_status"?: string,"locale"?: string,"phone"?: string | null,"platform_role"?: Database["public"]['Enums']["platform_role"],"primary_role"?: string | null,"push_enabled"?: boolean
+                    "can_initiate_requests"?: boolean,"country"?: string | null,"created_at"?: string,"full_name"?: string,"id"?: string,"kyc_status"?: string,"locale"?: string,"phone"?: string | null,"platform_role"?: Database["public"]['Enums']["platform_role"],"primary_role"?: string | null,"push_enabled"?: boolean
                   }
                   Relationships: [
                     
@@ -356,6 +356,50 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"request_messages": {
+                  Row: {
+                    "author_id": string,"body": string,"created_at": string,"id": string,"kind": string,"tranche_id": string | null,"tx_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "author_id": string,"body": string,"created_at"?: string,"id"?: string,"kind": string,"tranche_id"?: string | null,"tx_id": string
+                  }
+                  Update: {
+                    "author_id"?: string,"body"?: string,"created_at"?: string,"id"?: string,"kind"?: string,"tranche_id"?: string | null,"tx_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "request_messages_author_id_fkey"
+      columns: ["author_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "request_messages_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "bo_evidence_queue"
+      referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "request_messages_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "tranches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "request_messages_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "request_messages_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "transactions"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"required_documents": {
                   Row: {
                     "kind": string,"required": boolean,"vertical": string
@@ -369,6 +413,26 @@ isOneToOne: false
                   }
                   Relationships: [
                     
+                  ]
+                },"security_events": {
+                  Row: {
+                    "created_at": string,"detail": NonNullable<Json>,"id": number,"kind": string,"user_id": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"detail"?: NonNullable<Json>,"id"?: never,"kind": string,"user_id"?: string | null
+                  }
+                  Update: {
+                    "created_at"?: string,"detail"?: NonNullable<Json>,"id"?: never,"kind"?: string,"user_id"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "security_events_user_id_fkey"
+      columns: ["user_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    }
                   ]
                 },"signing_keys": {
                   Row: {
@@ -386,14 +450,14 @@ isOneToOne: false
                   ]
                 },"tranche_tokens": {
                   Row: {
-                    "created_at": string,"expires_at": string,"kid": string,"reference": string,"signature": string,"simulated": boolean,"tranche_id": string,"used_at": string | null
+                    "created_at": string,"expires_at": string,"id": string,"kid": string,"reference": string,"revoke_reason": string | null,"revoked_at": string | null,"revoked_by": string | null,"signature": string,"simulated": boolean,"tranche_id": string,"used_at": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"expires_at": string,"kid": string,"reference"?: string,"signature": string,"simulated"?: boolean,"tranche_id": string,"used_at"?: string | null
+                    "created_at"?: string,"expires_at": string,"id"?: string,"kid": string,"reference"?: string,"revoke_reason"?: string | null,"revoked_at"?: string | null,"revoked_by"?: string | null,"signature": string,"simulated"?: boolean,"tranche_id": string,"used_at"?: string | null
                   }
                   Update: {
-                    "created_at"?: string,"expires_at"?: string,"kid"?: string,"reference"?: string,"signature"?: string,"simulated"?: boolean,"tranche_id"?: string,"used_at"?: string | null
+                    "created_at"?: string,"expires_at"?: string,"id"?: string,"kid"?: string,"reference"?: string,"revoke_reason"?: string | null,"revoked_at"?: string | null,"revoked_by"?: string | null,"signature"?: string,"simulated"?: boolean,"tranche_id"?: string,"used_at"?: string | null
                   }
                   Relationships: [
                     {
@@ -403,15 +467,21 @@ isOneToOne: false
       referencedRelation: "signing_keys"
       referencedColumns: ["kid"]
     },{
+      foreignKeyName: "tranche_tokens_revoked_by_fkey"
+      columns: ["revoked_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
       foreignKeyName: "tranche_tokens_tranche_id_fkey"
       columns: ["tranche_id"]
-isOneToOne: true
+isOneToOne: false
       referencedRelation: "bo_evidence_queue"
       referencedColumns: ["tranche_id"]
     },{
       foreignKeyName: "tranche_tokens_tranche_id_fkey"
       columns: ["tranche_id"]
-isOneToOne: true
+isOneToOne: false
       referencedRelation: "tranches"
       referencedColumns: ["id"]
     }
@@ -432,14 +502,14 @@ isOneToOne: true
                   ]
                 },"tranches": {
                   Row: {
-                    "amount_minor": number,"contest_ends_at": string | null,"contest_hours": number,"created_at": string,"due_date": string | null,"id": string,"label": string,"release_mode": Database["public"]['Enums']["release_mode"],"released_at": string | null,"seq": number,"status": Database["public"]['Enums']["tranche_status"],"tx_id": string,"updated_at": string
+                    "amount_minor": number,"contest_ends_at": string | null,"contest_hours": number,"created_at": string,"due_date": string | null,"first_viewed_at": string | null,"id": string,"label": string,"release_mode": Database["public"]['Enums']["release_mode"],"released_at": string | null,"seq": number,"status": Database["public"]['Enums']["tranche_status"],"tx_id": string,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "amount_minor": number,"contest_ends_at"?: string | null,"contest_hours"?: number,"created_at"?: string,"due_date"?: string | null,"id"?: string,"label": string,"release_mode": Database["public"]['Enums']["release_mode"],"released_at"?: string | null,"seq": number,"status"?: Database["public"]['Enums']["tranche_status"],"tx_id": string,"updated_at"?: string
+                    "amount_minor": number,"contest_ends_at"?: string | null,"contest_hours"?: number,"created_at"?: string,"due_date"?: string | null,"first_viewed_at"?: string | null,"id"?: string,"label": string,"release_mode": Database["public"]['Enums']["release_mode"],"released_at"?: string | null,"seq": number,"status"?: Database["public"]['Enums']["tranche_status"],"tx_id": string,"updated_at"?: string
                   }
                   Update: {
-                    "amount_minor"?: number,"contest_ends_at"?: string | null,"contest_hours"?: number,"created_at"?: string,"due_date"?: string | null,"id"?: string,"label"?: string,"release_mode"?: Database["public"]['Enums']["release_mode"],"released_at"?: string | null,"seq"?: number,"status"?: Database["public"]['Enums']["tranche_status"],"tx_id"?: string,"updated_at"?: string
+                    "amount_minor"?: number,"contest_ends_at"?: string | null,"contest_hours"?: number,"created_at"?: string,"due_date"?: string | null,"first_viewed_at"?: string | null,"id"?: string,"label"?: string,"release_mode"?: Database["public"]['Enums']["release_mode"],"released_at"?: string | null,"seq"?: number,"status"?: Database["public"]['Enums']["tranche_status"],"tx_id"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     {
@@ -650,7 +720,33 @@ isOneToOne: false
                 }
           }
           Functions: {
-            "_dispute_notified_at":
+            "_check_message":
+{ Args: { "p_text": string }; Returns: string
+                           },
+"_check_token_manager":
+{ Args: { "p_tranche": string }; Returns: {
+              "amount_minor": number,
+"contest_ends_at": string | null,
+"contest_hours": number,
+"created_at": string,
+"due_date": string | null,
+"first_viewed_at": string | null,
+"id": string,
+"label": string,
+"release_mode": Database["public"]['Enums']["release_mode"],
+"released_at": string | null,
+"seq": number,
+"status": Database["public"]['Enums']["tranche_status"],
+"tx_id": string,
+"updated_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "tranches"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"_dispute_notified_at":
 { Args: { "p_dispute": string }; Returns: string
                            },
 "_draft_json":
@@ -677,9 +773,62 @@ isOneToOne: false
 "_party_name":
 { Args: { "p_role": Database["public"]['Enums']["tx_role"],"p_tx": string }; Returns: string
                            },
+"_party_token":
+{ Args: { "p_ref": string }; Returns: {
+              "created_at": string,
+"expires_at": string,
+"id": string,
+"kid": string,
+"reference": string,
+"revoke_reason": string | null,
+"revoked_at": string | null,
+"revoked_by": string | null,
+"signature": string,
+"simulated": boolean,
+"tranche_id": string,
+"used_at": string | null
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "tranche_tokens"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "_recently_opened":
 { Args: { "p_path": string }; Returns: boolean
                            },
+"_reference_failed":
+{ Args: { "p_ref": string,"p_via": string }; Returns: undefined
+                           },
+"_reference_failures":
+{ Args: Record<PropertyKey, never>; Returns: number
+                           },
+"_reference_guard":
+{ Args: Record<PropertyKey, never>; Returns: undefined
+                           },
+"_request_tranche":
+{ Args: { "p_tranche": string }; Returns: {
+              "amount_minor": number,
+"contest_ends_at": string | null,
+"contest_hours": number,
+"created_at": string,
+"due_date": string | null,
+"first_viewed_at": string | null,
+"id": string,
+"label": string,
+"release_mode": Database["public"]['Enums']["release_mode"],
+"released_at": string | null,
+"seq": number,
+"status": Database["public"]['Enums']["tranche_status"],
+"tx_id": string,
+"updated_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "tranches"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "_require_user":
 { Args: Record<PropertyKey, never>; Returns: string
                            },
@@ -709,6 +858,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"_revoke_active_token":
+{ Args: { "p_actor": string,"p_reason": string,"p_tranche": string }; Returns: string
+                           },
 "_round_start":
 { Args: { "p_tx": string }; Returns: string
                            },
@@ -719,6 +871,7 @@ isOneToOne: false
 "contest_hours": number,
 "created_at": string,
 "due_date": string | null,
+"first_viewed_at": string | null,
 "id": string,
 "label": string,
 "release_mode": Database["public"]['Enums']["release_mode"],
@@ -761,6 +914,29 @@ isOneToOne: false
 "add_document":
 { Args: { "p_kind": string,"p_mime": string,"p_name": string,"p_path": string,"p_size": number,"p_tx": string }; Returns: Json
                            },
+"answer_info":
+{ Args: { "p_message": string,"p_tranche": string }; Returns: {
+              "amount_minor": number,
+"contest_ends_at": string | null,
+"contest_hours": number,
+"created_at": string,
+"due_date": string | null,
+"first_viewed_at": string | null,
+"id": string,
+"label": string,
+"release_mode": Database["public"]['Enums']["release_mode"],
+"released_at": string | null,
+"seq": number,
+"status": Database["public"]['Enums']["tranche_status"],
+"tx_id": string,
+"updated_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "tranches"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "bo_audit":
 { Args: { "p_tx": string }; Returns: {
               "actor_id": string,"actor_name": string,"actor_role": string,"created_at": string,"event": string,"from_status": string,"hash": string,"id": number,"payload": Json,"prev_hash": string,"to_status": string,"tranche_id": string,"tranche_seq": number
@@ -812,6 +988,7 @@ isOneToOne: false
 "contest_hours": number,
 "created_at": string,
 "due_date": string | null,
+"first_viewed_at": string | null,
 "id": string,
 "label": string,
 "release_mode": Database["public"]['Enums']["release_mode"],
@@ -834,6 +1011,7 @@ isOneToOne: false
 "contest_hours": number,
 "created_at": string,
 "due_date": string | null,
+"first_viewed_at": string | null,
 "id": string,
 "label": string,
 "release_mode": Database["public"]['Enums']["release_mode"],
@@ -856,6 +1034,7 @@ isOneToOne: false
 "contest_hours": number,
 "created_at": string,
 "due_date": string | null,
+"first_viewed_at": string | null,
 "id": string,
 "label": string,
 "release_mode": Database["public"]['Enums']["release_mode"],
@@ -972,6 +1151,7 @@ isOneToOne: false
 "contest_hours": number,
 "created_at": string,
 "due_date": string | null,
+"first_viewed_at": string | null,
 "id": string,
 "label": string,
 "release_mode": Database["public"]['Enums']["release_mode"],
@@ -1017,6 +1197,29 @@ isOneToOne: false
 "log_audit_export":
 { Args: { "p_rows": number,"p_tx": string }; Returns: undefined
                            },
+"mark_received":
+{ Args: { "p_tranche": string }; Returns: {
+              "amount_minor": number,
+"contest_ends_at": string | null,
+"contest_hours": number,
+"created_at": string,
+"due_date": string | null,
+"first_viewed_at": string | null,
+"id": string,
+"label": string,
+"release_mode": Database["public"]['Enums']["release_mode"],
+"released_at": string | null,
+"seq": number,
+"status": Database["public"]['Enums']["tranche_status"],
+"tx_id": string,
+"updated_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "tranches"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "open_dispute":
 { Args: { "p_reason": string,"p_reason_code"?: string,"p_tranche": string }; Returns: {
               "id": string,
@@ -1043,12 +1246,61 @@ isOneToOne: false
 "open_document":
 { Args: { "p_doc": string }; Returns: Json
                            },
+"reissue_token":
+{ Args: { "p_reason"?: string,"p_tranche": string }; Returns: Json
+                           },
+"reject_request":
+{ Args: { "p_reason": string,"p_tranche": string }; Returns: {
+              "amount_minor": number,
+"contest_ends_at": string | null,
+"contest_hours": number,
+"created_at": string,
+"due_date": string | null,
+"first_viewed_at": string | null,
+"id": string,
+"label": string,
+"release_mode": Database["public"]['Enums']["release_mode"],
+"released_at": string | null,
+"seq": number,
+"status": Database["public"]['Enums']["tranche_status"],
+"tx_id": string,
+"updated_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "tranches"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "release_due_tranches":
 { Args: Record<PropertyKey, never>; Returns: number
                            },
 "remove_document":
 { Args: { "p_doc": string }; Returns: string
                            },
+"request_info":
+{ Args: { "p_message": string,"p_tranche": string }; Returns: {
+              "amount_minor": number,
+"contest_ends_at": string | null,
+"contest_hours": number,
+"created_at": string,
+"due_date": string | null,
+"first_viewed_at": string | null,
+"id": string,
+"label": string,
+"release_mode": Database["public"]['Enums']["release_mode"],
+"released_at": string | null,
+"seq": number,
+"status": Database["public"]['Enums']["tranche_status"],
+"tx_id": string,
+"updated_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "tranches"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "required_validations":
 { Args: { "p_tranche"?: string,"p_tx": string }; Returns: number
                            },
@@ -1111,6 +1363,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"revoke_token":
+{ Args: { "p_reason": string,"p_tranche": string }; Returns: Json
+                           },
 "save_draft":
 { Args: { "p_draft": Json }; Returns: Json
                            },
@@ -1152,6 +1407,7 @@ isOneToOne: false
 "contest_hours": number,
 "created_at": string,
 "due_date": string | null,
+"first_viewed_at": string | null,
 "id": string,
 "label": string,
 "release_mode": Database["public"]['Enums']["release_mode"],
@@ -1177,6 +1433,7 @@ isOneToOne: false
 "contest_hours": number,
 "created_at": string,
 "due_date": string | null,
+"first_viewed_at": string | null,
 "id": string,
 "label": string,
 "release_mode": Database["public"]['Enums']["release_mode"],
@@ -1223,7 +1480,7 @@ isOneToOne: false
                            }
           }
           Enums: {
-            "currency": "EUR"|"USD"|"XAF","payment_status": "PENDING"|"SUCCEEDED"|"FAILED"|"REFUNDED","platform_role": "USER"|"VALIDATOR"|"ADMIN","recurrence_freq": "WEEKLY"|"MONTHLY"|"QUARTERLY","release_mode": "PROVIDER_CONFIRM"|"PAYER_CONFIRM"|"EVIDENCE_REVIEW"|"AUTO","tranche_status": "PLANNED"|"AWAITING_PAYMENT"|"PAID_LOCKED"|"EVIDENCE_SUBMITTED"|"CONFIRMED"|"RELEASED"|"DISPUTED"|"CANCELLED"|"EXPIRED","tx_role": "PAYER"|"REQUESTER"|"PROVIDER"|"SYSTEM","tx_status": "DRAFT"|"SUBMITTED"|"IN_REVIEW"|"REJECTED"|"VALIDATED"|"TOKEN_ISSUED"|"AWAITING_PAYMENT"|"EXPIRED"|"CANCELLED"|"PAID_LOCKED"|"SERVICE_CONFIRMED"|"RELEASED"|"CLOSED"|"DISPUTED"|"IN_PROGRESS","vertical": "EDUCATION"|"HEALTH"|"RENT"|"AGRO"|"REAL_ESTATE"|"LAND"
+            "currency": "EUR"|"USD"|"XAF","payment_status": "PENDING"|"SUCCEEDED"|"FAILED"|"REFUNDED","platform_role": "USER"|"VALIDATOR"|"ADMIN","recurrence_freq": "WEEKLY"|"MONTHLY"|"QUARTERLY","release_mode": "PROVIDER_CONFIRM"|"PAYER_CONFIRM"|"EVIDENCE_REVIEW"|"AUTO"|"IMMEDIATE","tranche_status": "PLANNED"|"AWAITING_PAYMENT"|"PAID_LOCKED"|"EVIDENCE_SUBMITTED"|"CONFIRMED"|"RELEASED"|"DISPUTED"|"CANCELLED"|"EXPIRED"|"INFO_REQUESTED"|"REJECTED","tx_role": "PAYER"|"REQUESTER"|"PROVIDER"|"SYSTEM","tx_status": "DRAFT"|"SUBMITTED"|"IN_REVIEW"|"REJECTED"|"VALIDATED"|"TOKEN_ISSUED"|"AWAITING_PAYMENT"|"EXPIRED"|"CANCELLED"|"PAID_LOCKED"|"SERVICE_CONFIRMED"|"RELEASED"|"CLOSED"|"DISPUTED"|"IN_PROGRESS","vertical": "EDUCATION"|"HEALTH"|"RENT"|"AGRO"|"REAL_ESTATE"|"LAND"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -1339,7 +1596,7 @@ export type CompositeTypes<
 export const Constants = {
   "public": {
           Enums: {
-            "currency": ["EUR", "USD", "XAF"],"payment_status": ["PENDING", "SUCCEEDED", "FAILED", "REFUNDED"],"platform_role": ["USER", "VALIDATOR", "ADMIN"],"recurrence_freq": ["WEEKLY", "MONTHLY", "QUARTERLY"],"release_mode": ["PROVIDER_CONFIRM", "PAYER_CONFIRM", "EVIDENCE_REVIEW", "AUTO"],"tranche_status": ["PLANNED", "AWAITING_PAYMENT", "PAID_LOCKED", "EVIDENCE_SUBMITTED", "CONFIRMED", "RELEASED", "DISPUTED", "CANCELLED", "EXPIRED"],"tx_role": ["PAYER", "REQUESTER", "PROVIDER", "SYSTEM"],"tx_status": ["DRAFT", "SUBMITTED", "IN_REVIEW", "REJECTED", "VALIDATED", "TOKEN_ISSUED", "AWAITING_PAYMENT", "EXPIRED", "CANCELLED", "PAID_LOCKED", "SERVICE_CONFIRMED", "RELEASED", "CLOSED", "DISPUTED", "IN_PROGRESS"],"vertical": ["EDUCATION", "HEALTH", "RENT", "AGRO", "REAL_ESTATE", "LAND"]
+            "currency": ["EUR", "USD", "XAF"],"payment_status": ["PENDING", "SUCCEEDED", "FAILED", "REFUNDED"],"platform_role": ["USER", "VALIDATOR", "ADMIN"],"recurrence_freq": ["WEEKLY", "MONTHLY", "QUARTERLY"],"release_mode": ["PROVIDER_CONFIRM", "PAYER_CONFIRM", "EVIDENCE_REVIEW", "AUTO", "IMMEDIATE"],"tranche_status": ["PLANNED", "AWAITING_PAYMENT", "PAID_LOCKED", "EVIDENCE_SUBMITTED", "CONFIRMED", "RELEASED", "DISPUTED", "CANCELLED", "EXPIRED", "INFO_REQUESTED", "REJECTED"],"tx_role": ["PAYER", "REQUESTER", "PROVIDER", "SYSTEM"],"tx_status": ["DRAFT", "SUBMITTED", "IN_REVIEW", "REJECTED", "VALIDATED", "TOKEN_ISSUED", "AWAITING_PAYMENT", "EXPIRED", "CANCELLED", "PAID_LOCKED", "SERVICE_CONFIRMED", "RELEASED", "CLOSED", "DISPUTED", "IN_PROGRESS"],"vertical": ["EDUCATION", "HEALTH", "RENT", "AGRO", "REAL_ESTATE", "LAND"]
           }
         }
 } as const

@@ -45,37 +45,5 @@ export function formatReference(ref: string): string {
   return clean.match(/.{1,4}/g)!.join('-');
 }
 
-/** Lien partageable : `https://<hôte>/t/<référence>`. `base` peut inclure le schéma. */
-export function buildLink(base: string, reference: string): string {
-  const root = /^[a-z][a-z0-9+.-]*:\/\//i.test(base) ? base : `https://${base}`;
-  return `${root.replace(/\/+$/, '')}/t/${normalizeReference(reference)}`;
-}
-
-/**
- * Lien profond `diaspay://t/<référence>` ou `https://<hôte configuré>/t/<référence>`.
- * `host` : hôte (ou URL de base) autorisé pour les liens https ; absent = seuls les liens `diaspay://` sont acceptés.
- */
-export function parseDeepLink(url: string, host?: string): { reference: string } | null {
-  const m = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)\/?([^?#]*)/i.exec(url.trim());
-  if (!m) return null;
-  const scheme = m[1]!.toLowerCase();
-  const authority = m[2]!.toLowerCase();
-  const path = m[3]!.replace(/\/+$/, '');
-  let segs: string[];
-  if (scheme === 'diaspay') {
-    if (authority !== 't') return null;
-    segs = path ? path.split('/') : [];
-    if (segs.length !== 1) return null;
-  } else if (scheme === 'https') {
-    const allowed = host?.replace(/^[a-z]+:\/\//i, '').replace(/\/.*$/, '').toLowerCase();
-    if (!allowed || authority !== allowed) return null;
-    segs = path.split('/');
-    if (segs.length !== 2 || segs[0] !== 't') return null;
-    segs = [segs[1]!];
-  } else return null;
-  try {
-    return { reference: normalizeReference(decodeURIComponent(segs[0]!)) };
-  } catch {
-    return null;
-  }
-}
+// Lot X (X1.2) : plus de lien partageable ni de lien profond portant une référence de jeton (buildLink et
+// parseDeepLink retirés). La référence ne circule que dans l’eQR présenté par le payeur connecté. Voir links.ts.

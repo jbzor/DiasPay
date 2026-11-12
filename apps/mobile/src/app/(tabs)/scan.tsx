@@ -3,7 +3,7 @@ import { Linking, Platform, Pressable, StyleSheet, View, useWindowDimensions } f
 import { Text } from '@/ui/text';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
-import { useIsFocused, useLocalSearchParams } from 'expo-router';
+import { useIsFocused } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fontSize, palette, semantic, spacing, touchTarget } from '@diaspay/ui-tokens';
 import { trancheStatusKey, useI18n } from '@/i18n';
@@ -34,7 +34,6 @@ export default function Scan() {
   const focused = useIsFocused();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const params = useLocalSearchParams<{ ref?: string; n?: string }>();
   const [permission, requestPermission] = useCameraPermissions();
   const [s, dispatch] = useReducer(scanReducer, initialScanState);
   const [torch, setTorch] = useState(false);
@@ -43,11 +42,6 @@ export default function Scan() {
   const [bioError, setBioError] = useState(false);
 
   useEffect(() => { dispatch({ type: 'START' }); }, []);
-
-  // Lien profond du prestataire (/t/<référence>) : même parcours qu’un scan.
-  useEffect(() => {
-    if (params.ref) dispatch({ type: 'MANUAL', text: String(params.ref), at: Date.now() });
-  }, [params.ref, params.n]);
 
   // Première ouverture : demande la permission de la caméra.
   useEffect(() => {

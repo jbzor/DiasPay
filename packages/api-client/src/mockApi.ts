@@ -1,11 +1,15 @@
 import {
-  DomainError, RELEASE_RULES, appendEntry, canOpenDispute, checkFile, checkFileCount, formatReference, isAutoReleasable, normalizeReference,
-  resolveDisputeTransition, shouldActivateTranche, shouldCloseTransaction, toIsoDate, transitionTranche, transitionTx, validateNeed, verifyChain,
-  validatorDecisionError,
+  DomainError, RELEASE_RULES, answerInfoDecision, appendEntry, canOpenDispute, checkFile, checkFileCount, effectiveCreatorRole, emptyDraft,
+  formatReference, isAutoReleasable, messageError, normalizeReference, paymentOutcome, rejectRequestDecision, requestInfoDecision,
+  resolveDisputeTransition, shouldActivateTranche, shouldCloseTransaction, toIsoDate, tokenRevocationError, tooManyAttempts, transitionTranche,
+  transitionTx, validateNeed, verifyChain, validatorDecisionError,
 } from '@diaspay/domain';
-import type { Actor, ChainedAuditEntry, DisputeOutcome, DraftDocument, DraftDocumentInput, NeedDraft, TrancheStatus, TxRole, Vertical } from '@diaspay/domain';
 import type {
-  AppNotification, AuditEntry, DisputeView, NotificationEvent, Persona, Receipt, ReferenceInfo, Tranche, TrancheToken, Transaction, TransactionApi,
+  Actor, ChainedAuditEntry, CreatorRole, DisputeOutcome, DraftDocument, DraftDocumentInput, NeedDraft, RequestMessageKind, TrancheStatus, TxRole, Vertical,
+} from '@diaspay/domain';
+import type {
+  AppNotification, AuditEntry, DisputeView, NotificationEvent, Persona, Receipt, ReferenceInfo, RequestMessage, Tranche, TrancheToken, Transaction,
+  TransactionApi,
 } from './types';
 import { ApiError, MemoryDraftStore, SEED_PROVIDERS, foldText, newId } from './need';
 import type { DraftStore, ProviderSummary, StateStore } from './need';
@@ -46,7 +50,14 @@ export interface MockApiOptions {
   stateSaveDelayMs?: number;
   /** Alertes de démonstration au démarrage (défaut : oui). */
   seedNotifications?: boolean;
+  /** Réglage serveur eqr_image_enabled simulé (défaut : oui). */
+  eqrImageEnabled?: boolean;
 }
+
+/** Jeton révoqué (lot X) : conservé pour refuser explicitement sa référence (TOKEN_REVOKED). */
+interface RevokedToken extends TrancheToken { revokedAt: string; reason: string }
+/** Message d’une demande, tel que conservé par le simulateur. */
+interface StoredMessage { id: string; txId: string; trancheId: string; kind: RequestMessageKind; body: string; at: string; authorId: string }
 
 /** Version de l’instantané : un instantané d’une autre version est ignoré (on repart du jeu de démonstration). */
 export const STATE_VERSION = 1;
@@ -61,10 +72,22 @@ interface Snapshot {
   disputes: Record<string, DisputeView>;
   tokens: TrancheToken[];
   submitted: Array<[string, NeedDraft]>;
+  // Lot X (absents d’un instantané antérieur : valeurs vides).
+  revoked?: RevokedToken[];
+  withdrawn?: string[];
+  messages?: StoredMessage[];
+  creators?: Record<string, CreatorRole>;
+  viewed?: Record<string, string>;
 }
 
 /** Utilisateur connecté vu par la simulation : propriétaire des brouillons et rôle du créateur. */
-export interface MockUser { id: string; role: 'PAYER' | 'REQUESTER' | 'PROVIDER'; name?: string }
+export interface MockUser {
+  id: string; role: 'PAYER' | 'REQUESTER' | 'PROVIDER'; name?: string;
+  /** Lot X : autorisation d’initier une demande en prestataire (profiles.can_initiate_requests, réglée par un administrateur). */
+  canInitiateRequests?: boolean;
+  /** Numéro du compte, pour refuser qu’un prestataire initiateur se désigne payeur. */
+  phone?: string;
+}
 
 /** Bureau de contrôle simulé : validateur non partie au dossier. */
 const VALIDATOR: Actor = { kind: 'USER', roles: [], isValidator: true };
@@ -159,6 +182,14 @@ export class MockApi implements TransactionApi {
   persona: Persona = 'PAYER';
 
   private tokens = new Map<string, TrancheToken>();
+  // Lot X : jetons révoqués, tranches sans jeton actif après révocation, messages, rôle du créateur, ouvertures, échecs.
+  private revoked: RevokedToken[] = [];
+  private withdrawn = new Set<string>();
+  private messages: StoredMessage[] = [];
+  private creators: Record<string, CreatorRole> = {};
+  private viewed: Record<string, string> = {};
+  private failures = new Map<string, number[]>();
+  private readonly eqrImage: boolean;
   private readonly validityMs: number;
   private visible: Transaction[] = [];
   private readonly drafts: DraftStore;
@@ -181,6 +212,7 @@ export class MockApi implements TransactionApi {
     this.stateStore = options.state;
     this.stateSaveDelayMs = options.stateSaveDelayMs ?? 500;
     this.seedNotifs = options.seedNotifications ?? true;
+    this.eqrImage = options.eqrImageEnabled ?? true;
     this.initSeed(seed === undefined);
   }
 
@@ -205,10 +237,14 @@ export class MockApi implements TransactionApi {
     if (rent && released) this.pushNotification({ type: 'TRANCHE_RELEASED', txId: rent.id, trancheId: released.id }, at(26), false);
   }
 
-  /** Crée le jeton d'une tranche activée (idempotent). Expire 7 jours après l'activation ; les tranches déjà confirmées ou débloquées ont un jeton utilisé. */
-  private ensureToken(tr: Tranche): TrancheToken {
+  /**
+   * Crée le jeton d'une tranche activée (idempotent). Expire 7 jours après l'activation ; les tranches déjà confirmées ou débloquées
+   * ont un jeton utilisé. Lot X : null si le jeton a été révoqué sans réémission.
+   */
+  private ensureToken(tr: Tranche): TrancheToken | null {
     const existing = this.tokens.get(tr.id);
     if (existing) return existing;
+    if (this.withdrawn.has(tr.id)) return null;
     const taken = new Set(this.txs.flatMap((x) => x.tranches.map((r) => r.reference)).filter(Boolean));
     let reference = tr.reference ? normalizeReference(tr.reference) : '';
     for (let n = 0; !reference || (!tr.reference && taken.has(reference)); n++) reference = hexDigest(`${tr.id}#${n}`, 18);
@@ -225,17 +261,53 @@ export class MockApi implements TransactionApi {
 
   private isParty(tx: Transaction): boolean { return !tx.parties || tx.parties.includes(this.persona); }
 
-  private byReference(reference: string): { tx: Transaction; tr: Tranche; token: TrancheToken } {
+  /**
+   * Rôles de l’utilisateur au dossier. Le simulateur n’a pas de comptes multiples : le créateur garde son rôle de création ;
+   * pour un dossier créé par un autre (ou du jeu de démonstration), le profil de démonstration courant (payeur par défaut).
+   */
+  private rolesFor(tx: Transaction): TxRole[] {
+    if (tx.ownerId && this.user && tx.ownerId === this.user.id) return [this.creators[tx.id] ?? this.creatorRoleOf()];
+    return this.isParty(tx) ? [this.persona] : [];
+  }
+  private isCreatorOf(tx: Transaction): boolean { return !!tx.ownerId && !!this.user && tx.ownerId === this.user.id; }
+
+  /** Jeton (actif ou révoqué) d’une référence ; null si inconnue. */
+  private byReference(reference: string): { tx: Transaction; tr: Tranche; token: TrancheToken; revoked: boolean } | null {
     let ref: string;
-    try { ref = normalizeReference(reference); } catch { throw new DomainError('UNKNOWN_REFERENCE', 'Référence inconnue'); }
+    try { ref = normalizeReference(reference); } catch { return null; }
     for (const tx of this.txs) {
       for (const tr of tx.tranches) {
         if (tr.status === 'PLANNED') continue;
         const token = this.ensureToken(tr);
-        if (token.reference === ref) return { tx, tr, token };
+        if (token?.reference === ref) return { tx, tr, token, revoked: false };
+        const old = this.revoked.find((k) => k.trancheId === tr.id && k.reference === ref);
+        if (old) return { tx, tr, token: old, revoked: true };
       }
     }
-    throw new DomainError('UNKNOWN_REFERENCE', 'Référence inconnue');
+    return null;
+  }
+
+  // Lot X (X1) : limitation des résolutions échouées, par utilisateur (miroir de _reference_guard et _reference_failed).
+  private failureKey(): string { return this.user?.id ?? `persona:${this.persona}`; }
+  private guardAttempts(): void {
+    if (tooManyAttempts(this.failures.get(this.failureKey()) ?? [], this.clock().getTime())) {
+      throw new DomainError('TOO_MANY_ATTEMPTS', 'Trop de tentatives : réessayez plus tard');
+    }
+  }
+  private recordFailure(): void {
+    const k = this.failureKey();
+    this.failures.set(k, [...(this.failures.get(k) ?? []), this.clock().getTime()]);
+  }
+  /** Référence d’une partie : inconnue et dossier étranger donnent la même réponse (UNKNOWN_REFERENCE). */
+  private partyReference(reference: string, record: boolean): { tx: Transaction; tr: Tranche; token: TrancheToken } {
+    this.guardAttempts();
+    const hit = this.byReference(reference);
+    if (!hit || !this.isParty(hit.tx)) {
+      if (record) this.recordFailure();
+      throw new DomainError('UNKNOWN_REFERENCE', 'Référence inconnue');
+    }
+    if (hit.revoked) throw new DomainError('TOKEN_REVOKED', 'Ce QR a été révoqué');
+    return hit;
   }
 
   subscribe = (l: Listener): (() => void) => {
@@ -267,6 +339,7 @@ export class MockApi implements TransactionApi {
     return {
       version: STATE_VERSION, savedAt: this.clock().toISOString(), txs: this.txs, chains: this.chains, anchors: this.anchors,
       notifications: this.notifications, disputes: this.disputes, tokens: [...this.tokens.values()], submitted: [...this.submitted],
+      revoked: this.revoked, withdrawn: [...this.withdrawn], messages: this.messages, creators: this.creators, viewed: this.viewed,
     };
   }
   private scheduleSave(): void {
@@ -299,6 +372,11 @@ export class MockApi implements TransactionApi {
     this.disputes = snap.disputes ?? {};
     this.tokens = new Map((snap.tokens ?? []).map((t) => [t.trancheId, t]));
     this.submitted = new Map(snap.submitted ?? []);
+    this.revoked = snap.revoked ?? [];
+    this.withdrawn = new Set(snap.withdrawn ?? []);
+    this.messages = snap.messages ?? [];
+    this.creators = snap.creators ?? {};
+    this.viewed = snap.viewed ?? {};
     this.refreshVisible();
     this.listeners.forEach((l) => l());
     return true;
@@ -308,6 +386,7 @@ export class MockApi implements TransactionApi {
     this.txs = seedTransactions(this.clock());
     this.chains = {}; this.anchors = {}; this.notifications = []; this.disputes = {};
     this.tokens = new Map(); this.submitted = new Map();
+    this.revoked = []; this.withdrawn = new Set(); this.messages = []; this.creators = {}; this.viewed = {}; this.failures = new Map();
     this.initSeed(true);
     for (const d of await this.drafts.list()) await this.drafts.remove(d.id);
     await this.stateStore?.clear();
@@ -365,20 +444,25 @@ export class MockApi implements TransactionApi {
   async payTranche(trancheId: string) {
     const { tr } = this.find(trancheId);
     if (tr.status !== 'AWAITING_PAYMENT') throw new DomainError('NOT_PAYABLE', 'Cette tranche n’est pas à payer');
-    return this.apply(trancheId, 'PAID_LOCKED', SYSTEM, 'PAYMENT_SIMULATED');
+    // Lot X : en mode IMMEDIATE, le paiement débloque directement (DIRECT_PAYMENT), sans verrouillage ni contestation.
+    return paymentOutcome(tr.releaseMode) === 'RELEASED'
+      ? this.apply(trancheId, 'RELEASED', SYSTEM, 'DIRECT_PAYMENT')
+      : this.apply(trancheId, 'PAID_LOCKED', SYSTEM, 'PAYMENT_SIMULATED');
   }
   async getTranche(trancheId: string) {
     const { tx, tr } = this.find(trancheId);
     return { tx, tranche: tr };
   }
+  /** Lot X : jeton actif, lisible par le payeur seulement (miroir de la RLS de tranche_tokens). */
   async getToken(trancheId: string): Promise<TrancheToken> {
-    const { tr } = this.find(trancheId);
-    if (tr.status === 'PLANNED') throw new DomainError('NO_TOKEN', 'Aucun jeton : la tranche n’est pas encore active');
-    return { ...this.ensureToken(tr) };
+    const { tx, tr } = this.find(trancheId);
+    if (tr.status === 'PLANNED' || !this.rolesFor(tx).includes('PAYER')) throw new DomainError('NO_TOKEN', 'Aucun jeton : la tranche n’est pas encore active');
+    const token = this.ensureToken(tr);
+    if (!token) throw new DomainError('NO_TOKEN', 'Aucun jeton actif');
+    return { ...token };
   }
   async resolveReference(reference: string): Promise<ReferenceInfo> {
-    const { tx, tr, token } = this.byReference(reference);
-    if (!this.isParty(tx)) throw new DomainError('NOT_A_PARTY', 'Vous n’êtes pas partie à cette transaction');
+    const { tx, tr, token } = this.partyReference(reference, true);
     return {
       trancheId: tr.id, txId: tx.id, label: tr.label, amountMinor: tr.amountMinor, currency: tx.amount.currency,
       status: tr.status, expiresAt: token.expiresAt, used: !!token.usedAt, providerName: tx.providerName,
@@ -387,8 +471,8 @@ export class MockApi implements TransactionApi {
   }
   /** Miroir de confirm_by_reference(). */
   async confirmByReference(reference: string, deviceTime?: string) {
-    const { tx, tr, token } = this.byReference(reference);
-    if (!this.isParty(tx)) throw new DomainError('NOT_A_PARTY', 'Vous n’êtes pas partie à cette transaction');
+    // Comme le serveur : l’échec n’est pas enregistré à la confirmation (l’erreur annule la transaction), la limite s’applique.
+    const { tr, token } = this.partyReference(reference, false);
     if (this.persona !== 'PROVIDER') throw new DomainError('PROVIDER_ONLY', 'Réservé au prestataire');
     if (token.usedAt) throw new DomainError('TOKEN_USED', 'Ce jeton a déjà été utilisé');
     const now = this.clock();
@@ -483,11 +567,11 @@ export class MockApi implements TransactionApi {
     if (tr.status !== 'RELEASED' || !tr.releasedAt) throw new ApiError('NOT_RELEASED', 'Le reçu n’existe que pour une tranche débloquée');
     const chain = this.chains[tx.id] ?? [];
     const check = verifyChain(chain, this.anchors[tx.id]);
-    const token = this.ensureToken(tr);
+    const token = this.ensureToken(tr) ?? [...this.revoked].reverse().find((k) => k.trancheId === tr.id);
     return {
       trancheId: tr.id, txId: tx.id, label: tr.label, amountMinor: tr.amountMinor, currency: tx.amount.currency,
       releasedAt: tr.releasedAt, payerName: tx.payerName ?? '', providerName: tx.providerName, purpose: tx.purpose,
-      reference: formatReference(token.reference), lastHash: check.lastHash, chainValid: check.valid, entryCount: check.count,
+      reference: token ? formatReference(token.reference) : '', lastHash: check.lastHash, chainValid: check.valid, entryCount: check.count,
     };
   }
 
@@ -497,7 +581,7 @@ export class MockApi implements TransactionApi {
     const tx = await this.getTransaction(txId);
     if (tx.ownerId && tx.ownerId !== user.id) throw new ApiError('TX_NOT_FOUND', 'Transaction introuvable');
     if (tx.status !== 'REJECTED') throw new ApiError('NOT_REJECTED', 'Seul un dossier rejeté peut être abandonné');
-    tx.status = transitionTx(tx.status, 'CANCELLED', this.creatorActor());
+    tx.status = transitionTx(tx.status, 'CANCELLED', this.creatorActor(this.creators[tx.id]));
     this.record(tx.id, 'TX_ABANDONED', undefined, undefined, user.role.toLowerCase());
     this.emit();
     return tx;
@@ -510,9 +594,13 @@ export class MockApi implements TransactionApi {
     if (!this.user) throw new ApiError('NOT_AUTHENTICATED', 'Aucun utilisateur connecté');
     return this.user;
   }
-  private creatorActor(): Actor {
-    const role = this.requireUser().role;
-    return { kind: 'USER', roles: [role === 'REQUESTER' ? 'REQUESTER' : role === 'PROVIDER' ? 'PROVIDER' : 'PAYER'], isValidator: false };
+  /** Rôle de création par défaut, comme save_draft : demandeur si le profil l’est, sinon payeur. */
+  private creatorRoleOf(draft?: Pick<NeedDraft, 'creatorRole'>): CreatorRole {
+    return effectiveCreatorRole(draft ?? {}, this.requireUser().role) ?? 'PAYER';
+  }
+  /** Le créateur agit sur son dossier avec son rôle de création (lot X : PROVIDER pour une demande initiée par un prestataire). */
+  private creatorActor(role: CreatorRole = this.creatorRoleOf()): Actor {
+    return { kind: 'USER', roles: [role], isValidator: false, isCreator: true };
   }
   private async ownDraft(id: string): Promise<NeedDraft> {
     const user = this.requireUser();
@@ -541,6 +629,14 @@ export class MockApi implements TransactionApi {
     const existing = await this.drafts.get(draft.id);
     if ((existing?.ownerId && existing.ownerId !== user.id) || (draft.ownerId && draft.ownerId !== user.id)) {
       throw new ApiError('TX_NOT_FOUND', 'Brouillon introuvable');
+    }
+    if (draft.creatorRole === 'PROVIDER') {
+      // Miroir de save_draft (lot X) : autorisation, et jamais soi-même comme payeur.
+      if (!user.canInitiateRequests) throw new ApiError('INITIATION_NOT_ALLOWED', 'Votre compte n’est pas autorisé à initier des demandes de paiement');
+      const digits = (v?: string) => (v ?? '').replace(/\D/g, '');
+      if (draft.counterpartyPhone && user.phone && digits(draft.counterpartyPhone) === digits(user.phone)) {
+        throw new ApiError('SELF_PAYER', 'Vous ne pouvez pas être le payeur de votre propre demande');
+      }
     }
     const saved: NeedDraft = { ...draft, ownerId: user.id, updatedAt: this.clock().toISOString() };
     await this.drafts.put(saved);
@@ -600,7 +696,9 @@ export class MockApi implements TransactionApi {
     const uploaded = draft.documents.filter((d) => d.status === 'UPLOADED');
     const previous = draft.correctionOf ? this.txs.find((t) => t.id === draft.correctionOf && t.status === 'DRAFT') : undefined;
     // Contexte de soumission réel : plan et pièces (le domaine lève PLAN_SUM_MISMATCH ou TX_NO_DOCUMENT).
-    let status = transitionTx(previous?.status ?? 'DRAFT', 'SUBMITTED', this.creatorActor(), {
+    const creatorRole = this.creatorRoleOf(draft);
+    if (creatorRole === 'PROVIDER' && !draft.counterpartyPhone?.trim()) throw new ApiError('VALIDATION', 'Téléphone du payeur requis');
+    let status = transitionTx(previous?.status ?? 'DRAFT', 'SUBMITTED', this.creatorActor(creatorRole), {
       totalMinor, tranches, hasSupportingDocument: uploaded.length > 0,
     });
     status = transitionTx(status, 'IN_REVIEW', VALIDATOR);
@@ -609,15 +707,18 @@ export class MockApi implements TransactionApi {
     const tx: Transaction = previous ?? ({ id: newId('tx') } as Transaction);
     Object.assign(tx, {
       vertical, purpose: (draft.purpose ?? '').trim(), amount: { amountMinor: totalMinor, currency: draft.currency ?? 'XAF' },
-      status, providerName: draft.provider?.name ?? '', beneficiaryName: (draft.beneficiaryName ?? '').trim(),
+      status, providerName: draft.provider?.name ?? (creatorRole === 'PROVIDER' ? user.name ?? '' : ''), beneficiaryName: (draft.beneficiaryName ?? '').trim(),
       tranches: tranches.map((t, i) => mkTranche(i + 1, t.label.trim(), t.amountMinor, { vertical, dueDate: t.dueDate })),
       createdAt: previous?.createdAt ?? now, submittedAt: now, planType: draft.planType, documentCount: uploaded.length,
-      ownerId: user.id, rejectionReason: undefined, payerName: user.role === 'REQUESTER' ? undefined : user.name,
+      ownerId: user.id, rejectionReason: undefined, payerName: creatorRole === 'PAYER' ? user.name : undefined,
     } satisfies Partial<Transaction>);
     if (!previous) this.txs.push(tx);
     this.submitted.set(tx.id, { ...draft, correctionOf: undefined, rejectionReason: undefined });
     await this.drafts.remove(draft.id);
+    this.creators[tx.id] = creatorRole;
     this.record(tx.id, previous ? 'NEED_RESUBMITTED' : 'NEED_SUBMITTED');
+    // Lot X : demande initiée par un prestataire → alerte au payeur (sans texte ni montant).
+    if (creatorRole === 'PROVIDER') this.notify({ type: 'PAYMENT_REQUEST_RECEIVED', txId: tx.id });
     this.record(tx.id, 'REVIEW_STARTED');
     this.emit();
     return tx;
@@ -630,7 +731,7 @@ export class MockApi implements TransactionApi {
     if (tx.ownerId && tx.ownerId !== user.id) throw new ApiError('TX_NOT_FOUND', 'Transaction introuvable');
     if (tx.status !== 'REJECTED') throw new ApiError('NOT_REJECTED', 'Seul un dossier rejeté se corrige');
     const reason = tx.rejectionReason;
-    tx.status = transitionTx(tx.status, 'DRAFT', this.creatorActor());
+    tx.status = transitionTx(tx.status, 'DRAFT', this.creatorActor(this.creators[tx.id]));
     const snap = this.submitted.get(txId);
     const draft: NeedDraft = {
       ...(snap ?? {
@@ -680,6 +781,117 @@ export class MockApi implements TransactionApi {
     return tx;
   }
 
+
+  // ——— Lot X (X1) : révocation, réglage de l’image du QR ———
+
+  private manageToken(trancheId: string): { tx: Transaction; tr: Tranche } {
+    this.requireUser();
+    const { tx, tr } = this.find(trancheId);
+    if (!this.isParty(tx) && !this.isCreatorOf(tx)) throw new DomainError('TRANCHE_NOT_FOUND', 'Tranche introuvable');
+    const err = tokenRevocationError(tr.status, { isCreator: this.isCreatorOf(tx) });
+    if (err) throw new DomainError(err, err === 'NOT_REVOCABLE' ? 'Tranche déjà payée' : 'Réservé à l’initiateur de la demande');
+    return { tx, tr };
+  }
+  /** Retire le jeton actif (conservé comme révoqué) ; false s’il n’y en avait pas. */
+  private withdrawToken(tx: Transaction, tr: Tranche, reason: string): boolean {
+    const active = tr.status === 'PLANNED' ? null : this.ensureToken(tr);
+    if (!active) return false;
+    this.revoked.push({ ...active, revokedAt: this.clock().toISOString(), reason: reason.trim() });
+    this.tokens.delete(tr.id);
+    this.withdrawn.add(tr.id);
+    tr.reference = undefined;
+    this.record(tx.id, 'TOKEN_REVOKED', tr.id, reason.trim(), this.user?.role.toLowerCase());
+    return true;
+  }
+  async revokeToken(trancheId: string, reason: string): Promise<void> {
+    const { tx, tr } = this.manageToken(trancheId);
+    if (messageError(reason) === 'REASON_REQUIRED') throw new DomainError('REASON_REQUIRED', 'Motif de révocation obligatoire');
+    if (!this.withdrawToken(tx, tr, reason)) throw new DomainError('NO_TOKEN', 'Aucun jeton actif pour cette tranche');
+    this.emit();
+  }
+  async reissueToken(trancheId: string, reason = 'Réémission du jeton'): Promise<void> {
+    const { tx, tr } = this.manageToken(trancheId);
+    if (tr.status === 'PLANNED') throw new DomainError('NO_TOKEN', 'Tranche pas encore ouverte : aucun jeton');
+    if (messageError(reason) === 'REASON_REQUIRED') throw new DomainError('REASON_REQUIRED', 'Motif de réémission obligatoire');
+    this.withdrawToken(tx, tr, reason);
+    this.withdrawn.delete(tr.id);
+    // Nouvelle référence : jamais celle d’un jeton révoqué ni d’une autre tranche.
+    let n = 0;
+    do {
+      tr.reference = hexDigest(`${tr.id}:reissue:${this.revoked.length}:${n++}`, 18);
+    } while (this.revoked.some((k) => k.reference === tr.reference)
+      || this.txs.some((x) => x.tranches.some((r) => r !== tr && r.reference === tr.reference)));
+    this.ensureToken(tr);
+    this.record(tx.id, 'TOKEN_REISSUED', tr.id, undefined, this.user?.role.toLowerCase());
+    this.emit();
+  }
+  async eqrImageEnabled(): Promise<boolean> { return this.eqrImage; }
+
+  // ——— Lot X (X2) : décisions du payeur ———
+
+  /** Tranche d’une demande en cours pour une partie (miroir de _request_tranche). */
+  private requestTranche(trancheId: string): { tx: Transaction; tr: Tranche; who: { isPayer: boolean; isCreator: boolean } } {
+    this.requireUser();
+    const { tx, tr } = this.find(trancheId);
+    if (!this.isParty(tx) && !this.isCreatorOf(tx)) throw new DomainError('TRANCHE_NOT_FOUND', 'Tranche introuvable');
+    if (tx.status !== 'IN_PROGRESS') throw new DomainError('TX_NOT_ACTIVE', 'La transaction n’est pas active');
+    return { tx, tr, who: { isPayer: this.rolesFor(tx).includes('PAYER'), isCreator: this.isCreatorOf(tx) } };
+  }
+  private addMessage(tx: Transaction, tr: Tranche, kind: RequestMessageKind, body: string): void {
+    this.messages.push({ id: newId('msg'), txId: tx.id, trancheId: tr.id, kind, body: body.trim(), at: this.clock().toISOString(), authorId: this.user?.id ?? '' });
+  }
+  async markReceived(trancheId: string): Promise<void> {
+    this.requireUser();
+    const { tx, tr } = this.find(trancheId);
+    if (!this.isParty(tx) && !this.isCreatorOf(tx)) throw new DomainError('TRANCHE_NOT_FOUND', 'Tranche introuvable');
+    if (!this.rolesFor(tx).includes('PAYER')) throw new DomainError('PAYER_ONLY', 'Réservé au payeur');
+    if (this.viewed[tr.id]) return;
+    this.viewed[tr.id] = this.clock().toISOString();
+    this.record(tx.id, 'REQUEST_VIEWED', tr.id, undefined, 'payer');
+    this.emit();
+  }
+  async requestInfo(trancheId: string, message: string): Promise<Transaction> {
+    const { tx, tr, who } = this.requestTranche(trancheId);
+    tr.status = requestInfoDecision(tr.status, who, message);
+    this.addMessage(tx, tr, 'INFO_REQUEST', message);
+    this.record(tx.id, 'INFO_REQUESTED', tr.id, undefined, 'payer');
+    this.notify({ type: 'INFO_REQUESTED', txId: tx.id, trancheId: tr.id });
+    this.emit();
+    return tx;
+  }
+  async answerInfo(trancheId: string, message: string): Promise<Transaction> {
+    const { tx, tr, who } = this.requestTranche(trancheId);
+    tr.status = answerInfoDecision(tr.status, who, message);
+    this.addMessage(tx, tr, 'INFO_ANSWER', message);
+    this.record(tx.id, 'INFO_ANSWERED', tr.id, undefined, this.user?.role.toLowerCase());
+    this.notify({ type: 'INFO_ANSWERED', txId: tx.id, trancheId: tr.id });
+    this.emit();
+    return tx;
+  }
+  async rejectRequest(trancheId: string, reason: string): Promise<Transaction> {
+    const { tx, tr, who } = this.requestTranche(trancheId);
+    const to = rejectRequestDecision(tr.status, who, reason);
+    this.addMessage(tx, tr, 'NOTE', reason);
+    this.withdrawToken(tx, tr, 'Demande rejetée par le payeur');
+    tr.status = to;
+    this.record(tx.id, 'REQUEST_REJECTED', tr.id, reason.trim(), 'payer');
+    this.notify({ type: 'REQUEST_REJECTED', txId: tx.id, trancheId: tr.id });
+    this.closeIfDone(tx);
+    this.emit();
+    return tx;
+  }
+  async listMessages(trancheId: string): Promise<RequestMessage[]> {
+    const { tx } = this.find(trancheId);
+    if (!this.isParty(tx) && !this.isCreatorOf(tx)) return [];
+    return this.messages.filter((m) => m.trancheId === trancheId)
+      .map((m) => ({ id: m.id, txId: m.txId, trancheId: m.trancheId, kind: m.kind, body: m.body, at: m.at, mine: m.authorId === this.user?.id }));
+  }
+
+  // ——— Lot X (X3) ———
+
+  async createDraft(input: { vertical: Vertical; creatorRole: CreatorRole }): Promise<NeedDraft> {
+    return this.saveDraft({ ...emptyDraft(newId('need'), this.clock()), vertical: input.vertical, creatorRole: input.creatorRole });
+  }
 
   /** Équivalent de release_due_tranches() côté serveur. Retourne le nombre de tranches débloquées. */
   runTimers(): number {

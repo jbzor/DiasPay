@@ -17,8 +17,8 @@ function walk(dir: string): string[] {
 const sqlCodes = (sql: string) => [...sql.matchAll(/_err\('([A-Z_]+)'/g)].map((m) => m[1] ?? '');
 
 describe('table des codes d’erreur', () => {
-  it('chaque code levé par les fonctions SQL (0005, 0006) est dans la table', () => {
-    const codes = [...new Set(['0005_lot4.sql', '0006_lot5.sql'].flatMap((f) => sqlCodes(read('supabase', 'migrations', f))))];
+  it('chaque code levé par les fonctions SQL (0005, 0006, 0008) est dans la table', () => {
+    const codes = [...new Set(['0005_lot4.sql', '0006_lot5.sql', '0008_lotx.sql'].flatMap((f) => sqlCodes(read('supabase', 'migrations', f))))];
     expect(codes.length).toBeGreaterThan(40);
     expect(codes.filter((c) => !isErrorCode(c))).toEqual([]);
   });

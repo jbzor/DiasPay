@@ -98,3 +98,51 @@ Choix délégués par le client au prestataire. Chaque décision reste révisabl
 - **Date** : 11 novembre 2026
 - **Statut** : décidé par le chef de projet
 - **Décision** : quand un validateur ouvre un dossier `SUBMITTED`, il le prend en charge. La transition `SUBMITTED → IN_REVIEW` est jouée automatiquement par `claim_dossier` et journalisée à son nom. Un dossier déjà `IN_REVIEW` reste ouvert aux autres validateurs, comme l’exige la double validation. Un validateur partie au dossier ne le prend pas en charge (RG-03) : il le voit en lecture seule.
+
+---
+
+# Lot X — fondations du cahier d’extension (passe 1 : X1 à X3)
+
+Principe : tant que le client n’a pas tranché, le comportement par défaut ne change pas. Les choix ci-dessous sont ceux que le prompt du lot laissait ouverts ; ils sont révisables au kickoff. Le document d’analyse `ALIGNEMENT-CAHIER-EXTENSION.md` (questions K1 à K14) n’était pas disponible dans l’espace de travail : seules les questions citées par le prompt (K1, K2, K3) sont référencées ici.
+
+## X-0 — Organisation des migrations du lot X
+
+- **Date** : 12 novembre 2026
+- **Décision** : `0007_lotx_enums.sql` (valeurs d’enum : `INFO_REQUESTED`, `REJECTED`, `IMMEDIATE`) et `0008_lotx.sql` (X1 à X3) sont appliquées sur le projet de développement à la fin de la passe 1. Comme une migration appliquée n’est jamais modifiée, **la passe 2 (X4 à X7) ajoutera `0009_lotx_p2.sql`** (et une migration d’enum séparée si nécessaire) au lieu de compléter 0008. Le test `supabase/tests/03_lotx.sql` sera complété.
+
+## X-1 — Sécurité du TrustLink
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - **Plus aucun lien** : partage, copie, enregistrement du QR et adresse du lien retirés de l’écran du jeton ; route `t/[reference]`, rejeu d’un lien après connexion, `buildLink`, `parseDeepLink` et `EXPO_PUBLIC_LINK_BASE` supprimés. Seul lien interne : `diaspay://tranche/<identifiant de tranche>` (`parseInternalLink`, `+native-intent.tsx`) ; toute autre adresse est ignorée. Le build web garde ses routes adressables par URL (outil de développement), toujours derrière la session et la RLS.
+  - **QR** : affiché au payeur connecté seulement, pour sa tranche **payée** (`PAID_LOCKED`) ; le bouton « Afficher le QR » d’une tranche à payer est retiré (écart visible, voir le compte rendu). Capture d’écran interdite sur iOS et Android (`expo-screen-capture`). Avec `eqr_image_enabled = 'false'`, la référence reste affichée (non sélectionnable) pour la saisie manuelle par le prestataire.
+  - **Lecture du jeton réservée au payeur** (RLS de `tranche_tokens`) : avant, toutes les parties le lisaient, donc le prestataire pouvait confirmer sans le QR du payeur.
+  - **Même réponse** pour une référence inconnue et un dossier étranger : `resolve_reference_info` renvoie `null` (traduit en `UNKNOWN_REFERENCE` par le client) au lieu de lever une erreur, pour que l’échec soit enregistré (une erreur annulerait l’enregistrement). `confirm_by_reference` lève `UNKNOWN_REFERENCE` dans les deux cas, sans enregistrer l’échec, mais applique la limite.
+  - **Limitation** : `app_config.reference_failure_limit = 10` par utilisateur et par heure glissante ; `security_events` (ajout seul, lecture par le personnel) ne garde que les 4 premiers caractères de la référence tentée ; `SUSPICIOUS_ACTIVITY` écrit une fois au seuil.
+  - **Révocation** : par l’initiateur (créateur du dossier) tant que la tranche n’est pas payée, ou par un administrateur non partie à tout moment ; motif obligatoire ; le jeton révoqué est conservé (clé primaire propre, un seul jeton actif par tranche). `reissue_token` révoque puis émet une nouvelle référence, jamais journalisée. Le rejet d’une demande révoque aussi le jeton.
+  - **Ouverture** : `mark_received` ne journalise que la première ouverture (`REQUEST_VIEWED`), quel que soit l’état de la tranche.
+  - **Gabarits externes** : trois familles (`PAYMENT_REQUEST_RECEIVED`, `REQUEST_UPDATED`, `PAYMENT_UPDATED`), français et anglais, sans aucun paramètre ; l’e-mail et WhatsApp ajoutent « DiasPay ne vous envoie jamais de lien de paiement… ». Aucun canal externe n’est encore branché.
+- **Reste à décider** : `eqr_image_enabled` en production ; signature cryptographique réelle et vérification hors ligne (TrustEngine) ; durée de validité définitive des jetons ; fournisseur SMS, e-mail, WhatsApp. État détaillé : `docs/specs/trustlink-security.md`.
+
+## X-2 — Décisions du payeur (serveur et domaine, sans écran)
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - Transitions passées **uniquement** par `request_info`, `answer_info` et `reject_request` (motif de 3 à 2000 caractères) ; `transition_tranche` les refuse (`TRANSITION_FORBIDDEN`).
+  - Une demande d’informations n’est possible que si le payeur **n’est pas** l’initiateur (sinon personne ne pourrait répondre) ; l’initiateur est le créateur du dossier (demandeur, ou prestataire en X3).
+  - Le motif d’un rejet est conservé comme message `NOTE` ; `REJECTED` est terminal et compte pour la clôture. Le retour à `AWAITING_PAYMENT` après une réponse n’envoie pas de nouvelle alerte `PAYMENT_READY` (l’alerte est `INFO_ANSWERED`).
+  - Destinataires : `INFO_REQUESTED`, `INFO_ANSWERED`, `REQUEST_REJECTED` aux autres parties que l’auteur ; alertes sans texte ni montant.
+  - Pièces d’une réponse : documents de la tranche, insérés par l’initiateur pendant `INFO_REQUESTED` (politiques `docs_insert_info`, `dossiers_insert_info`) ; `answerInfo` de l’API ne prend que le texte (l’envoi des pièces viendra avec l’écran, lot Y).
+  - Mode `IMMEDIATE` : ajouté, **aucun type de besoin ne l’utilise** (K1) ; testé en basculant temporairement `RENT` dans la transaction annulée du test SQL, et dans le domaine (`paymentOutcome`).
+- **Reste à décider** : expiration d’une tranche en `INFO_REQUESTED` (aujourd’hui : aucune) ; effet d’un rejet sur les tranches suivantes (aujourd’hui : seule la tranche rejetée est close, un jalon suivant reste bloqué car il attend une tranche débloquée) ; flux par défaut (K1) et validation par défaut (K2).
+
+## X-3 — Demandes initiées par un prestataire ou un tiers
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - `profiles.can_initiate_requests` : **enrôlement provisoire**, faux par défaut, modifiable seulement par un administrateur (déclencheur `guard_profile`, comme `platform_role`). L’enrôlement réel (niveaux de vérification) sera défini au kickoff (K3).
+  - Rôle explicite du brouillon `creatorRole` (`NeedDraft`, stocké avec le brouillon) ; `createDraft({ vertical, creatorRole })` dans l’API est un raccourci de `saveDraft`. **Sans rôle explicite, rien ne change** : demandeur si le profil l’est, sinon payeur. Un profil « prestataire » sans rôle explicite crée donc en payeur, comme le serveur le faisait déjà ; le simulateur, qui le refusait, est aligné.
+  - Rôle `PROVIDER` : autorisation obligatoire (`INITIATION_NOT_ALLOWED`), payeur désigné par téléphone (invitation s’il n’a pas de compte, rattachement à l’inscription), jamais soi-même (`SELF_PAYER`), payeur exigé à la soumission ; le nom du prestataire est celui du profil du créateur ; un prestataire n’agit sur un brouillon que s’il l’a créé.
+  - `PAYMENT_REQUEST_RECEIVED` est envoyé au payeur **à la soumission** (dès que les contrôles existants passent), avant la validation du bureau de contrôle, qui reste obligatoire (aucun changement de K2). Un payeur sans compte ne reçoit rien ; il retrouve la demande à son inscription.
+  - Aucun écran : l’assistant de création garde sa forme (la variante « je suis prestataire » viendra au lot Y).
+- **Reste à décider** : politique d’enrôlement et niveaux de vérification (K3) ; tiers non prestataire ; notification d’un payeur invité après son inscription.

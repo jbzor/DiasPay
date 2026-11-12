@@ -3,11 +3,11 @@
  * Aucune valeur inattendue ne traverse : un statut ou un montant hors domaine lève UNEXPECTED.
  */
 import { TRANCHE_STATUSES, TX_STATUSES, VERTICALS } from '@diaspay/domain';
-import type { Currency, DocumentKind, DraftDocument, NeedDraft, PlanType, ReleaseMode, TrancheStatus, TxStatus, Vertical } from '@diaspay/domain';
+import type { Currency, DocumentKind, DraftDocument, NeedDraft, PlanType, ReleaseMode, RequestMessageKind, TrancheStatus, TxStatus, Vertical } from '@diaspay/domain';
 import { ApiError } from '../need';
 import type { ProviderSummary } from '../need';
 import type {
-  AppNotification, AuditEntry, DisputeView, NotificationEvent, Receipt, ReferenceInfo, Tranche, TrancheToken, Transaction,
+  AppNotification, AuditEntry, DisputeView, NotificationEvent, Receipt, ReferenceInfo, RequestMessage, Tranche, TrancheToken, Transaction,
 } from '../types';
 import type { Database, Json } from './database.types';
 
@@ -18,16 +18,19 @@ export type TokenRow = Tables['tranche_tokens']['Row'];
 export type NotificationRow = Tables['notifications']['Row'];
 export type AuditRow = Tables['audit_log']['Row'];
 export type DocumentRow = Pick<Tables['documents']['Row'], 'id' | 'tranche_id' | 'deleted_at'>;
+export type MessageRow = Tables['request_messages']['Row'];
+type TokenRef = Pick<TokenRow, 'reference' | 'revoked_at'>;
 
 /** Ligne de transaction lue avec ses tranches, leurs jetons et ses pièces (voir TX_SELECT). */
 export type TxWithRelations = TxRow & {
-  tranches: Array<TrancheRow & { tranche_tokens: Pick<TokenRow, 'reference'> | Pick<TokenRow, 'reference'>[] | null }>;
+  tranches: Array<TrancheRow & { tranche_tokens: TokenRef | TokenRef[] | null }>;
   documents: DocumentRow[];
 };
-export const TX_SELECT = '*, tranches(*, tranche_tokens(reference)), documents(id, tranche_id, deleted_at)';
+// Lot X : une tranche peut avoir des jetons révoqués ; seul le jeton actif compte, et seul le payeur le lit (RLS).
+export const TX_SELECT = '*, tranches(*, tranche_tokens(reference, revoked_at)), documents(id, tranche_id, deleted_at)';
 
 const CURRENCIES: readonly string[] = ['EUR', 'USD', 'XAF'];
-const RELEASE_MODES: readonly string[] = ['PROVIDER_CONFIRM', 'PAYER_CONFIRM', 'EVIDENCE_REVIEW', 'AUTO'];
+const RELEASE_MODES: readonly string[] = ['PROVIDER_CONFIRM', 'PAYER_CONFIRM', 'EVIDENCE_REVIEW', 'AUTO', 'IMMEDIATE'];
 const PLAN_TYPES: readonly string[] = ['SINGLE', 'PARTIAL', 'INSTALLMENTS', 'RECURRING'];
 
 function bad(what: string, value: unknown): never {
@@ -56,7 +59,8 @@ export function toIso(v: string | null | undefined): string | undefined {
 }
 
 export function toTranche(row: TxWithRelations['tranches'][number], documents: DocumentRow[]): Tranche {
-  const tok = Array.isArray(row.tranche_tokens) ? row.tranche_tokens[0] : row.tranche_tokens;
+  const toks = Array.isArray(row.tranche_tokens) ? row.tranche_tokens : row.tranche_tokens ? [row.tranche_tokens] : [];
+  const tok = toks.find((k) => !k.revoked_at);
   return {
     id: row.id,
     seq: row.seq,
@@ -102,7 +106,10 @@ export function toToken(row: TokenRow): TrancheToken {
   };
 }
 
-const NOTIFICATION_TYPES = ['TX_VALIDATED', 'TX_REJECTED', 'PAYMENT_READY', 'TRANCHE_CONFIRMED', 'TRANCHE_RELEASED', 'DISPUTE_OPENED', 'DISPUTE_RESOLVED'];
+const NOTIFICATION_TYPES = [
+  'TX_VALIDATED', 'TX_REJECTED', 'PAYMENT_READY', 'TRANCHE_CONFIRMED', 'TRANCHE_RELEASED', 'DISPUTE_OPENED', 'DISPUTE_RESOLVED',
+  'PAYMENT_REQUEST_RECEIVED', 'INFO_REQUESTED', 'INFO_ANSWERED', 'REQUEST_REJECTED',
+];
 
 /** Le serveur écrit l’événement dans payload (déclencheur sur audit_log) ; jamais de texte affiché. */
 export function toNotification(row: NotificationRow): AppNotification | null {
@@ -112,6 +119,15 @@ export function toNotification(row: NotificationRow): AppNotification | null {
   const event = { ...p, type, txId: (p.txId as string | undefined) ?? row.tx_id ?? '' } as NotificationEvent;
   if (event.type === 'TX_REJECTED' && typeof event.reason !== 'string') (event as { reason: string }).reason = '';
   return { id: row.id, event, at: toIso(row.created_at), readAt: toIso(row.read_at) };
+}
+
+const MESSAGE_KINDS: readonly string[] = ['INFO_REQUEST', 'INFO_ANSWER', 'NOTE'];
+
+export function toMessage(row: MessageRow, me: string | undefined): RequestMessage {
+  return {
+    id: row.id, txId: row.tx_id, trancheId: opt(row.tranche_id), kind: oneOf<RequestMessageKind>(row.kind, MESSAGE_KINDS, 'type de message'),
+    body: row.body, at: toIso(row.created_at), mine: me !== undefined && row.author_id === me,
+  };
 }
 
 export function toAuditEntry(row: AuditRow): AuditEntry {

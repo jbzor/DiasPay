@@ -79,6 +79,11 @@ where p.user_id is null and p.phone is not null and _norm_phone(pr.phone) = _nor
 -- comme la validation de démonstration. Sans effet hors mock_mode ; en production le jeton relève du TrustEngine.
 insert into app_config(key, value) values ('auto_issue_token', 'true') on conflict (key) do update set value = 'true';
 
+-- Lot X : le compte de test « demandeur » des tests de contrat (+33 6 39 98 00 12) est aussi autorisé à initier une
+-- demande en prestataire (enrôlement provisoire can_initiate_requests, réglé ici comme le ferait un administrateur).
+-- Le compte se crée à la première connexion : réexécuter le seed après un premier passage des tests de contrat.
+update profiles set can_initiate_requests = true where phone = '33639980012';
+
 commit;
 
 select phone, full_name, platform_role from profiles where phone like '3363998000%' order by phone;

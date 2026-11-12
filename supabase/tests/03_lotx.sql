@@ -328,6 +328,81 @@ select t.check((select trigger from release_events where tranche_id = (select v 
 select t.check((select contest_ends_at is null from tranches where id = (select v from t.ids where k = 'b1')), 'aucun délai de contestation');
 select t.check((select status from transactions where id = 'f9300000-0000-4000-8000-00000000000b') = 'CLOSED', 'dossier à paiement direct clôturé');
 
+-- ===================== X3 : demandes initiées par un prestataire =====================
+-- ---------- X3 : demande initiée par un prestataire ----------
+select t.login('f9000000-0000-4000-8000-000000000008');
+select t.hint($$select save_draft('{"id":"f9300000-0000-4000-8000-00000000000c","vertical":"EDUCATION","creatorRole":"PROVIDER","counterpartyPhone":"+33622220001"}')$$,
+  'INITIATION_NOT_ALLOWED', 'prestataire sans autorisation refusé');
+select t.fails($$update profiles set can_initiate_requests = true where id = auth.uid()$$, 'un utilisateur ne s’accorde pas l’autorisation d’initier');
+select t.hint($$select save_draft('{"id":"f9300000-0000-4000-8000-00000000000c","vertical":"EDUCATION","creatorRole":"BANQUIER"}')$$, 'VALIDATION', 'rôle de créateur inconnu');
+select t.admin();
+select t.check(not (select can_initiate_requests from profiles where id = 'f9000000-0000-4000-8000-000000000008'), 'autorisation inchangée');
+update profiles set can_initiate_requests = true where id = 'f9000000-0000-4000-8000-000000000007';   -- administrateur (SQL)
+select t.login('f9000000-0000-4000-8000-000000000007');
+select t.hint($$select save_draft('{"id":"f9300000-0000-4000-8000-00000000000c","vertical":"EDUCATION","creatorRole":"PROVIDER","counterpartyPhone":"+237 6 2222 0007"}')$$,
+  'SELF_PAYER', 'le prestataire ne se désigne pas payeur');
+-- Sans payeur : enregistrable (brouillon partiel), refusé à la soumission.
+select save_draft(jsonb_build_object('id','f9300000-0000-4000-8000-00000000000d','vertical','EDUCATION','creatorRole','PROVIDER','amountMinor','100000',
+  'currency','XAF','purpose','Inscription sans payeur','beneficiaryName','Élève','planType','SINGLE',
+  'tranches', jsonb_build_array(jsonb_build_object('label','Inscription','amountMinor','100000','dueDate',(current_date + 2)::text))));
+select t.hint($$select transition_tx('f9300000-0000-4000-8000-00000000000d', 'SUBMITTED')$$, 'VALIDATION', 'demande d’un prestataire sans payeur refusée à la soumission');
+-- Payeur invité (pas encore de compte).
+select save_draft(jsonb_build_object('id','f9300000-0000-4000-8000-00000000000c','vertical','EDUCATION','creatorRole','PROVIDER','amountMinor','200000',
+  'currency','XAF','purpose','Frais d’inscription','beneficiaryName','Élève','counterpartyPhone','+33 6 22 22 00 09','planType','SINGLE',
+  'tranches', jsonb_build_array(jsonb_build_object('label','Inscription','amountMinor','200000','dueDate',(current_date + 2)::text))));
+select add_document('f9300000-0000-4000-8000-00000000000c', 'ENROLMENT_CERTIFICATE', 'f9300000-0000-4000-8000-00000000000c/ENROLMENT_CERTIFICATE/c.pdf', 'c.pdf', 'application/pdf', 1000);
+select t.check((select role from transaction_parties where tx_id = 'f9300000-0000-4000-8000-00000000000c' and user_id = auth.uid()) = 'PROVIDER',
+  'le créateur est partie PROVIDER');
+select t.check((select provider_name from transactions where id = 'f9300000-0000-4000-8000-00000000000c') = 'École Les Manguiers (test)', 'prestataire de la demande : le créateur');
+select t.check((select status from transition_tx('f9300000-0000-4000-8000-00000000000c', 'SUBMITTED')) = 'SUBMITTED', 'le prestataire autorisé soumet sa demande');
+select t.admin();
+select t.check((select invited_phone from transaction_parties where tx_id = 'f9300000-0000-4000-8000-00000000000c' and role = 'PAYER' and user_id is null) = '+33622220009',
+  'payeur invité par son numéro');
+select t.check((select count(*) from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000c') = 0, 'payeur sans compte : aucune alerte possible');
+insert into auth.users(id, phone) values ('f9000000-0000-4000-8000-000000000009', '33622220009');
+select t.login('f9000000-0000-4000-8000-000000000009');
+select t.check((select count(*) from transactions where id = 'f9300000-0000-4000-8000-00000000000c') = 1, 'le payeur invité retrouve la demande à son inscription');
+select t.admin();
+-- Un prestataire partie d’un brouillon qu’il n’a pas créé ne le soumet pas.
+select t.login('f9000000-0000-4000-8000-000000000002');
+select save_draft(jsonb_build_object('id','f9300000-0000-4000-8000-00000000000e','vertical','EDUCATION','counterpartyPhone','+33622220001',
+  'provider', jsonb_build_object('name','Lycée (lot X)','invitedPhone','+237 6 2222 0003')));
+select t.admin();
+select t.login('f9000000-0000-4000-8000-000000000003');
+select t.hint($$select transition_tx('f9300000-0000-4000-8000-00000000000e', 'SUBMITTED')$$, 'TRANSITION_FORBIDDEN', 'le prestataire ne soumet pas le brouillon d’un autre');
+select t.admin();
+-- Payeur existant : alerte PAYMENT_REQUEST_RECEIVED, sans donnée sensible.
+select t.login('f9000000-0000-4000-8000-000000000007');
+select save_draft(jsonb_build_object('id','f9300000-0000-4000-8000-00000000000f','vertical','EDUCATION','creatorRole','PROVIDER','amountMinor','50000',
+  'currency','XAF','purpose','Cantine','beneficiaryName','Élève','counterpartyPhone','+33622220001','planType','SINGLE',
+  'tranches', jsonb_build_array(jsonb_build_object('label','Cantine','amountMinor','50000','dueDate',(current_date + 2)::text))));
+select add_document('f9300000-0000-4000-8000-00000000000f', 'ENROLMENT_CERTIFICATE', 'f9300000-0000-4000-8000-00000000000f/ENROLMENT_CERTIFICATE/f.pdf', 'f.pdf', 'application/pdf', 1000);
+select transition_tx('f9300000-0000-4000-8000-00000000000f', 'SUBMITTED');
+select t.admin();
+select t.check((select count(*) from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000f' and event = 'PAYMENT_REQUEST_RECEIVED'
+                and user_id = 'f9000000-0000-4000-8000-000000000001') = 1
+           and (select count(*) from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000f') = 1,
+  'PAYMENT_REQUEST_RECEIVED au payeur seulement');
+select t.check((select payload - 'type' - 'txId' = '{}'::jsonb from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000f'),
+  'alerte de demande reçue : ni montant, ni nom, ni texte');
+select t.check(not exists (select 1 from notifications n join transactions x on x.id = n.tx_id where n.event = 'PAYMENT_REQUEST_RECEIVED'
+                           and not exists (select 1 from transaction_parties p where p.tx_id = x.id and p.role = 'PROVIDER' and p.user_id = x.created_by)
+                           and n.tx_id::text like 'f93%'),
+  'pas d’alerte de demande reçue pour un dossier créé par le payeur ou un demandeur');
+-- La demande du prestataire suit le circuit existant ; le payeur peut demander des informations, le prestataire initiateur répond.
+select t.login('f9000000-0000-4000-8000-000000000004');
+select transition_tx('f9300000-0000-4000-8000-00000000000f', 'IN_REVIEW');
+select t.check((select status from decide_tx('f9300000-0000-4000-8000-00000000000f', true, true)) = 'IN_PROGRESS', 'validation par le bureau de contrôle (inchangée)');
+select t.admin();
+insert into t.ids select 'f1', id from tranches where tx_id = 'f9300000-0000-4000-8000-00000000000f' and seq = 1;
+select t.login('f9000000-0000-4000-8000-000000000001');
+select request_info((select v from t.ids where k = 'f1'), 'Quel trimestre ?');
+select t.admin();
+select t.login('f9000000-0000-4000-8000-000000000007');
+select t.check((select status from answer_info((select v from t.ids where k = 'f1'), 'Premier trimestre.')) = 'AWAITING_PAYMENT', 'le prestataire initiateur répond');
+select t.check((t.j($$select revoke_token((select v from t.ids where k = 'f1'), 'Erreur de montant')$$)->>'revoked') = 'true', 'le prestataire initiateur révoque avant paiement');
+select t.admin();
+
 -- ===================== Fin =====================
 -- ---------- Résumé ----------
 do $$

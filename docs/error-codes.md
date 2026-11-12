@@ -79,6 +79,10 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `FILE_TYPE` | D, S | Format autre que JPEG, PNG ou PDF |
 | `UPLOAD_FAILED` | C | Envoi du fichier interrompu |
 | `AUDITED_FILE` | S, C | Dossier audité : ni suppression ni effacement de fichier |
+| `HASH_INVALID` | D, S | Empreinte de pièce mal formée : SHA-256 en hexadécimal (64 caractères) attendu (lot X, X4) |
+| `HASH_REQUIRED` | D, S | Empreinte de pièce obligatoire quand le réglage `require_content_hash` vaut `true` (lot X, X4) |
+| `HASH_IMMUTABLE` | S | L’empreinte d’une pièce ne se modifie pas, ni ne s’ajoute après coup (lot X, X4) |
+| `DOCUMENT_LOCKED` | D, S | Pièce d’un dossier soumis : ni modification ni suppression (sauf pièce de réponse pendant `INFO_REQUESTED` ; lot X, X4) |
 
 ## Jetons et confirmation
 

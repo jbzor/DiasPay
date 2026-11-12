@@ -166,7 +166,8 @@ select t.check((select status = 'SUBMITTED' and validations_required = 1 and val
 select t.check((select validations_required from bo_dossiers where id = 'f3000000-0000-4000-8000-000000000002') = 2, 'bo_dossiers : double validation au-delà du seuil (RG-04)');
 select t.check((select is_party from bo_dossiers where id = 'f3000000-0000-4000-8000-000000000003') = false, 'is_party : faux pour un validateur non partie');
 select t.check((select string_agg(code || '=' || result, ',' order by code) from dossier_checks('f3000000-0000-4000-8000-000000000001'))
-  = 'DOCUMENTS=OK,DUPLICATE=ATTENTION,PLAN_SUM=OK,PROVIDER_VERIFIED=OK', 'contrôles tx1 : pièces, prestataire vérifié, somme ; doublon possible (tx5)');
+  = 'DOCUMENT_REUSED=OK,DOCUMENTS=OK,DUPLICATE=ATTENTION,PLAN_SUM=OK,PROVIDER_VERIFIED=OK',
+  'contrôles tx1 : pièces, prestataire vérifié, somme ; doublon possible (tx5) ; justificatif non réutilisé (lot X, X4)');
 select t.check((select detail->'references' from dossier_checks('f3000000-0000-4000-8000-000000000005') where code = 'DUPLICATE') = '["F3000000"]'::jsonb
            and (select result from dossier_checks('f3000000-0000-4000-8000-000000000005') where code = 'DUPLICATE') = 'ATTENTION',
   'doublon possible : même payeur, même prestataire, même montant (référence de l’autre dossier)');
@@ -178,6 +179,8 @@ select t.check((select result || ':' || (detail->>'reason') from dossier_checks(
 select t.hint($$select * from dossier_checks('f3000000-0000-4000-8000-0000000000ff')$$, 'TX_NOT_FOUND', 'contrôles d’un dossier inconnu');
 select t.admin();
 -- Pièce obligatoire retirée en base (cas anormal) : le contrôle échoue ; somme faussée : échec avec l’écart.
+-- Lot X (X4) : les pièces d’un dossier soumis sont immuables ; le cas anormal se fabrique en suspendant le déclencheur.
+alter table documents disable trigger documents_immutable_trg;
 update documents set deleted_at = now() where tx_id = 'f3000000-0000-4000-8000-000000000004' and kind = 'ENROLMENT_CERTIFICATE';
 update tranches set amount_minor = 150000 where tx_id = 'f3000000-0000-4000-8000-000000000004';
 select t.login('f1000000-0000-4000-8000-000000000004');
@@ -187,6 +190,7 @@ select t.check((select result || ':' || (detail->>'gap') from dossier_checks('f3
   'somme des tranches différente : échec avec l’écart');
 select t.admin();
 update documents set deleted_at = null where tx_id = 'f3000000-0000-4000-8000-000000000004';
+alter table documents enable trigger documents_immutable_trg;
 update tranches set amount_minor = 200000 where tx_id = 'f3000000-0000-4000-8000-000000000004';
 
 -- ---------- Validateur partie au dossier (RG-03) ----------
@@ -290,7 +294,10 @@ select t.login('f1000000-0000-4000-8000-000000000005');
 select t.check((select count(*) from storage.objects where name like 'f3000000-0000-4000-8000-000000000001/%') = 0, 'stockage : illisible pour un validateur sans ouverture journalisée');
 select t.admin();
 select t.login('f1000000-0000-4000-8000-000000000001');
-select t.check((select count(*) from storage.objects where name like 'f3000000-0000-4000-8000-000000000001/%') = 1, 'stockage : toujours lisible par une partie');
+-- Lot X (X4) : une partie ne lit plus le fichier d’un dossier soumis qu’après une consultation journalisée (avant : toujours lisible).
+select t.check((select count(*) from storage.objects where name like 'f3000000-0000-4000-8000-000000000001/%') = 0, 'stockage : illisible pour une partie sans consultation journalisée');
+select get_document_access((select v from t.ids where k = 'doc1'));
+select t.check((select count(*) from storage.objects where name like 'f3000000-0000-4000-8000-000000000001/%') = 1, 'stockage : lisible par une partie après consultation journalisée');
 select t.admin();
 select t.login('f1000000-0000-4000-8000-000000000007');
 select t.check((select count(*) from storage.objects where name like 'f3000000-0000-4000-8000-000000000001/%') = 0, 'stockage : illisible pour un tiers');

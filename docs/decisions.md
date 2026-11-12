@@ -108,7 +108,7 @@ Principe : tant que le client n’a pas tranché, le comportement par défaut ne
 ## X-0 — Organisation des migrations du lot X
 
 - **Date** : 12 novembre 2026
-- **Décision** : `0007_lotx_enums.sql` (valeurs d’enum : `INFO_REQUESTED`, `REJECTED`, `IMMEDIATE`) et `0008_lotx.sql` (X1 à X3) sont appliquées sur le projet de développement à la fin de la passe 1. Comme une migration appliquée n’est jamais modifiée, **la passe 2 (X4 à X7) ajoutera `0009_lotx_p2.sql`** (et une migration d’enum séparée si nécessaire) au lieu de compléter 0008. Le test `supabase/tests/03_lotx.sql` sera complété.
+- **Décision** : `0007_lotx_enums.sql` (valeurs d’enum : `INFO_REQUESTED`, `REJECTED`, `IMMEDIATE`) et `0008_lotx.sql` (X1 à X3) sont appliquées sur le projet de développement à la fin de la passe 1. Comme une migration appliquée n’est jamais modifiée, la passe 2 ajoute **une migration par tâche**, appliquée à la fin de sa tâche : `0009_lotx_x4.sql`, `0010_lotx_x5.sql`, `0011_lotx_x6.sql`, `0012_lotx_x7.sql` (au lieu d’un seul `0009_lotx_p2.sql` annoncé à la passe 1 : un fichier unique aurait dû être modifié après son application, ou appliqué d’un bloc sans commit par tâche). Leur test est un nouveau fichier, `supabase/tests/04_lotx_p2.sql` (et sa variante éditeur), plutôt que la suite de `03_lotx.sql`, qui reste celui de la passe 1.
 
 ## X-1 — Sécurité du TrustLink
 
@@ -146,3 +146,16 @@ Principe : tant que le client n’a pas tranché, le comportement par défaut ne
   - `PAYMENT_REQUEST_RECEIVED` est envoyé au payeur **à la soumission** (dès que les contrôles existants passent), avant la validation du bureau de contrôle, qui reste obligatoire (aucun changement de K2). Un payeur sans compte ne reçoit rien ; il retrouve la demande à son inscription.
   - Aucun écran : l’assistant de création garde sa forme (la variante « je suis prestataire » viendra au lot Y).
 - **Reste à décider** : politique d’enrôlement et niveaux de vérification (K3) ; tiers non prestataire ; notification d’un payeur invité après son inscription.
+
+## X-4 — TrustVault : empreintes et consultations
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - **Empreinte** : `documents.content_hash` (SHA-256, 64 caractères hexadécimaux, normalisée en minuscules) et `hash_algo` (`SHA-256`), calculées sur l’appareil avant l’envoi (`expo-crypto` 58 sur les octets lus par `expo-file-system`, WebCrypto sur le web), enregistrées par `add_document` (paramètre facultatif `p_hash`, même signature d’appel sans empreinte) ; le simulateur reçoit la même fonction dans l’application. **Immuables** : aucune modification, ni ajout après coup sur une pièce enregistrée sans empreinte (`HASH_IMMUTABLE`).
+  - **Empreinte facultative côté serveur** tant que le réglage `require_content_hash` vaut `false` (défaut) : les versions déjà installées de l’application et les tests existants envoient des pièces sans empreinte. L’application, elle, en envoie toujours une. À passer à `true` avant la production (liste de contrôle).
+  - **Réutilisation (TrustProof)** : `document_reuse(hash, tx)` compte les **autres dossiers soumis** (brouillons exclus) contenant la même empreinte. Une partie n’interroge qu’une empreinte d’une pièce qu’elle voit (sinon `NOT_FOUND`, même réponse qu’une empreinte inconnue) et ne reçoit qu’un nombre ; le personnel reçoit aussi les références courtes. Contrôle `DOCUMENT_REUSED` (ATTENTION, sans blocage) dans `dossier_checks`, détail : type de pièce et références. Une même pièce d’identité réutilisée par le même payeur déclenche aussi l’alerte : c’est voulu, le validateur juge.
+  - **Consultations** : `get_document_access` journalise `DOCUMENT_VIEWED` (acteur, rôle, pièce ; horodatage de la ligne) pour toute partie et le personnel, puis le stockage autorise la lecture du fichier 2 minutes (même mécanisme que le lot 5). **Changement voulu** : une partie ne lit plus un fichier d’un dossier soumis sans consultation journalisée. Exception : le brouillon jamais audité de son créateur (non journalisé, sinon il deviendrait insupprimable, décision D4).
+  - **Immuabilité** : déclencheur sur `documents` : ni modification ni suppression (`DOCUMENT_LOCKED`) hors brouillon ou dossier rejeté, sauf une pièce de réponse pendant `INFO_REQUESTED` ; la suppression du dossier lui-même et la réinitialisation de démonstration restent possibles. Les fichiers du bucket étaient déjà protégés (aucune politique de mise à jour, suppression limitée aux brouillons jamais audités).
+  - Aucun écran mobile n’affiche aujourd’hui une pièce déjà envoyée ; `documentUrl` passe désormais par `get_document_access`, et le back-office garde `open_document` (lot 5, même journal).
+- **Reste à décider** : passage de `require_content_hash` à `true` ; durée de conservation des pièces et des journaux de consultation (exigence 5.3) ; chiffrement applicatif des pièces au repos (aujourd’hui : chiffrement du stockage Supabase) ; contrôle de réutilisation entre payeurs différents seulement, si les alertes sur les pièces d’identité gênent le bureau.
+

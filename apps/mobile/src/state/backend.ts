@@ -2,6 +2,7 @@ import { AppState, Platform } from 'react-native';
 import { MockAuth, SupabaseApi, SupabaseAuth, createDiasPayClient } from '@diaspay/api-client';
 import type { AuthApi, DiasPayClient, Session } from '@diaspay/api-client';
 import { DEMO_REVIEW } from '@/lib/env';
+import { contentHasher } from '@/lib/contentHash';
 import { nativeUploader } from '@/lib/uploader';
 import { sessionStorage } from './sessionStorage';
 import { devicePrefs } from './storage';
@@ -41,6 +42,7 @@ export function getSupabaseApi(): SupabaseApi {
   supabaseApi ??= new SupabaseApi(getClient(), {
     anonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '',
     uploader: nativeUploader,
+    hashFile: contentHasher,
   });
   return supabaseApi;
 }

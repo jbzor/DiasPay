@@ -1,5 +1,6 @@
 import {
-  DomainError, RELEASE_RULES, answerInfoDecision, appendEntry, canOpenDispute, checkFile, checkFileCount, effectiveCreatorRole, emptyDraft,
+  DomainError, RELEASE_RULES, answerInfoDecision, appendEntry, canOpenDispute, checkContentHash, checkFile, checkFileCount, effectiveCreatorRole, emptyDraft,
+  otherDossiersWithHash,
   formatReference, isAutoReleasable, messageError, normalizeReference, paymentOutcome, rejectRequestDecision, requestInfoDecision,
   resolveDisputeTransition, shouldActivateTranche, shouldCloseTransaction, toIsoDate, tokenRevocationError, tooManyAttempts, transitionTranche,
   transitionTx, validateNeed, verifyChain, validatorDecisionError,
@@ -8,11 +9,11 @@ import type {
   Actor, ChainedAuditEntry, CreatorRole, DisputeOutcome, DraftDocument, DraftDocumentInput, NeedDraft, RequestMessageKind, TrancheStatus, TxRole, Vertical,
 } from '@diaspay/domain';
 import type {
-  AppNotification, AuditEntry, DisputeView, NotificationEvent, Persona, Receipt, ReferenceInfo, RequestMessage, Tranche, TrancheToken, Transaction,
-  TransactionApi,
+  AppNotification, AuditEntry, DisputeView, DocumentAccess, DocumentReuse, NotificationEvent, Persona, Receipt, ReferenceInfo, RequestMessage, Tranche,
+  TrancheToken, Transaction, TransactionApi,
 } from './types';
-import { ApiError, MemoryDraftStore, SEED_PROVIDERS, foldText, newId } from './need';
-import type { DraftStore, ProviderSummary, StateStore } from './need';
+import { ApiError, MemoryDraftStore, SEED_PROVIDERS, foldText, newId, uriHasher } from './need';
+import type { DraftStore, FileHasher, ProviderSummary, StateStore } from './need';
 
 type Listener = () => void;
 const HOUR = 3_600_000;
@@ -52,6 +53,8 @@ export interface MockApiOptions {
   seedNotifications?: boolean;
   /** Réglage serveur eqr_image_enabled simulé (défaut : oui). */
   eqrImageEnabled?: boolean;
+  /** Lot X (X4) : empreinte d’un fichier avant l’envoi. L’application passe la même fonction qu’au serveur ; défaut : uriHasher. */
+  hashFile?: FileHasher;
 }
 
 /** Jeton révoqué (lot X) : conservé pour refuser explicitement sa référence (TOKEN_REVOKED). */
@@ -190,6 +193,7 @@ export class MockApi implements TransactionApi {
   private viewed: Record<string, string> = {};
   private failures = new Map<string, number[]>();
   private readonly eqrImage: boolean;
+  private readonly hashFile: FileHasher;
   private readonly validityMs: number;
   private visible: Transaction[] = [];
   private readonly drafts: DraftStore;
@@ -213,6 +217,7 @@ export class MockApi implements TransactionApi {
     this.stateSaveDelayMs = options.stateSaveDelayMs ?? 500;
     this.seedNotifs = options.seedNotifications ?? true;
     this.eqrImage = options.eqrImageEnabled ?? true;
+    this.hashFile = options.hashFile ?? uriHasher;
     this.initSeed(seed === undefined);
   }
 
@@ -656,13 +661,15 @@ export class MockApi implements TransactionApi {
     const mimeType = checkFile(file);
     const current = await this.ownDraft(draftId);
     checkFileCount(current.documents.filter((x) => x.kind === file.kind && x.status === 'UPLOADED' && x.id !== file.id).length);
+    // Lot X (X4) : empreinte calculée avant l’envoi, comme pour le serveur (HASH_INVALID si une empreinte fournie est mal formée).
+    const contentHash = checkContentHash(file.contentHash ?? await this.hashFile(file));
     for (const p of [0.1, 0.35, 0.6, 0.85]) { onProgress?.(p); await sleep(this.uploadDelayMs); }
     if (this.uploadFailureRate > 0 && this.random() < this.uploadFailureRate) {
       throw new ApiError('UPLOAD_FAILED', 'L’envoi a échoué');
     }
     const doc: DraftDocument = {
       id: file.id ?? newId('doc'), kind: file.kind, name: file.name, mimeType, sizeBytes: file.sizeBytes, uri: file.uri,
-      status: 'UPLOADED', uploadedAt: this.clock().toISOString(),
+      status: 'UPLOADED', uploadedAt: this.clock().toISOString(), contentHash,
     };
     const d = await this.ownDraft(draftId); // relu : le brouillon a pu changer pendant l’envoi
     await this.drafts.put({ ...d, documents: [...d.documents.filter((x) => x.id !== doc.id), doc] });
@@ -888,6 +895,51 @@ export class MockApi implements TransactionApi {
   }
 
   // ——— Lot X (X3) ———
+
+  // ——— Lot X (X4) : TrustVault ———
+
+  /** Pièces des dossiers soumis (le simulateur les garde dans l’instantané du brouillon soumis). */
+  private submittedDocuments(): Array<{ tx: Transaction; doc: DraftDocument }> {
+    const out: Array<{ tx: Transaction; doc: DraftDocument }> = [];
+    for (const [txId, d] of this.submitted) {
+      const tx = this.txs.find((t) => t.id === txId);
+      if (tx) for (const doc of d.documents) if (doc.status === 'UPLOADED') out.push({ tx, doc });
+    }
+    return out;
+  }
+
+  /**
+   * Consultation d’une pièce (miroir de get_document_access) : DOCUMENT_VIEWED au journal du dossier, sauf pour le brouillon
+   * jamais soumis de son créateur. Pièce inconnue ou inaccessible : NOT_FOUND.
+   */
+  async getDocumentAccess(documentId: string): Promise<DocumentAccess> {
+    const user = this.requireUser();
+    const access = (doc: DraftDocument): DocumentAccess =>
+      ({ id: doc.id, url: doc.uri ?? '', name: doc.name, mimeType: doc.mimeType, contentHash: doc.contentHash });
+    for (const d of await this.drafts.list()) {
+      const doc = d.ownerId === user.id ? d.documents.find((x) => x.id === documentId && x.status === 'UPLOADED') : undefined;
+      if (!doc) continue;
+      if (d.correctionOf) { this.record(d.correctionOf, 'DOCUMENT_VIEWED', undefined, doc.kind, 'creator'); this.emit(); }
+      return access(doc);
+    }
+    const hit = this.submittedDocuments().find((x) => x.doc.id === documentId);
+    if (!hit || !(this.isParty(hit.tx) || this.isCreatorOf(hit.tx))) throw new DomainError('NOT_FOUND', 'Pièce introuvable');
+    this.record(hit.tx.id, 'DOCUMENT_VIEWED', undefined, hit.doc.kind, (this.rolesFor(hit.tx)[0] ?? 'creator').toLowerCase());
+    this.emit();
+    return access(hit.doc);
+  }
+
+  /** Réutilisation d’un justificatif (miroir de document_reuse) : un nombre seulement ; empreinte d’une pièce visible, sinon NOT_FOUND. */
+  async documentReuse(contentHash: string, txId?: string): Promise<DocumentReuse> {
+    const user = this.requireUser();
+    const h = checkContentHash(contentHash);
+    if (!h) throw new DomainError('HASH_INVALID', 'Empreinte invalide (SHA-256 hexadécimal attendu)');
+    const mine = (await this.drafts.list()).filter((d) => d.ownerId === user.id).flatMap((d) => d.documents.map((doc) => ({ txId: d.correctionOf ?? d.id, doc })));
+    const visible = [...mine, ...this.submittedDocuments().filter((x) => this.isParty(x.tx) || this.isCreatorOf(x.tx)).map((x) => ({ txId: x.tx.id, doc: x.doc }))];
+    if (!visible.some((x) => x.doc.contentHash === h && (txId === undefined || x.txId === txId))) throw new DomainError('NOT_FOUND', 'Pièce introuvable');
+    const others = otherDossiersWithHash(h, this.submittedDocuments().map((x) => ({ txId: x.tx.id, contentHash: x.doc.contentHash, txStatus: x.tx.status })), txId);
+    return { reused: others.length > 0, count: others.length };
+  }
 
   async createDraft(input: { vertical: Vertical; creatorRole: CreatorRole }): Promise<NeedDraft> {
     return this.saveDraft({ ...emptyDraft(newId('need'), this.clock()), vertical: input.vertical, creatorRole: input.creatorRole });

@@ -251,6 +251,36 @@ export function contractSuite(h: Harness): void {
       expect((await payer.listTransactions()).some((x) => x.id === sent.id)).toBe(true);
     }, t * 2);
 
+    it('X4 : empreinte enregistrée, réutilisation signalée par un nombre, consultation journalisée', async () => {
+      const api = await h.as('PAYER');
+      const a = newUuid();
+      await api.saveDraft(healthDraft(a));
+      const quote = await api.attachDocument(a, h.file('QUOTE'));
+      expect(quote.contentHash).toMatch(/^[0-9a-f]{64}$/);
+      await api.attachDocument(a, h.file('BENEFICIARY_ID'));
+      const txA = await api.submitNeed(a);
+      // Second dossier avec le même devis (même fichier, donc même empreinte).
+      const b = newUuid();
+      await api.saveDraft(healthDraft(b, { amountMinor: 190_000, tranches: [{ label: 'Soins', amountMinor: 190_000, dueDate: inDays(3) }] }));
+      const again = await api.attachDocument(b, h.file('QUOTE'));
+      expect(again.contentHash).toBe(quote.contentHash);
+      await api.attachDocument(b, h.file('BENEFICIARY_ID'));
+      const txB = await api.submitNeed(b);
+      const reuse = await api.documentReuse(quote.contentHash!, txB.id);
+      expect(reuse.reused).toBe(true);
+      expect(reuse.count).toBeGreaterThanOrEqual(1);
+      expect(Object.keys(reuse).sort()).toEqual(['count', 'reused']);   // un nombre, jamais les données des autres dossiers
+      expect(await code(api.documentReuse('xyz'))).toBe('HASH_INVALID');
+      if (h.partyIsolation) expect(await code((await h.as('OTHER')).documentReuse(quote.contentHash!))).toBe('NOT_FOUND');
+      // Consultation : journalisée avant que l’adresse du fichier ne soit délivrée.
+      const p2 = await h.as('PAYER');
+      const access = await p2.getDocumentAccess(quote.id);
+      expect(access).toMatchObject({ id: quote.id, mimeType: 'application/pdf', contentHash: quote.contentHash });
+      expect(access.url).not.toBe('');
+      expect((await p2.timeline(txA.id)).some((e) => e.event === 'DOCUMENT_VIEWED')).toBe(true);
+      if (h.partyIsolation) expect(await code((await h.as('OTHER')).getDocumentAccess(quote.id))).toBe('NOT_FOUND');
+    }, t * 2);
+
     it('références et tranches inconnues : codes stables de la table', async () => {
       const api = await h.as('PAYER');
       const e1 = await code(api.resolveReference('ffffffffffffffffff'));

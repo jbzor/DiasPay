@@ -3,6 +3,7 @@ import { MockApi } from '@diaspay/api-client';
 import type { Persona, Transaction, TransactionApi } from '@diaspay/api-client';
 import type { DisputeOutcome } from '@diaspay/domain';
 
+import { contentHasher } from '@/lib/contentHash';
 import { API_MODE, getSupabaseApi } from './backend';
 import { asyncDraftStore } from './drafts';
 import { asyncStateStore } from './simState';
@@ -23,6 +24,7 @@ export const mockApi = new MockApi(undefined, undefined, {
   state: asyncStateStore,
   uploadDelayMs: 250,
   uploadFailureRate: Number.isFinite(failureRate) ? Math.min(1, Math.max(0, failureRate)) : 0,
+  hashFile: contentHasher,   // lot X (X4) : même empreinte que le serveur
 });
 
 /** Après chaque écriture, les requêtes sont invalidées (branché par queries.ts, sans dépendance circulaire). */

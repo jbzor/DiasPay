@@ -61,4 +61,6 @@
 27. **Limitation des résolutions** : `select value from app_config where key = 'reference_failure_limit';` renvoie `10` ; le personnel surveille `security_events` (`SUSPICIOUS_ACTIVITY`).
 28. **`can_initiate_requests`** n’est accordé qu’à des comptes enrôlés par un administrateur (`select count(*) from profiles where can_initiate_requests;`), en attendant la politique d’enrôlement (K3).
 29. **Mode `IMMEDIATE` non utilisé** tant que le client n’a pas tranché (K1) : `select vertical from release_rules where release_mode = 'IMMEDIATE';` ne renvoie aucune ligne.
+30. **Empreinte des pièces obligatoire** : `select value from app_config where key = 'require_content_hash';` renvoie `true` (toutes les versions de l’application en circulation envoient l’empreinte). Contrôle : `select count(*) from documents where content_hash is null and created_at > now() - interval '30 days';` est nul.
+31. **Consultations journalisées** : une partie ne lit un fichier du bucket `dossiers` qu’après `get_document_access` (politique `dossiers_read`) ; `supabase/tests/04_lotx_p2.sql` passe sur l’environnement de recette.
 

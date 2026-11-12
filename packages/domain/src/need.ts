@@ -41,6 +41,8 @@ export interface DraftDocument {
   uri?: string;
   status: DocumentStatus;
   uploadedAt?: string;
+  /** Lot X (X4) : empreinte SHA-256 (hexadécimal) calculée par l’application avant l’envoi, immuable ensuite. */
+  contentHash?: string;
 }
 
 export interface DraftDocumentInput {
@@ -51,6 +53,8 @@ export interface DraftDocumentInput {
   mimeType?: string;
   sizeBytes: number;
   uri: string;
+  /** Empreinte déjà calculée (sinon l’API la calcule avant l’envoi). */
+  contentHash?: string;
 }
 
 export interface NeedProvider { id?: string; name: string; invitedPhone?: string }

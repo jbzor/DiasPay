@@ -1,10 +1,11 @@
-import { checkFile, checkFileCount, emptyDraft, normalizeReference } from '@diaspay/domain';
+import { checkContentHash, checkFile, checkFileCount, emptyDraft, normalizeReference } from '@diaspay/domain';
 import type { CreatorRole, DisputeOutcome, DraftDocument, DraftDocumentInput, NeedDraft, Vertical } from '@diaspay/domain';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { ApiError, newUuid } from '../need';
-import type { ProviderSummary } from '../need';
+import { ApiError, fetchHasher, newUuid } from '../need';
+import type { FileHasher, ProviderSummary } from '../need';
 import type {
-  AppNotification, AuditEntry, DisputeView, Receipt, ReferenceInfo, RequestMessage, Tranche, TrancheToken, Transaction, TransactionApi,
+  AppNotification, AuditEntry, DisputeView, DocumentAccess, DocumentReuse, Receipt, ReferenceInfo, RequestMessage, Tranche, TrancheToken, Transaction,
+  TransactionApi,
 } from '../types';
 import type { Database } from './database.types';
 import {
@@ -40,6 +41,8 @@ export const fetchUploader: FileUploader = async (target, file, onProgress) => {
 
 export interface SupabaseApiOptions {
   uploader?: FileUploader;
+  /** Lot X (X4) : empreinte SHA-256 du fichier avant l’envoi (application : expo-crypto ; défaut : fetchHasher). */
+  hashFile?: FileHasher;
   /** Clé publique (publishable) : en-tête apikey de l’envoi signé. */
   anonKey: string;
 }
@@ -50,11 +53,13 @@ export interface SupabaseApiOptions {
  */
 export class SupabaseApi implements TransactionApi {
   private readonly uploader: FileUploader;
+  private readonly hashFile: FileHasher;
   /** URL d’envoi signée par pièce : une reprise réutilise le même chemin (upsert) au lieu de créer un doublon. */
   private readonly pendingUploads = new Map<string, { path: string; url: string; at: number }>();
 
   constructor(private readonly sb: DiasPayClient, private readonly opts: SupabaseApiOptions) {
     this.uploader = opts.uploader ?? fetchUploader;
+    this.hashFile = opts.hashFile ?? fetchHasher;
   }
 
   private async userId(): Promise<string> {
@@ -184,6 +189,13 @@ export class SupabaseApi implements TransactionApi {
     const mimeType = checkFile(file);
     const current = await this.getDraft(draftId);
     checkFileCount(current.documents.filter((x) => x.kind === file.kind && x.id !== file.id).length);
+    // Lot X (X4) : empreinte calculée avant l’envoi, enregistrée avec la pièce (add_document), immuable ensuite.
+    let contentHash: string | undefined;
+    try {
+      contentHash = checkContentHash(file.contentHash ?? await this.hashFile({ uri: file.uri, mimeType, sizeBytes: file.sizeBytes }));
+    } catch (e) {
+      throw e instanceof ApiError || (e as { code?: string }).code === 'HASH_INVALID' ? e : new ApiError('UPLOAD_FAILED', 'Lecture du fichier impossible');
+    }
     const fileId = file.id ?? newUuid();
     const key = `${draftId}/${fileId}`;
     let pending = this.pendingUploads.get(key);
@@ -204,12 +216,13 @@ export class SupabaseApi implements TransactionApi {
     }
     const doc = unwrap(await this.sb.rpc('add_document', {
       p_tx: draftId, p_kind: file.kind, p_path: pending.path, p_name: file.name, p_mime: mimeType, p_size: file.sizeBytes,
+      ...(contentHash ? { p_hash: contentHash } : {}),
     }), 'addDocument');
     this.pendingUploads.delete(key);
     onProgress?.(1);
     const o = doc as Record<string, unknown>;
     return {
-      id: String(o.id), kind: file.kind, name: file.name, mimeType, sizeBytes: file.sizeBytes, uri: file.uri, status: 'UPLOADED',
+      id: String(o.id), kind: file.kind, name: file.name, mimeType, sizeBytes: file.sizeBytes, uri: file.uri, status: 'UPLOADED', contentHash,
       uploadedAt: typeof o.uploadedAt === 'string' ? new Date(o.uploadedAt).toISOString() : new Date().toISOString(),
     };
   }
@@ -228,11 +241,28 @@ export class SupabaseApi implements TransactionApi {
     unwrap(await this.sb.rpc('remove_document', { p_doc: documentId }), 'removeDocument');
   }
 
-  /** URL signée de courte durée pour consulter une pièce (bucket privé). */
+  /** URL signée de courte durée pour consulter une pièce (bucket privé), après consultation journalisée (lot X, X4). */
   async documentUrl(documentId: string): Promise<string> {
-    const row = unwrapMaybe(await this.sb.from('documents').select('storage_path').eq('id', documentId).maybeSingle(), 'documentUrl');
-    if (!row) throw new ApiError('NOT_FOUND', 'Pièce introuvable');
-    return unwrap(await this.sb.storage.from(BUCKET).createSignedUrl(row.storage_path, VIEW_URL_TTL_S), 'createSignedUrl').signedUrl;
+    return (await this.getDocumentAccess(documentId)).url;
+  }
+
+  /**
+   * Lot X (X4) : get_document_access journalise DOCUMENT_VIEWED (qui, rôle, quelle pièce), puis le stockage autorise la lecture
+   * du fichier pendant 2 minutes : l’URL signée est créée aussitôt (60 secondes).
+   */
+  async getDocumentAccess(documentId: string): Promise<DocumentAccess> {
+    const o = unwrap(await this.sb.rpc('get_document_access', { p_document: documentId }), 'getDocumentAccess') as Record<string, unknown>;
+    const path = String(o.path ?? '');
+    const url = unwrap(await this.sb.storage.from(BUCKET).createSignedUrl(path, VIEW_URL_TTL_S), 'createSignedUrl').signedUrl;
+    return {
+      id: String(o.id ?? documentId), url, name: String(o.name ?? ''), mimeType: String(o.mimeType ?? ''),
+      contentHash: typeof o.contentHash === 'string' ? o.contentHash : undefined,
+    };
+  }
+
+  async documentReuse(contentHash: string, txId?: string): Promise<DocumentReuse> {
+    const o = unwrap(await this.sb.rpc('document_reuse', { p_hash: contentHash, ...(txId ? { p_tx: txId } : {}) }), 'documentReuse') as Record<string, unknown>;
+    return { reused: o.reused === true, count: Number(o.count ?? 0) };
   }
 
   /** Le brouillon a été synchronisé par save_draft ; le serveur revérifie tout (codes D2, plan, verticale). */

@@ -17,8 +17,10 @@ function walk(dir: string): string[] {
 const sqlCodes = (sql: string) => [...sql.matchAll(/_err\('([A-Z_]+)'/g)].map((m) => m[1] ?? '');
 
 describe('table des codes d’erreur', () => {
-  it('chaque code levé par les fonctions SQL (0005, 0006, 0008) est dans la table', () => {
-    const codes = [...new Set(['0005_lot4.sql', '0006_lot5.sql', '0008_lotx.sql'].flatMap((f) => sqlCodes(read('supabase', 'migrations', f))))];
+  it('chaque code levé par les fonctions SQL (0005 et suivantes) est dans la table', () => {
+    const migrations = readdirSync(join(root, 'supabase', 'migrations')).filter((f) => /^\d{4}_.*\.sql$/.test(f) && f >= '0005');
+    expect(migrations).toContain('0009_lotx_x4.sql');
+    const codes = [...new Set(migrations.flatMap((f) => sqlCodes(read('supabase', 'migrations', f))))];
     expect(codes.length).toBeGreaterThan(40);
     expect(codes.filter((c) => !isErrorCode(c))).toEqual([]);
   });

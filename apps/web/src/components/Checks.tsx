@@ -18,6 +18,13 @@ export function checkDetail(c: Check, currency: string): string | null {
       const refs = Array.isArray(d.references) ? (d.references as string[]) : [];
       return refs.length ? t('checkDetail.duplicates', { refs: refs.join(', ') }) : null;
     }
+    case 'DOCUMENT_REUSED': {
+      // Lot X (X4) : même empreinte SHA-256 qu’une pièce d’un autre dossier (type de pièce et références de ces dossiers).
+      const docs = Array.isArray(d.documents) ? (d.documents as Array<{ kind?: string; references?: string[] }>) : [];
+      return docs.length
+        ? docs.map((x) => t('checkDetail.reused', { kind: tMaybe(`doc.${x.kind ?? ''}`) ?? x.kind ?? '', refs: (x.references ?? []).join(', ') })).join(' ; ')
+        : null;
+    }
     case 'PLAN_SUM':
       return c.result === 'OK' ? null : t('checkDetail.gap', { gap: formatAmount(Number(d.gap ?? 0), currency) });
     case 'EVIDENCE_PRESENT':

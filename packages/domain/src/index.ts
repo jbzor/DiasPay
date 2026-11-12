@@ -14,3 +14,4 @@ export * from './review';
 export * from './requests';
 export * from './notificationTemplates';
 export * from './links';
+export * from './trustvault';

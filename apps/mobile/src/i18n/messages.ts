@@ -462,6 +462,11 @@ export const fr = {
   err_INITIATOR_ONLY: 'Seul l’initiateur de la demande peut faire cela.',
   err_INITIATION_NOT_ALLOWED: 'Votre compte n’est pas autorisé à initier des demandes de paiement.',
   err_SELF_PAYER: 'Vous ne pouvez pas être le payeur de votre propre demande.',
+  // Lot X, passe 2 (X4) : empreintes des pièces.
+  err_HASH_INVALID: 'Empreinte de la pièce invalide. Choisissez à nouveau le fichier.',
+  err_HASH_REQUIRED: 'Le fichier n’a pas pu être lu. Choisissez-le à nouveau.',
+  err_HASH_IMMUTABLE: 'Cette pièce est déjà enregistrée : elle ne peut pas être modifiée.',
+  err_DOCUMENT_LOCKED: 'Le dossier est soumis : ses pièces ne peuvent plus être modifiées ni retirées.',
 } as const;
 
 export type Key = keyof typeof fr;
@@ -927,6 +932,11 @@ export const en: Record<Key, string> = {
   err_INITIATOR_ONLY: 'Only the person who initiated the request can do this.',
   err_INITIATION_NOT_ALLOWED: 'Your account is not allowed to initiate payment requests.',
   err_SELF_PAYER: 'You cannot be the payer of your own request.',
+  // Lot X, pass 2 (X4): document fingerprints.
+  err_HASH_INVALID: 'The document’s fingerprint is invalid. Choose the file again.',
+  err_HASH_REQUIRED: 'The file could not be read. Choose it again.',
+  err_HASH_IMMUTABLE: 'This document is already recorded: it cannot be changed.',
+  err_DOCUMENT_LOCKED: 'The file has been submitted: its documents can no longer be changed or removed.',
 };
 
 export const dictionaries: Record<Locale, Record<Key, string>> = { fr, en };

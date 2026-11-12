@@ -55,6 +55,10 @@ export const ERROR_CODES = {
   FILE_TYPE: 'D S — format autre que JPEG, PNG ou PDF',
   UPLOAD_FAILED: 'C — envoi du fichier interrompu',
   AUDITED_FILE: 'S C — dossier audité : ni suppression ni effacement de fichier',
+  HASH_INVALID: 'D S — empreinte de pièce mal formée (SHA-256 hexadécimal attendu ; lot X)',
+  HASH_REQUIRED: 'D S — empreinte de pièce obligatoire (réglage require_content_hash ; lot X)',
+  HASH_IMMUTABLE: 'S — l’empreinte d’une pièce ne se modifie pas (lot X)',
+  DOCUMENT_LOCKED: 'D S — pièce d’un dossier soumis : ni modification ni suppression (lot X)',
   // Jetons et confirmation
   NO_TOKEN: 'C — jeton pas encore émis pour cette tranche',
   EQR_MALFORMED: 'D — QR illisible ou étranger à DiasPay',

@@ -108,6 +108,19 @@ export interface RequestMessage {
   mine: boolean;
 }
 
+/** Consultation d’une pièce (lot X, X4) : journalisée par le serveur avant que l’URL ne soit délivrée. */
+export interface DocumentAccess {
+  id: string;
+  /** URL signée de courte durée (Supabase) ou URI locale (simulateur). */
+  url: string;
+  name: string;
+  mimeType: string;
+  contentHash?: string;
+}
+
+/** Réutilisation d’un justificatif (TrustProof) : un nombre seulement, jamais les données des autres dossiers. */
+export interface DocumentReuse { reused: boolean; count: number }
+
 export interface ReferenceInfo {
   trancheId: string;
   txId: string;
@@ -175,4 +188,10 @@ export interface TransactionApi {
 
   // Lot X (X3) : création avec un rôle explicite (PROVIDER : prestataire autorisé, payeur désigné par téléphone).
   createDraft(input: { vertical: Vertical; creatorRole: CreatorRole }): Promise<NeedDraft>;
+
+  // Lot X (X4) : TrustVault.
+  /** Consultation d’une pièce par une partie (ou le personnel) : DOCUMENT_VIEWED journalisé, puis URL de courte durée. */
+  getDocumentAccess(documentId: string): Promise<DocumentAccess>;
+  /** Cette empreinte apparaît-elle dans d’autres dossiers ? (pièce visible par l’utilisateur ; sinon NOT_FOUND) */
+  documentReuse(contentHash: string, txId?: string): Promise<DocumentReuse>;
 }

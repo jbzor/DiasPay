@@ -118,14 +118,14 @@ isOneToOne: false
                   ]
                 },"documents": {
                   Row: {
-                    "created_at": string,"deleted_at": string | null,"file_name": string | null,"id": string,"kind": string,"mime_type": string,"size_bytes": number,"storage_path": string,"tranche_id": string | null,"tx_id": string,"uploaded_by": string
+                    "content_hash": string | null,"created_at": string,"deleted_at": string | null,"file_name": string | null,"hash_algo": string | null,"id": string,"kind": string,"mime_type": string,"size_bytes": number,"storage_path": string,"tranche_id": string | null,"tx_id": string,"uploaded_by": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"deleted_at"?: string | null,"file_name"?: string | null,"id"?: string,"kind": string,"mime_type": string,"size_bytes": number,"storage_path": string,"tranche_id"?: string | null,"tx_id": string,"uploaded_by": string
+                    "content_hash"?: string | null,"created_at"?: string,"deleted_at"?: string | null,"file_name"?: string | null,"hash_algo"?: string | null,"id"?: string,"kind": string,"mime_type": string,"size_bytes": number,"storage_path": string,"tranche_id"?: string | null,"tx_id": string,"uploaded_by": string
                   }
                   Update: {
-                    "created_at"?: string,"deleted_at"?: string | null,"file_name"?: string | null,"id"?: string,"kind"?: string,"mime_type"?: string,"size_bytes"?: number,"storage_path"?: string,"tranche_id"?: string | null,"tx_id"?: string,"uploaded_by"?: string
+                    "content_hash"?: string | null,"created_at"?: string,"deleted_at"?: string | null,"file_name"?: string | null,"hash_algo"?: string | null,"id"?: string,"kind"?: string,"mime_type"?: string,"size_bytes"?: number,"storage_path"?: string,"tranche_id"?: string | null,"tx_id"?: string,"uploaded_by"?: string
                   }
                   Relationships: [
                     {
@@ -761,11 +761,17 @@ isOneToOne: false
 "_fold":
 { Args: { "p": string }; Returns: string
                            },
+"_hash_reuse":
+{ Args: { "p_hash": string,"p_tx": string }; Returns: (string)[]
+                           },
 "_issue_tranche_token":
 { Args: { "p_tranche": string }; Returns: undefined
                            },
 "_mock_mode":
 { Args: Record<PropertyKey, never>; Returns: boolean
+                           },
+"_norm_hash":
+{ Args: { "p": string }; Returns: string
                            },
 "_norm_phone":
 { Args: { "p": string }; Returns: string
@@ -912,7 +918,7 @@ isOneToOne: false
 { Args: Record<PropertyKey, never>; Returns: number
                            },
 "add_document":
-{ Args: { "p_kind": string,"p_mime": string,"p_name": string,"p_path": string,"p_size": number,"p_tx": string }; Returns: Json
+{ Args: { "p_hash"?: string,"p_kind": string,"p_mime": string,"p_name": string,"p_path": string,"p_size": number,"p_tx": string }; Returns: Json
                            },
 "answer_info":
 { Args: { "p_message": string,"p_tranche": string }; Returns: {
@@ -1131,6 +1137,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"document_reuse":
+{ Args: { "p_hash": string,"p_tx"?: string }; Returns: Json
+                           },
 "dossier_checks":
 { Args: { "p_tx": string }; Returns: {
               "code": string,"detail": Json,"result": string
@@ -1169,6 +1178,9 @@ isOneToOne: false
       } },
 "get_dispute":
 { Args: { "p_tranche": string }; Returns: Json
+                           },
+"get_document_access":
+{ Args: { "p_document": string }; Returns: Json
                            },
 "get_draft":
 { Args: { "p_tx": string }; Returns: Json

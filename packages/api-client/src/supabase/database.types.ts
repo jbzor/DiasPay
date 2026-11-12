@@ -744,14 +744,14 @@ isOneToOne: false
                   ]
                 },"transaction_parties": {
                   Row: {
-                    "invited_phone": string | null,"role": Database["public"]['Enums']["tx_role"],"tx_id": string,"user_id": string | null
+                    "id": string,"invited_phone": string | null,"role": Database["public"]['Enums']["tx_role"],"tx_id": string,"user_id": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "invited_phone"?: string | null,"role": Database["public"]['Enums']["tx_role"],"tx_id": string,"user_id"?: string | null
+                    "id"?: string,"invited_phone"?: string | null,"role": Database["public"]['Enums']["tx_role"],"tx_id": string,"user_id"?: string | null
                   }
                   Update: {
-                    "invited_phone"?: string | null,"role"?: Database["public"]['Enums']["tx_role"],"tx_id"?: string,"user_id"?: string | null
+                    "id"?: string,"invited_phone"?: string | null,"role"?: Database["public"]['Enums']["tx_role"],"tx_id"?: string,"user_id"?: string | null
                   }
                   Relationships: [
                     {

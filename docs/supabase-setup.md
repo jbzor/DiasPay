@@ -122,3 +122,4 @@ La même suite (`packages/api-client/test/contract/contract.ts`) s’exécute co
 | Remboursements (X5) | `PaymentEngine.requestRefund` (tests du domaine) ; pas d’administrateur dans le simulateur | `request_refund`, `demo_settle_refund` (administrateur non partie) |
 | Types de besoin (X6) | `DEFAULT_MODULES` (ou l’option `modules`) ; aucun administrateur pour en ajouter | table `request_modules`, écriture par un administrateur |
 | Revue par le bureau (X6) | même décision (`platformReviewDecision`) ; doublon : même créateur, même montant, même prestataire (par son nom), 30 jours | `_platform_review` : même payeur (compte ou numéro invité), même prestataire (annuaire ou nom), 30 jours |
+| Plusieurs payeurs (X7) | non modélisé (un profil de démonstration à la fois) ; règle du domaine `checkAddPayer` testée seule | déclencheur `_check_multiple_payers` sur `transaction_parties` |

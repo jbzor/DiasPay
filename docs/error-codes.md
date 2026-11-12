@@ -120,6 +120,12 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 
 Les résultats de `apply_payment_event` (`APPLIED`, `IGNORED`, `REJECTED`, `INVALID_SIGNATURE`, `DUPLICATE`) et leurs précisions (`UNKNOWN_ATTEMPT`, `AMOUNT_MISMATCH`, `CONTRADICTS_FINAL_STATE`, `STALE_EVENT`, `ALREADY_APPLIED`, `TRANCHE_NOT_AWAITING`…) ne sont pas des erreurs : la fonction répond toujours, pour que l’événement reçu reste enregistré. Voir `docs/specs/ledger.md`.
 
+## Plusieurs payeurs (lot X, X7)
+
+| Code | Origine | Signification |
+|---|---|---|
+| `MULTIPLE_PAYERS_NOT_ALLOWED` | D, S | Un second payeur n’est accepté que si le type de besoin l’autorise (`request_modules.multiple_payers`, faux partout) |
+
 ## Litiges
 
 | Code | Origine | Signification |

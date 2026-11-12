@@ -534,6 +534,52 @@ select t.login('fa000000-0000-4000-8000-000000000006');
 select t.hint($$select needs_platform_review('fa300000-0000-4000-8000-0000000000c1')$$, 'TX_NOT_FOUND', 'needs_platform_review : dossier étranger introuvable');
 select t.admin();
 
+-- ===================== X7 : structure multi-payeurs =====================
+select t.check((select pg_get_constraintdef(oid) from pg_constraint where conrelid = 'public.transaction_parties'::regclass and contype = 'p') = 'PRIMARY KEY (id)'
+           and exists (select 1 from pg_constraint where conname = 'transaction_parties_tx_user_role')
+           and exists (select 1 from pg_constraint where conname = 'transaction_parties_tx_phone_role')
+           and exists (select 1 from pg_indexes where indexname = 'transaction_parties_one_per_role'),
+  'transaction_parties : identifiant propre ; unicité (transaction, utilisateur, rôle) et (transaction, téléphone invité, rôle)');
+select t.check(not has_function_privilege('authenticated', '_check_multiple_payers()', 'execute'), 'déclencheur multi-payeurs non exécutable par le client');
+select t.check(not exists (select 1 from request_modules where multiple_payers), 'aucun module n’autorise plusieurs payeurs');
+-- Dossier existant (dossier E) : rôles et accès inchangés.
+select t.login('fa000000-0000-4000-8000-000000000003');
+select t.check(has_role('fa300000-0000-4000-8000-00000000000e', 'PROVIDER') and is_party('fa300000-0000-4000-8000-00000000000e')
+           and (select count(*) from transactions where id = 'fa300000-0000-4000-8000-00000000000e') = 1,
+  'has_role, is_party et politiques : inchangés');
+select t.admin();
+-- Second payeur refusé (module sans plusieurs payeurs), par le créateur comme par le propriétaire de la base.
+select t.login('fa000000-0000-4000-8000-000000000001');
+select save_draft(t.draft('fa300000-0000-4000-8000-0000000000d1', 10000));
+select t.hint($$insert into transaction_parties(tx_id, user_id, role) values ('fa300000-0000-4000-8000-0000000000d1', 'fa000000-0000-4000-8000-000000000006', 'PAYER')$$,
+  'MULTIPLE_PAYERS_NOT_ALLOWED', 'second payeur refusé (créateur, brouillon)');
+select t.admin();
+select t.hint($$insert into transaction_parties(tx_id, user_id, role) values ('fa300000-0000-4000-8000-0000000000d1', 'fa000000-0000-4000-8000-000000000006', 'PAYER')$$,
+  'MULTIPLE_PAYERS_NOT_ALLOWED', 'second payeur refusé même hors politique RLS');
+select t.fails($$insert into transaction_parties(tx_id, user_id, role) values ('fa300000-0000-4000-8000-0000000000d1', 'fa000000-0000-4000-8000-000000000006', 'PROVIDER')$$,
+  'un seul prestataire par dossier (inchangé)');
+-- Module de test autorisant plusieurs payeurs : accepté.
+select t.login('fa000000-0000-4000-8000-000000000007');
+insert into request_modules(code, label_fr, label_en, enabled, release_mode, multiple_payers, required_documents, display_order)
+values ('TEST_MULTI', 'Collecte de test', 'Test collection', true, 'PROVIDER_CONFIRM', true,
+        '[{"kind":"INVOICE","required":true,"maxFiles":3,"labels":{"fr":"Facture","en":"Invoice"}}]', 92);
+select t.admin();
+select t.login('fa000000-0000-4000-8000-000000000001');
+select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000d2', 'TEST_MULTI', 10000));
+insert into transaction_parties(tx_id, user_id, role) values ('fa300000-0000-4000-8000-0000000000d2', 'fa000000-0000-4000-8000-000000000006', 'PAYER');
+select t.check((select count(*) from transaction_parties where tx_id = 'fa300000-0000-4000-8000-0000000000d2' and role = 'PAYER') = 2,
+  'module autorisé : second payeur accepté');
+select t.fails($$insert into transaction_parties(tx_id, user_id, role) values ('fa300000-0000-4000-8000-0000000000d2', 'fa000000-0000-4000-8000-000000000006', 'PAYER')$$,
+  'même utilisateur deux fois payeur : refusé (unicité)');
+insert into transaction_parties(tx_id, role, invited_phone) values ('fa300000-0000-4000-8000-0000000000d2', 'PAYER', '+33623330099');
+select t.fails($$insert into transaction_parties(tx_id, role, invited_phone) values ('fa300000-0000-4000-8000-0000000000d2', 'PAYER', '+33623330099')$$,
+  'même numéro invité deux fois payeur : refusé (unicité)');
+select t.admin();
+select t.login('fa000000-0000-4000-8000-000000000006');
+select t.check(has_role('fa300000-0000-4000-8000-0000000000d2', 'PAYER') and is_party('fa300000-0000-4000-8000-0000000000d2'),
+  'le second payeur est partie au dossier (has_role, is_party)');
+select t.admin();
+
 -- ===================== Fin =====================
 -- ---------- Résumé ----------
 do $$

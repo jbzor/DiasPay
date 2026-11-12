@@ -85,6 +85,8 @@ export const ERROR_CODES = {
   REFUND_EXCEEDS_PAID: 'D S — remboursement au-delà du montant payé',
   LEDGER_UNBALANCED: 'D S — journal financier déséquilibré (par devise) ou incomplet',
   LEDGER_IMMUTABLE: 'S — journal financier et événements reçus en ajout seul (correction par contrepassation)',
+  // Plusieurs payeurs (lot X, X7)
+  MULTIPLE_PAYERS_NOT_ALLOWED: 'D S — un seul payeur pour ce type de besoin (request_modules.multiple_payers)',
   // Litiges
   DISPUTE_NOT_ALLOWED: 'D S — litige impossible dans cet état ou après le délai',
   NO_OPEN_DISPUTE: 'D S C — aucun litige en cours',

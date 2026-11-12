@@ -185,3 +185,13 @@ Principe : tant que le client n’a pas tranché, le comportement par défaut ne
   - Changements de comportement voulus, invisibles avec les modules par défaut : un code de type de besoin bien formé inconnu de l’application est accepté (un module peut s’ajouter par des données) ; le simulateur répond `VERTICAL_UNAVAILABLE` (comme le serveur) au lieu de `VALIDATION` pour un type fermé.
 - **Reste à décider** : valeurs de `platform_review` par module (K2) ; écran d’administration des modules (back-office) ; filtre « Verticale » du back-office encore limité aux six types connus ; suppression de l’enum `vertical` et des tables renommées une fois le retour arrière jugé inutile.
 
+## X-7 — Structure multi-payeurs (préparation, sans interface)
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - `transaction_parties` : identifiant propre (`id`, clé primaire) au lieu de (transaction, rôle) ; unicité (transaction, utilisateur, rôle) et (transaction, téléphone invité, rôle). **Un seul demandeur et un seul prestataire** par dossier, comme avant (index unique sur le rôle hors payeur), pour que rien ne change hors des payeurs.
+  - Second payeur : **déclencheur de contrainte** (`_check_multiple_payers`, `MULTIPLE_PAYERS_NOT_ALLOWED`), qui lit `request_modules.multiple_payers` (faux partout). Il s’applique à toute écriture, y compris hors des politiques RLS. Aucune fonction ni API ne propose d’ajouter un payeur (pas d’interface) ; la règle du domaine (`checkAddPayer`) est prête pour la phase 2.
+  - Retour arrière : `supabase/rollbacks/0012_lotx_x7_down.sql`, à jouer avant celui de 0011 ; la chaîne 0012 puis 0011 est testée dans une transaction annulée (jeu de données du développement, puis tests 00 à 03).
+  - Suite (contributions, cible, clôture, surplus, anonymat) : brouillon `docs/specs/multi-payers.md`.
+- **Reste à décider** : tout ce que liste `docs/specs/multi-payers.md` (types concernés, parts, échéance non atteinte, anonymat, litiges).
+

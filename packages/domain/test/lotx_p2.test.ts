@@ -6,7 +6,7 @@ import {
   DomainError, HASH_ALGO, LEDGER_ACCOUNTS, PaymentEngine, RECONCILIATION_ISSUES, SIMULATED_SIGNATURE_HEADER, SimulatedPaymentAdapter, bufferToHex,
   checkContentHash, documentLockError, isContentHash, journalBalanced, normalizeContentHash, otherDossiersWithHash, reconcile, sha256Hex,
 } from '../src';
-import { DEFAULT_MODULES, checkModule, describeRelease, maxFilesFor, moduleLabel, platformReviewDecision, sortModules, validateStep } from '../src';
+import { DEFAULT_MODULES, checkAddPayer, checkModule, describeRelease, maxFilesFor, moduleLabel, platformReviewDecision, sortModules, validateStep } from '../src';
 import type { IncomingWebhook, PaymentAttempt, PaymentContext, PlatformReview, RequestModule, TrancheStatus } from '../src';
 
 const root = join(__dirname, '..', '..', '..');
@@ -315,5 +315,21 @@ describe('X6 — modules (types de besoin) décrits par des données', () => {
     expect(sortModules([testModule({ displayOrder: 0 }), ...DEFAULT_MODULES])[0]?.code).toBe('TEST_NEVER');
     expect(() => checkModule(testModule({ code: 'x' }))).toThrow(DomainError);
     expect(() => checkModule(testModule({ requiredDocuments: [testModule().requiredDocuments[0]!, testModule().requiredDocuments[0]!] }))).toThrow(DomainError);
+  });
+});
+
+// ——— X7 : structure multi-payeurs ———
+describe('X7 — plusieurs payeurs, derrière un réglage du module', () => {
+  it('un second payeur n’est accepté que si le module l’autorise (miroir de _check_multiple_payers) ; faux partout par défaut', () => {
+    const edu = DEFAULT_MODULES[0]!;
+    expect(() => checkAddPayer(edu, 0)).not.toThrow();
+    expect(code(() => checkAddPayer(edu, 1))).toBe('MULTIPLE_PAYERS_NOT_ALLOWED');
+    expect(code(() => checkAddPayer(undefined, 1))).toBe('MULTIPLE_PAYERS_NOT_ALLOWED');
+    expect(() => checkAddPayer({ ...edu, multiplePayers: true }, 3)).not.toThrow();
+    expect(DEFAULT_MODULES.some((m) => m.multiplePayers)).toBe(false);
+    const fn = sql('0012_lotx_x7.sql');
+    expect(fn).toMatch(/_err\('MULTIPLE_PAYERS_NOT_ALLOWED'/);
+    expect(fn).toMatch(/unique \(tx_id, user_id, role\)/);
+    expect(fn).toMatch(/unique \(tx_id, invited_phone, role\)/);
   });
 });

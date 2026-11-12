@@ -475,6 +475,8 @@ export const fr = {
   err_REFUND_EXCEEDS_PAID: 'Le remboursement dépasse le montant payé.',
   err_LEDGER_UNBALANCED: 'Écriture comptable refusée. Réessayez plus tard.',
   err_LEDGER_IMMUTABLE: 'Écriture comptable définitive : elle ne peut pas être modifiée.',
+  // Lot X, passe 2 (X7) : un seul payeur par type de besoin.
+  err_MULTIPLE_PAYERS_NOT_ALLOWED: 'Ce type de besoin n’accepte qu’un seul payeur.',
 } as const;
 
 export type Key = keyof typeof fr;
@@ -953,6 +955,8 @@ export const en: Record<Key, string> = {
   err_REFUND_EXCEEDS_PAID: 'The refund exceeds the amount paid.',
   err_LEDGER_UNBALANCED: 'Accounting entry refused. Try again later.',
   err_LEDGER_IMMUTABLE: 'Accounting entries are final: they cannot be changed.',
+  // Lot X, pass 2 (X7): one payer per request type.
+  err_MULTIPLE_PAYERS_NOT_ALLOWED: 'This request type accepts only one payer.',
 };
 
 export const dictionaries: Record<Locale, Record<Key, string>> = { fr, en };

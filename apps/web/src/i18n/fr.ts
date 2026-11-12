@@ -468,6 +468,7 @@ export const frErrors: Record<ErrorCode, string> = {
   REFUND_EXCEEDS_PAID: 'Le remboursement dépasse le montant payé.',
   LEDGER_UNBALANCED: 'Journal financier déséquilibré.',
   LEDGER_IMMUTABLE: 'Le journal financier est en ajout seul : une correction est une contrepassation.',
+  MULTIPLE_PAYERS_NOT_ALLOWED: 'Un seul payeur pour ce type de besoin.',
   NOT_REVOCABLE: 'Tranche déjà payée : seul un administrateur peut révoquer son QR.',
   TOO_MANY_ATTEMPTS: 'Trop de tentatives : réessayez plus tard.',
   TOKEN_USED: 'Ce jeton a déjà été utilisé.',

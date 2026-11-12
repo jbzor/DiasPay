@@ -121,6 +121,14 @@ export function platformReviewDecision(module: RequestModule | undefined, ctx: {
   return { review: reasons.length > 0, reasons };
 }
 
+/**
+ * Lot X (X7) : un payeur de plus n’est accepté que si le module l’autorise (multiple_payers, faux partout). Miroir du
+ * déclencheur _check_multiple_payers. `payers` : payeurs déjà au dossier.
+ */
+export function checkAddPayer(module: RequestModule | undefined, payers: number): void {
+  if (payers >= 1 && !module?.multiplePayers) throw new DomainError('MULTIPLE_PAYERS_NOT_ALLOWED', 'Un seul payeur pour ce type de besoin');
+}
+
 /** Contrôle d’un module décrit par des données (miroir de _check_module_documents). */
 export function checkModule(m: RequestModule): void {
   const bad = (what: string) => { throw new DomainError('VALIDATION', `Module invalide : ${what}`); };

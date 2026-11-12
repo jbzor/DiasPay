@@ -100,6 +100,13 @@ Le codec (`encodeEqr`, `decodeEqr`, `formatReference`, `normalizeReference`) est
 
 **Aucun lien externe (lot X, exigence 5.1 du cahier).** Le TrustLink n’est jamais transmis par WhatsApp, SMS ou e-mail : ces canaux n’envoient qu’une invitation fixe à ouvrir l’application (`packages/domain/src/notificationTemplates.ts`, sans adresse ni montant ni nom, vérifié par test). L’écran du jeton n’a ni partage, ni copie, ni enregistrement, ni adresse de lien ; il n’affiche le QR qu’au payeur connecté pour sa propre tranche payée, interdit la capture d’écran (`expo-screen-capture`) et masque l’image du QR si `app_config.eqr_image_enabled = 'false'` (la référence reste lisible pour la saisie manuelle). Aucune adresse `https://…` n’ouvre l’application ; le schéma `diaspay://` ne sert qu’aux ouvertures internes et ne porte qu’un identifiant de tranche (`diaspay://tranche/<id>`, filtré par `src/app/+native-intent.tsx` et `parseInternalLink`) : toute autre adresse est ignorée, la navigation exige une session et la lecture passe par la RLS. Le jeton peut être révoqué ou réémis par l’initiateur avant paiement (`revokeToken`, `reissueToken`) ; un jeton révoqué est refusé partout (`TOKEN_REVOKED`).
 
+**Lot X, passe 2 (fondations, aucun écran nouveau).**
+- **Pièces** : chaque pièce porte une empreinte SHA-256 calculée sur l’appareil (`expo-crypto`), immuable. La réutilisation d’un justificatif est signalée au bureau de contrôle (`DOCUMENT_REUSED`). Toute consultation est journalisée (`get_document_access`).
+- **Paiements** : ils passent par des tentatives idempotentes, puis par les événements du partenaire (simulé), appliqués par une seule fonction réservée au service. Un journal financier à double entrée, immuable, et une vue de rapprochement les accompagnent (`docs/specs/ledger.md`). TrustPayWay n’est pas appelé.
+- **Types de besoin** : ce sont des données (`request_modules`). Un nouveau type s’ajoute par une ligne, sans code. La revue par le bureau reste `ALWAYS` partout.
+- **Plusieurs payeurs** : la structure est prête, mais aucun type ne l’autorise (`docs/specs/multi-payers.md`).
+- **Migrations** : 0009 à 0012. Les retours arrière sont dans `supabase/rollbacks/`. Test : `supabase/tests/04_lotx_p2.sql`.
+
 **Caméra** : sur le web, le scan par caméra n’est pas proposé (saisie manuelle de la référence seulement). Si l’autorisation est refusée, un écran l’explique et renvoie aux réglages ; la saisie manuelle reste toujours disponible.
 
 ### Parcours de démonstration

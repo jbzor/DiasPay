@@ -52,7 +52,7 @@ function healthDraft(id: string, over: Partial<NeedDraft> = {}): NeedDraft {
   const due = inDays(3);
   return {
     ...emptyDraft(id, new Date()), vertical: 'HEALTH', amountMinor: 180_000, currency: 'XAF', purpose: 'Soins (test de contrat)',
-    beneficiaryName: 'Rose M.', desiredDate: due, provider: { name: 'Cabinet (test de contrat)', invitedPhone: '+237699000001' },
+    beneficiaryReference: 'RM-12', desiredDate: due, provider: { name: 'Cabinet (test de contrat)', invitedPhone: '+237699000001' },
     planType: 'SINGLE', tranches: [{ label: 'Soins', amountMinor: 180_000, dueDate: due }], step: 'recap', ...over,
   };
 }
@@ -63,7 +63,6 @@ export function contractSuite(h: Harness): void {
     const id = newUuid();
     await api.saveDraft(healthDraft(id, over));
     await api.attachDocument(id, h.file('QUOTE'));
-    await api.attachDocument(id, h.file('BENEFICIARY_ID'));
     return api.submitNeed(id);
   }
   const t = h.timeout;
@@ -99,18 +98,21 @@ export function contractSuite(h: Harness): void {
       await (await h.as('PAYER')).deleteDraft(id);
     }, t);
 
-    it('soumission : pièce obligatoire manquante, puis dossier complet activé directement (règlement direct)', async () => {
+    it('soumission : santé (K13) sans référence ni pièce d’identité, puis dossier complet activé directement (règlement direct)', async () => {
       const api = await h.as('PAYER');
       const id = newUuid();
-      await api.saveDraft(healthDraft(id));
-      await api.attachDocument(id, h.file('QUOTE'));
-      const missing = await api.submitNeed(id).catch((e: { code: string; details?: { kind?: string } }) => e);
-      expect(missing).toMatchObject({ code: 'DOCUMENT_REQUIRED', details: { kind: 'BENEFICIARY_ID' } });
-      const doc = await api.attachDocument(id, h.file('BENEFICIARY_ID'));
-      expect(doc).toMatchObject({ kind: 'BENEFICIARY_ID', status: 'UPLOADED' });
+      expect(await code(api.saveDraft({ ...healthDraft(id), beneficiaryName: 'Rose Mbarga' }))).toBe('BENEFICIARY_NAME_NOT_ALLOWED');
+      await api.saveDraft({ ...healthDraft(id), beneficiaryReference: undefined });
+      const doc = await api.attachDocument(id, h.file('QUOTE'));
+      expect(doc).toMatchObject({ kind: 'QUOTE', status: 'UPLOADED' });
+      expect(await code(api.attachDocument(id, h.file('BENEFICIARY_ID')))).toBe('DOCUMENT_KIND_NOT_ALLOWED');
+      expect(await code(api.submitNeed(id))).toBe('BENEFICIARY_REFERENCE_REQUIRED');
+      await api.saveDraft({ ...(await api.getDraft(id)), beneficiaryReference: 'rm-12' });
       const draft = await api.getDraft(id);
-      expect(draft.documents.map((d) => d.kind).sort()).toEqual(['BENEFICIARY_ID', 'QUOTE']);
+      expect(draft.documents.map((d) => d.kind)).toEqual(['QUOTE']);
       const tx = await api.submitNeed(id);
+      expect(tx.beneficiaryReference).toBe('RM-12');
+      expect(tx.beneficiaryName).toBe('');
       // Lot X v2 : module platform_review NEVER (défaut) : l’opération est active dès la soumission, la demande due est soumise.
       expect(tx.status).toBe('ACTIVE');
       expect(tx).toMatchObject({ vertical: 'HEALTH', settlementMode: 'DIRECT', amount: { amountMinor: 180_000, currency: 'XAF' }, purpose: 'Soins (test de contrat)' });
@@ -143,7 +145,6 @@ export function contractSuite(h: Harness): void {
       const id = newUuid();
       await api.saveDraft(healthDraft(id, { tranches: [{ label: 'Soins', amountMinor: 100_000, dueDate: inDays(3) }] }));
       await api.attachDocument(id, h.file('QUOTE'));
-      await api.attachDocument(id, h.file('BENEFICIARY_ID'));
       const e = await api.submitNeed(id).catch((x: { code: string; details?: Record<string, unknown> }) => x);
       expect(e).toMatchObject({ code: 'PLAN_SUM_MISMATCH', details: { gap: 80_000 } });
       await api.deleteDraft(id);
@@ -270,14 +271,12 @@ export function contractSuite(h: Harness): void {
       await api.saveDraft(healthDraft(a));
       const quote = await api.attachDocument(a, h.file('QUOTE'));
       expect(quote.contentHash).toMatch(/^[0-9a-f]{64}$/);
-      await api.attachDocument(a, h.file('BENEFICIARY_ID'));
       const txA = await api.submitNeed(a);
       // Second dossier avec le même devis (même fichier, donc même empreinte).
       const b = newUuid();
       await api.saveDraft(healthDraft(b, { amountMinor: 190_000, tranches: [{ label: 'Soins', amountMinor: 190_000, dueDate: inDays(3) }] }));
       const again = await api.attachDocument(b, h.file('QUOTE'));
       expect(again.contentHash).toBe(quote.contentHash);
-      await api.attachDocument(b, h.file('BENEFICIARY_ID'));
       const txB = await api.submitNeed(b);
       const reuse = await api.documentReuse(quote.contentHash!, txB.id);
       expect(reuse.reused).toBe(true);

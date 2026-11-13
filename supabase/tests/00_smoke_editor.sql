@@ -310,15 +310,15 @@ select t.admin();
 -- ---------- Rejet : opération annulée (D4 remplacée) ----------
 -- Lot X v2 : un rejet du bureau annule l’opération (CANCELLED, motif) ; le statut REJECTED et l’abandon qui suivait n’existent plus.
 select t.login('00000000-0000-0000-0000-000000000001');
-insert into transactions(id, vertical, purpose, amount_minor, currency, created_by)
- values ('30000000-0000-0000-0000-000000000001','HEALTH','Soins',180000,'XAF','00000000-0000-0000-0000-000000000001');
+-- Lot X v2 (X6, 0022) : la santé n’enregistre qu’une référence du patient et un devis (K13).
+insert into transactions(id, vertical, purpose, amount_minor, currency, created_by, beneficiary_reference)
+ values ('30000000-0000-0000-0000-000000000001','HEALTH','Soins',180000,'XAF','00000000-0000-0000-0000-000000000001','P-001');
 insert into transaction_parties(tx_id,user_id,role) values
  ('30000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001','REQUESTER'),
  ('30000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002','PAYER'),
  ('30000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000003','PROVIDER');
 select count(*) from create_tranches('30000000-0000-0000-0000-000000000001','[{"label":"Soins","amount_minor":180000}]'::jsonb);
-insert into documents(tx_id,kind,storage_path,mime_type,size_bytes,uploaded_by) values ('30000000-0000-0000-0000-000000000001','QUOTE','30000000-0000-0000-0000-000000000001/q.pdf','application/pdf',1000,'00000000-0000-0000-0000-000000000001'),
- ('30000000-0000-0000-0000-000000000001','BENEFICIARY_ID','30000000-0000-0000-0000-000000000001/id.jpg','image/jpeg',1000,'00000000-0000-0000-0000-000000000001');
+insert into documents(tx_id,kind,storage_path,mime_type,size_bytes,uploaded_by) values ('30000000-0000-0000-0000-000000000001','QUOTE','30000000-0000-0000-0000-000000000001/q.pdf','application/pdf',1000,'00000000-0000-0000-0000-000000000001');
 select transition_tx('30000000-0000-0000-0000-000000000001','SUBMITTED');
 select t.admin();
 select t.login('00000000-0000-0000-0000-000000000004');
@@ -354,15 +354,14 @@ select t.admin();
 
 -- ---------- Dossier rejeté : plus de correction ; brouillon audité non supprimable ----------
 select t.login('00000000-0000-0000-0000-000000000001');
-insert into transactions(id, vertical, purpose, amount_minor, currency, created_by)
- values ('50000000-0000-0000-0000-000000000001','HEALTH','Dossier à corriger',1000,'XAF','00000000-0000-0000-0000-000000000001');
+insert into transactions(id, vertical, purpose, amount_minor, currency, created_by, beneficiary_reference)
+ values ('50000000-0000-0000-0000-000000000001','HEALTH','Dossier à corriger',1000,'XAF','00000000-0000-0000-0000-000000000001','P-002');
 insert into transaction_parties(tx_id,user_id,role) values
  ('50000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001','REQUESTER'),
  ('50000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002','PAYER'),
  ('50000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000003','PROVIDER');
 select count(*) from create_tranches('50000000-0000-0000-0000-000000000001','[{"label":"Soins","amount_minor":1000}]'::jsonb);
-insert into documents(tx_id,kind,storage_path,mime_type,size_bytes,uploaded_by) values ('50000000-0000-0000-0000-000000000001','QUOTE','50000000-0000-0000-0000-000000000001/q.pdf','application/pdf',10,'00000000-0000-0000-0000-000000000001'),
- ('50000000-0000-0000-0000-000000000001','BENEFICIARY_ID','50000000-0000-0000-0000-000000000001/id.jpg','image/jpeg',10,'00000000-0000-0000-0000-000000000001');
+insert into documents(tx_id,kind,storage_path,mime_type,size_bytes,uploaded_by) values ('50000000-0000-0000-0000-000000000001','QUOTE','50000000-0000-0000-0000-000000000001/q.pdf','application/pdf',10,'00000000-0000-0000-0000-000000000001');
 select transition_tx('50000000-0000-0000-0000-000000000001','SUBMITTED');
 select t.admin();
 select t.login('00000000-0000-0000-0000-000000000004');

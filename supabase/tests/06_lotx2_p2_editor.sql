@@ -1,8 +1,8 @@
 -- VARIANTE POUR L’ÉDITEUR SQL DE SUPABASE, générée depuis 06_lotx2_p2.sql par scripts/sql-editor-variant.mjs : ne pas modifier.
 -- Coller tout le fichier dans l’éditeur et exécuter : lire le message d’erreur final (RESULTAT ou ECHEC).
--- Test des migrations 0020 à 0022 (lot X version 2, passe 2 : X4 à X6). Même format que 05_lotx2_p1.sql : utilisateurs
+-- Test des migrations 0020 à 0023 (lot X version 2, passe 2 : X4 à X6). Même format que 05_lotx2_p1.sql : utilisateurs
 -- fictifs, rôles réels (authenticated, anon, service_role), tout est annulé à la fin (ROLLBACK), le résumé échoue au moindre FAIL.
--- Prérequis : 0001 à 0022 appliquées, app_config.mock_mode = 'true' (projet de développement).
+-- Prérequis : 0001 à 0023 appliquées, app_config.mock_mode = 'true' (projet de développement).
 begin;
 create schema t;
 create table t.results (n serial primary key, ok boolean not null, label text not null);
@@ -405,7 +405,90 @@ select t.check((select issues from v_reconciliation where attempt_id = (select v
 select t.admin();
 
 
--- @@X6@@
+-- ===================== X6 : types de besoin configurables, données minimales =====================
+-- ---------- Modules ----------
+select t.check((select beneficiary_mode = 'REFERENCE_ONLY' and required_documents
+                = '[{"kind": "QUOTE", "labels": {"en": "Quote or pro forma invoice", "fr": "Devis ou facture proforma"}, "maxFiles": 3, "required": true, "sensitivity": "SENSITIVE"}]'::jsonb
+                from request_modules where code = 'HEALTH'),
+  'X6 : santé (K13) : devis seul, sensible ; référence minimale du patient ; plus de pièce d’identité ni de certificat médical');
+select t.check((select bool_and(beneficiary_mode = 'NAME') from request_modules where code in ('EDUCATION','RENT','AGRO','REAL_ESTATE','LAND'))
+           and (select bool_and(retention_days is null) from request_modules)
+           and not exists (select 1 from request_modules m, jsonb_array_elements(m.required_documents) d where d->>'sensitivity' is null),
+  'X6 : autres modules : nom du bénéficiaire ; conservation non décidée (nulle) ; sensibilité explicite de chaque pièce');
+select t.login('fd000000-0000-4000-8000-000000000007');
+select t.hint($$update request_modules set required_documents = '[{"kind":"QUOTE","required":true,"maxFiles":1,"labels":{"fr":"Devis","en":"Quote"},"sensitivity":"SECRET"}]' where code = 'HEALTH'$$,
+  'VALIDATION', 'X6 : sensibilité inconnue refusée');
+select t.fails($$update request_modules set beneficiary_mode = 'FULL_NAME' where code = 'HEALTH'$$, 'X6 : mode de bénéficiaire inconnu refusé');
+-- Un type de besoin s’ajoute par une ligne de données (sans nom de bénéficiaire).
+insert into request_modules(code, label_fr, label_en, enabled, wave, release_mode, contest_hours, platform_review, beneficiary_mode, required_documents, display_order)
+values ('TEST_ANON', 'Don anonyme', 'Anonymous gift', true, 1, 'PROVIDER_CONFIRM', 0, 'NEVER', 'NONE',
+        '[{"kind":"RECEIPT","required":true,"maxFiles":2,"labels":{"fr":"Reçu","en":"Receipt"},"sensitivity":"STANDARD"}]', 95);
+select t.admin();
+
+-- ---------- Bénéficiaire : référence minimale (santé), aucun nom ----------
+select t.login('fd000000-0000-4000-8000-000000000002');
+select t.hint($$select save_draft(t.op('fd300000-0000-4000-8000-000000000061', 'HEALTH', 80000, '+33625550001'))$$,
+  'BENEFICIARY_NAME_NOT_ALLOWED', 'X6 : santé : nom du bénéficiaire refusé');
+select t.hint($$select save_draft(t.op('fd300000-0000-4000-8000-000000000061', 'HEALTH', 80000, '+33625550001') - 'beneficiaryName' || '{"beneficiaryReference":"Jean Dupont"}')$$,
+  'BENEFICIARY_REFERENCE_INVALID', 'X6 : référence : jamais un nom complet (espace refusé)');
+select save_draft(t.op('fd300000-0000-4000-8000-000000000061', 'HEALTH', 80000, '+33625550001') - 'beneficiaryName' || '{"purpose":"Consultation de cardiologie"}');
+select t.hint($$select submit_operation('fd300000-0000-4000-8000-000000000061')$$, 'BENEFICIARY_REFERENCE_REQUIRED', 'X6 : santé : référence requise à la soumission');
+select save_draft(t.op('fd300000-0000-4000-8000-000000000061', 'HEALTH', 80000, '+33625550001') - 'beneficiaryName'
+                  || '{"purpose":"Consultation de cardiologie","beneficiaryReference":"jd-07"}');
+select t.check((select beneficiary_reference = 'JD-07' and beneficiary_name is null and not (draft_data ? 'beneficiaryName')
+                from transactions where id = 'fd300000-0000-4000-8000-000000000061'),
+  'X6 : référence enregistrée (majuscules), aucun nom, ni dans le brouillon');
+select t.hint($$select add_document('fd300000-0000-4000-8000-000000000061', 'BENEFICIARY_ID', 'fd300000-0000-4000-8000-000000000061/BENEFICIARY_ID/id.jpg', 'id.jpg', 'image/jpeg', 1000)$$,
+  'DOCUMENT_KIND_NOT_ALLOWED', 'X6 : pièce d’identité du bénéficiaire refusée');
+select t.hint($$select add_document('fd300000-0000-4000-8000-000000000061', 'MEDICAL_CERTIFICATE', 'fd300000-0000-4000-8000-000000000061/MEDICAL_CERTIFICATE/c.pdf', 'c.pdf', 'application/pdf', 1000)$$,
+  'DOCUMENT_KIND_NOT_ALLOWED', 'X6 : certificat médical refusé');
+insert into t.ids select 'hq', (add_document('fd300000-0000-4000-8000-000000000061', 'QUOTE',
+  'fd300000-0000-4000-8000-000000000061/QUOTE/devis-cardio-jean-dupont.pdf', 'devis-cardio-jean-dupont.pdf', 'application/pdf', 1000)->>'id')::uuid;
+select submit_operation('fd300000-0000-4000-8000-000000000061');
+select t.check((select status from transactions where id = 'fd300000-0000-4000-8000-000000000061') = 'ACTIVE', 'X6 : santé : devis seul suffit, opération active');
+select t.admin();
+insert into storage.objects(bucket_id, name) values ('dossiers', 'fd300000-0000-4000-8000-000000000061/QUOTE/devis-cardio-jean-dupont.pdf');
+select t.login('fd000000-0000-4000-8000-000000000001');
+select get_document_access((select v from t.ids where k = 'hq'));
+select t.check((select count(*) from storage.objects where name = 'fd300000-0000-4000-8000-000000000061/QUOTE/devis-cardio-jean-dupont.pdf') = 1,
+  'X6 : pièce sensible lisible par le payeur après consultation journalisée');
+select t.admin();
+select t.check((select payload ? 'path_sha256' and (payload->>'sensitive')::boolean and not (payload ? 'file_name') and not (payload ? 'path')
+                from audit_log where tx_id = 'fd300000-0000-4000-8000-000000000061' and event = 'DOCUMENT_VIEWED'),
+  'X6 : consultation d’une pièce sensible journalisée sans nom de fichier ni chemin');
+select t.check(not exists (select 1 from audit_log where tx_id = 'fd300000-0000-4000-8000-000000000061'
+                           and (payload::text ilike '%cardio%' or payload::text ilike '%dupont%' or payload::text like '%JD-07%'))
+           and not exists (select 1 from notifications where tx_id = 'fd300000-0000-4000-8000-000000000061'
+                           and (payload::text ilike '%cardio%' or payload::text ilike '%dupont%' or payload::text like '%JD-07%'))
+           and exists (select 1 from notifications where tx_id = 'fd300000-0000-4000-8000-000000000061' and event = 'PAYMENT_REQUEST_RECEIVED'),
+  'X6 : aucune donnée de santé (objet, référence, nom de fichier) dans le journal ni les alertes');
+-- Pièce non sensible : journalisation inchangée (nom de fichier et chemin).
+select t.login('fd000000-0000-4000-8000-000000000001');
+select get_document_access((select id from documents where tx_id = 'fd300000-0000-4000-8000-000000000001' and kind = 'ENROLMENT_CERTIFICATE'));
+select t.admin();
+select t.check((select payload ? 'file_name' and payload ? 'path' and not payload ? 'path_sha256' from audit_log
+                where tx_id = 'fd300000-0000-4000-8000-000000000001' and event = 'DOCUMENT_VIEWED' order by id desc limit 1),
+  'X6 : pièce ordinaire : journalisation inchangée (nom de fichier et chemin)');
+
+-- ---------- Module ajouté par des données, sans bénéficiaire ----------
+select t.login('fd000000-0000-4000-8000-000000000002');
+select t.hint($$select save_draft(t.op('fd300000-0000-4000-8000-000000000062', 'TEST_ANON', 20000, '+33625550001'))$$,
+  'BENEFICIARY_NAME_NOT_ALLOWED', 'X6 : module sans bénéficiaire : nom refusé');
+select save_draft(t.op('fd300000-0000-4000-8000-000000000062', 'TEST_ANON', 20000, '+33625550001') - 'beneficiaryName' || '{"beneficiaryReference":"X1"}');
+select add_document('fd300000-0000-4000-8000-000000000062', 'RECEIPT', 'fd300000-0000-4000-8000-000000000062/RECEIPT/r.pdf', 'r.pdf', 'application/pdf', 1000);
+select submit_operation('fd300000-0000-4000-8000-000000000062');
+select t.check((select status = 'ACTIVE' and beneficiary_name is null and beneficiary_reference is null and settlement_mode = 'DIRECT'
+                from transactions where id = 'fd300000-0000-4000-8000-000000000062'),
+  'X6 : un nouveau type de besoin, ajouté par une ligne de données, fonctionne de bout en bout (aucun bénéficiaire enregistré)');
+-- Vague 2 désactivée : refusée.
+select save_draft(t.op('fd300000-0000-4000-8000-000000000063', 'LAND', 20000, '+33625550001'));
+-- 0023 : la preuve de jalon reste acceptée quel que soit le module ; un autre type non prévu est refusé.
+select t.ok($$select add_document('fd300000-0000-4000-8000-000000000063', 'EVIDENCE', 'fd300000-0000-4000-8000-000000000063/EVIDENCE/acte.pdf', 'acte.pdf', 'application/pdf', 1000)$$,
+  'X6 : preuve de jalon (EVIDENCE) acceptée, hors liste du module (0023)');
+select t.hint($$select add_document('fd300000-0000-4000-8000-000000000063', 'LEASE', 'fd300000-0000-4000-8000-000000000063/LEASE/b.pdf', 'b.pdf', 'application/pdf', 1000)$$,
+  'DOCUMENT_KIND_NOT_ALLOWED', 'X6 : terrain : bail refusé (type non prévu)');
+select t.hint($$select submit_operation('fd300000-0000-4000-8000-000000000063')$$, 'VERTICAL_UNAVAILABLE', 'X6 : type de la vague 2 désactivé : refusé');
+select t.admin();
 
 -- ===================== Fin =====================
 -- ---------- Résumé (éditeur SQL) ----------

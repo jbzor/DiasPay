@@ -10,9 +10,8 @@ import type { AuditEntryInput, ChainedAuditEntry } from '../src';
 
 describe('pièces (D2)', () => {
   it('listes de la vague 1 confirmées', () => {
-    expect(REQUIRED_DOCUMENTS.HEALTH).toEqual([
-      { kind: 'QUOTE', required: true }, { kind: 'BENEFICIARY_ID', required: true }, { kind: 'MEDICAL_CERTIFICATE', required: false },
-    ]);
+    // D2 corrigée pour la santé (K13, lot X v2) : le devis seul.
+    expect(REQUIRED_DOCUMENTS.HEALTH).toEqual([{ kind: 'QUOTE', required: true }]);
     expect(REQUIRED_DOCUMENTS.EDUCATION).toEqual([{ kind: 'ENROLMENT_CERTIFICATE', required: true }, { kind: 'SCHOOL_SCHEDULE', required: false }]);
     expect(REQUIRED_DOCUMENTS.RENT).toEqual([{ kind: 'LEASE', required: true }, { kind: 'LAST_RECEIPT', required: false }]);
   });
@@ -21,7 +20,8 @@ describe('pièces (D2)', () => {
     expect(() => checkFileCount(2)).not.toThrow();
     expect(() => checkFileCount(3)).toThrow(expect.objectContaining({ code: 'TOO_MANY_FILES' }));
     const f = (kind: string) => ({ kind, status: 'UPLOADED' });
-    expect(missingRequiredDocuments('HEALTH', [f('QUOTE'), f('QUOTE'), f('BENEFICIARY_ID')])).toEqual([]);
+    expect(missingRequiredDocuments('HEALTH', [f('QUOTE'), f('QUOTE')])).toEqual([]);
+    expect(missingRequiredDocuments('EDUCATION', [f('ENROLMENT_CERTIFICATE'), f('ENROLMENT_CERTIFICATE')])).toEqual([]);
   });
 });
 

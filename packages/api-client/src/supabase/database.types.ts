@@ -252,9 +252,9 @@ isOneToOne: false
                   ]
                 },"documents": {
                   Row: {
-                    "content_hash": string | null,"created_at": string,"deleted_at": string | null,"file_name": string | null,"hash_algo": string | null,"id": string,"kind": string,"mime_type": string,"size_bytes": number,"storage_path": string,"tranche_id": string | null,"tx_id": string,"uploaded_by": string
+                    "content_hash": string | null,"created_at": string,"deleted_at": string | null,"file_name": string | null,"hash_algo": string | null,"id": string,"kind": string,"mime_type": string,"size_bytes": number,"storage_path": string,"tranche_id": string | null,"tx_id": string,"uploaded_by": string,"_doc_sensitive": boolean | null,"_doc_view_payload": Json | null
                   }
-                  ComputedFields: never
+                  ComputedFields: "_doc_sensitive" | "_doc_view_payload"
                   Insert: {
                     "content_hash"?: string | null,"created_at"?: string,"deleted_at"?: string | null,"file_name"?: string | null,"hash_algo"?: string | null,"id"?: string,"kind": string,"mime_type": string,"size_bytes": number,"storage_path": string,"tranche_id"?: string | null,"tx_id": string,"uploaded_by": string
                   }
@@ -994,14 +994,14 @@ isOneToOne: false
                   ]
                 },"request_modules": {
                   Row: {
-                    "code": string,"contest_hours": number,"created_at": string,"description_en": string | null,"description_fr": string | null,"display_order": number,"dual_validation": boolean,"enabled": boolean,"label_en": string,"label_fr": string,"multiple_payers": boolean,"platform_review": string,"release_mode": Database["public"]['Enums']["release_mode"],"request_expiry_days": number | null,"required_documents": NonNullable<Json>,"settlement_mode": Database["public"]['Enums']["settlement_mode"],"updated_at": string,"wave": number
+                    "beneficiary_mode": string,"code": string,"contest_hours": number,"created_at": string,"description_en": string | null,"description_fr": string | null,"display_order": number,"dual_validation": boolean,"enabled": boolean,"label_en": string,"label_fr": string,"multiple_payers": boolean,"platform_review": string,"release_mode": Database["public"]['Enums']["release_mode"],"request_expiry_days": number | null,"required_documents": NonNullable<Json>,"retention_days": number | null,"settlement_mode": Database["public"]['Enums']["settlement_mode"],"updated_at": string,"wave": number
                   }
                   ComputedFields: never
                   Insert: {
-                    "code": string,"contest_hours"?: number,"created_at"?: string,"description_en"?: string | null,"description_fr"?: string | null,"display_order"?: number,"dual_validation"?: boolean,"enabled"?: boolean,"label_en": string,"label_fr": string,"multiple_payers"?: boolean,"platform_review"?: string,"release_mode": Database["public"]['Enums']["release_mode"],"request_expiry_days"?: number | null,"required_documents"?: NonNullable<Json>,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"updated_at"?: string,"wave"?: number
+                    "beneficiary_mode"?: string,"code": string,"contest_hours"?: number,"created_at"?: string,"description_en"?: string | null,"description_fr"?: string | null,"display_order"?: number,"dual_validation"?: boolean,"enabled"?: boolean,"label_en": string,"label_fr": string,"multiple_payers"?: boolean,"platform_review"?: string,"release_mode": Database["public"]['Enums']["release_mode"],"request_expiry_days"?: number | null,"required_documents"?: NonNullable<Json>,"retention_days"?: number | null,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"updated_at"?: string,"wave"?: number
                   }
                   Update: {
-                    "code"?: string,"contest_hours"?: number,"created_at"?: string,"description_en"?: string | null,"description_fr"?: string | null,"display_order"?: number,"dual_validation"?: boolean,"enabled"?: boolean,"label_en"?: string,"label_fr"?: string,"multiple_payers"?: boolean,"platform_review"?: string,"release_mode"?: Database["public"]['Enums']["release_mode"],"request_expiry_days"?: number | null,"required_documents"?: NonNullable<Json>,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"updated_at"?: string,"wave"?: number
+                    "beneficiary_mode"?: string,"code"?: string,"contest_hours"?: number,"created_at"?: string,"description_en"?: string | null,"description_fr"?: string | null,"display_order"?: number,"dual_validation"?: boolean,"enabled"?: boolean,"label_en"?: string,"label_fr"?: string,"multiple_payers"?: boolean,"platform_review"?: string,"release_mode"?: Database["public"]['Enums']["release_mode"],"request_expiry_days"?: number | null,"required_documents"?: NonNullable<Json>,"retention_days"?: number | null,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"updated_at"?: string,"wave"?: number
                   }
                   Relationships: [
                     
@@ -1158,14 +1158,14 @@ isOneToOne: false
                   ]
                 },"transactions": {
                   Row: {
-                    "accepted_at": string | null,"accepted_by": string | null,"amount_minor": number | null,"beneficiary_name": string | null,"created_at": string,"created_by": string,"currency": Database["public"]['Enums']["currency"] | null,"draft_data": NonNullable<Json>,"due_date": string | null,"expires_at": string | null,"id": string,"initiator_id": string | null,"plan_type": string | null,"provider_id": string | null,"provider_name": string | null,"purpose": string | null,"reject_reason": string | null,"settlement_mode": Database["public"]['Enums']["settlement_mode"],"status": Database["public"]['Enums']["tx_status"],"updated_at": string,"vertical": string
+                    "accepted_at": string | null,"accepted_by": string | null,"amount_minor": number | null,"beneficiary_name": string | null,"beneficiary_reference": string | null,"created_at": string,"created_by": string,"currency": Database["public"]['Enums']["currency"] | null,"draft_data": NonNullable<Json>,"due_date": string | null,"expires_at": string | null,"id": string,"initiator_id": string | null,"plan_type": string | null,"provider_id": string | null,"provider_name": string | null,"purpose": string | null,"reject_reason": string | null,"settlement_mode": Database["public"]['Enums']["settlement_mode"],"status": Database["public"]['Enums']["tx_status"],"updated_at": string,"vertical": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "accepted_at"?: string | null,"accepted_by"?: string | null,"amount_minor"?: number | null,"beneficiary_name"?: string | null,"created_at"?: string,"created_by": string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"initiator_id"?: string | null,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical": string
+                    "accepted_at"?: string | null,"accepted_by"?: string | null,"amount_minor"?: number | null,"beneficiary_name"?: string | null,"beneficiary_reference"?: string | null,"created_at"?: string,"created_by": string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"initiator_id"?: string | null,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical": string
                   }
                   Update: {
-                    "accepted_at"?: string | null,"accepted_by"?: string | null,"amount_minor"?: number | null,"beneficiary_name"?: string | null,"created_at"?: string,"created_by"?: string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"initiator_id"?: string | null,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical"?: string
+                    "accepted_at"?: string | null,"accepted_by"?: string | null,"amount_minor"?: number | null,"beneficiary_name"?: string | null,"beneficiary_reference"?: string | null,"created_at"?: string,"created_by"?: string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"initiator_id"?: string | null,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical"?: string
                   }
                   Relationships: [
                     {
@@ -1520,6 +1520,7 @@ isOneToOne: false
 "accepted_by": string | null,
 "amount_minor": number | null,
 "beneficiary_name": string | null,
+"beneficiary_reference": string | null,
 "created_at": string,
 "created_by": string,
 "currency": Database["public"]['Enums']["currency"] | null,
@@ -1731,6 +1732,12 @@ isOneToOne: false
                            },
 "_dispute_notified_at":
 { Args: { "p_dispute": string }; Returns: string
+                           },
+"_doc_sensitive":
+{ Args: { "p_doc": Omit<Database["public"]['Tables']["documents"]['Row'], Database["public"]['Tables']["documents"]['ComputedFields']> }; Returns: boolean
+                           },
+"_doc_view_payload":
+{ Args: { "p_doc": Omit<Database["public"]['Tables']["documents"]['Row'], Database["public"]['Tables']["documents"]['ComputedFields']> }; Returns: Json
                            },
 "_draft_json":
 { Args: { "p_tx": string }; Returns: Json
@@ -2057,6 +2064,7 @@ isOneToOne: false
 "accepted_by": string | null,
 "amount_minor": number | null,
 "beneficiary_name": string | null,
+"beneficiary_reference": string | null,
 "created_at": string,
 "created_by": string,
 "currency": Database["public"]['Enums']["currency"] | null,
@@ -2147,6 +2155,7 @@ isOneToOne: false
 "accepted_by": string | null,
 "amount_minor": number | null,
 "beneficiary_name": string | null,
+"beneficiary_reference": string | null,
 "created_at": string,
 "created_by": string,
 "currency": Database["public"]['Enums']["currency"] | null,
@@ -2300,6 +2309,7 @@ isOneToOne: false
 "accepted_by": string | null,
 "amount_minor": number | null,
 "beneficiary_name": string | null,
+"beneficiary_reference": string | null,
 "created_at": string,
 "created_by": string,
 "currency": Database["public"]['Enums']["currency"] | null,
@@ -2471,6 +2481,7 @@ isOneToOne: false
 "accepted_by": string | null,
 "amount_minor": number | null,
 "beneficiary_name": string | null,
+"beneficiary_reference": string | null,
 "created_at": string,
 "created_by": string,
 "currency": Database["public"]['Enums']["currency"] | null,
@@ -2534,6 +2545,7 @@ isOneToOne: false
 "accepted_by": string | null,
 "amount_minor": number | null,
 "beneficiary_name": string | null,
+"beneficiary_reference": string | null,
 "created_at": string,
 "created_by": string,
 "currency": Database["public"]['Enums']["currency"] | null,
@@ -2661,6 +2673,7 @@ isOneToOne: false
 "accepted_by": string | null,
 "amount_minor": number | null,
 "beneficiary_name": string | null,
+"beneficiary_reference": string | null,
 "created_at": string,
 "created_by": string,
 "currency": Database["public"]['Enums']["currency"] | null,
@@ -2955,6 +2968,7 @@ isOneToOne: false
 "accepted_by": string | null,
 "amount_minor": number | null,
 "beneficiary_name": string | null,
+"beneficiary_reference": string | null,
 "created_at": string,
 "created_by": string,
 "currency": Database["public"]['Enums']["currency"] | null,
@@ -3060,6 +3074,7 @@ isOneToOne: false
 "accepted_by": string | null,
 "amount_minor": number | null,
 "beneficiary_name": string | null,
+"beneficiary_reference": string | null,
 "created_at": string,
 "created_by": string,
 "currency": Database["public"]['Enums']["currency"] | null,
@@ -3090,6 +3105,7 @@ isOneToOne: false
 "accepted_by": string | null,
 "amount_minor": number | null,
 "beneficiary_name": string | null,
+"beneficiary_reference": string | null,
 "created_at": string,
 "created_by": string,
 "currency": Database["public"]['Enums']["currency"] | null,
@@ -3153,6 +3169,7 @@ isOneToOne: false
 "accepted_by": string | null,
 "amount_minor": number | null,
 "beneficiary_name": string | null,
+"beneficiary_reference": string | null,
 "created_at": string,
 "created_by": string,
 "currency": Database["public"]['Enums']["currency"] | null,

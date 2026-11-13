@@ -16,7 +16,15 @@ export type PlatformReview = 'ALWAYS' | 'RISK_BASED' | 'NEVER';
 export const PLATFORM_REVIEWS: readonly PlatformReview[] = ['ALWAYS', 'RISK_BASED', 'NEVER'];
 
 export interface Labels { fr: string; en: string }
-export interface ModuleDocument { kind: string; required: boolean; maxFiles: number; labels: Labels }
+/** Lot X v2 (X6) : sensibilité d’une pièce. SENSITIVE (santé, K13) : consultation journalisée sans nom de fichier ni chemin. */
+export type DocumentSensitivity = 'STANDARD' | 'SENSITIVE';
+export const DOCUMENT_SENSITIVITIES: readonly DocumentSensitivity[] = ['STANDARD', 'SENSITIVE'];
+/** Lot X v2 (X6) : identification du bénéficiaire. REFERENCE_ONLY : code ou initiales, jamais un nom (K13). */
+export type BeneficiaryMode = 'NAME' | 'REFERENCE_ONLY' | 'NONE';
+export const BENEFICIARY_MODES: readonly BeneficiaryMode[] = ['NAME', 'REFERENCE_ONLY', 'NONE'];
+/** Référence minimale du bénéficiaire (miroir de transactions_beneficiary_reference_check), après mise en majuscules. */
+export const BENEFICIARY_REFERENCE_RE = /^[A-Z0-9][A-Z0-9./-]{0,15}$/;
+export interface ModuleDocument { kind: string; required: boolean; maxFiles: number; labels: Labels; sensitivity: DocumentSensitivity }
 export interface RequestModule {
   code: ModuleCode;
   labels: Labels;
@@ -35,6 +43,10 @@ export interface RequestModule {
   multiplePayers: boolean;
   requiredDocuments: ModuleDocument[];
   displayOrder: number;
+  /** Lot X v2 (X6) : identification du bénéficiaire (NAME par défaut ; santé : REFERENCE_ONLY). */
+  beneficiaryMode: BeneficiaryMode;
+  /** Durée de conservation en jours (point ouvert 6 : absente tant que non décidée, aucune purge). */
+  retentionDays?: number;
 }
 
 const VERTICAL_TEXT: Record<Vertical, { labels: Labels; descriptions: Labels }> = {
@@ -71,9 +83,42 @@ export const DEFAULT_MODULES: readonly RequestModule[] = VERTICALS.map((v, i) =>
   dualValidation: RELEASE_RULES[v].dualValidation,
   platformReview: 'NEVER',   // K2 : le bureau ne valide plus chaque demande
   multiplePayers: false,
-  requiredDocuments: REQUIRED_DOCUMENTS[v].map((d) => ({ kind: d.kind, required: d.required, maxFiles: MAX_FILES_PER_KIND, labels: DOCUMENT_LABELS[d.kind] })),
+  requiredDocuments: REQUIRED_DOCUMENTS[v].map((d) => ({
+    kind: d.kind, required: d.required, maxFiles: MAX_FILES_PER_KIND, labels: DOCUMENT_LABELS[d.kind],
+    sensitivity: v === 'HEALTH' ? 'SENSITIVE' as const : 'STANDARD' as const,
+  })),
   displayOrder: i + 1,
+  beneficiaryMode: v === 'HEALTH' ? 'REFERENCE_ONLY' : 'NAME',   // K13 (0022)
 }));
+
+/**
+ * Bénéficiaire d’un brouillon selon le module (miroir de save_draft, 0022) : NAME garde le nom ; REFERENCE_ONLY refuse un
+ * nom (BENEFICIARY_NAME_NOT_ALLOWED) et n’accepte qu’une référence courte sans espace (BENEFICIARY_REFERENCE_INVALID) ;
+ * NONE refuse un nom et ignore la référence. Renvoie les valeurs enregistrées.
+ */
+export function checkBeneficiary(module: RequestModule | undefined, input: { name?: string; reference?: string }): { name?: string; reference?: string } {
+  const name = input.name?.trim() || undefined;
+  const reference = input.reference?.trim().toUpperCase() || undefined;
+  const mode = module?.beneficiaryMode ?? 'NAME';
+  if (mode === 'NAME') return { name };
+  if (name) throw new DomainError('BENEFICIARY_NAME_NOT_ALLOWED', 'Ce type de besoin n’enregistre pas le nom du bénéficiaire');
+  if (mode === 'NONE') return {};
+  if (reference && !BENEFICIARY_REFERENCE_RE.test(reference)) {
+    throw new DomainError('BENEFICIARY_REFERENCE_INVALID', 'Référence : code ou initiales, sans espace (16 caractères au plus)');
+  }
+  return { reference };
+}
+
+/** Le type de pièce est-il prévu par le module ? (miroir de DOCUMENT_KIND_NOT_ALLOWED, 0022 et 0023 ; module sans liste : tout type). */
+export function isAllowedKind(module: RequestModule | undefined, kind: string): boolean {
+  // La preuve de jalon (EVIDENCE) n’est pas une pièce du module : toujours acceptée (0023).
+  return !module || kind === 'EVIDENCE' || module.requiredDocuments.length === 0 || module.requiredDocuments.some((d) => d.kind === kind);
+}
+
+/** Pièce sensible (consultation journalisée sans nom de fichier ni chemin). */
+export function isSensitiveKind(module: RequestModule | undefined, kind: string): boolean {
+  return module?.requiredDocuments.some((d) => d.kind === kind && d.sensitivity === 'SENSITIVE') ?? false;
+}
 
 /** Module d’un code (undefined si inconnu). */
 export function findModule(code: string | undefined, modules: readonly RequestModule[] = DEFAULT_MODULES): RequestModule | undefined {
@@ -145,10 +190,12 @@ export function checkModule(m: RequestModule): void {
   if (!MODULE_CODE_RE.test(m.code)) bad('code');
   if (m.labels.fr.trim().length < 2 || m.labels.en.trim().length < 2) bad('libellés');
   if (!PLATFORM_REVIEWS.includes(m.platformReview)) bad('platform_review');
+  if (!BENEFICIARY_MODES.includes(m.beneficiaryMode)) bad('beneficiary_mode');
+  if (m.retentionDays !== undefined && (!Number.isInteger(m.retentionDays) || m.retentionDays < 1 || m.retentionDays > 36_500)) bad('retention_days');
   const kinds = new Set<string>();
   for (const d of m.requiredDocuments) {
     if (!MODULE_CODE_RE.test(d.kind) || !Number.isInteger(d.maxFiles) || d.maxFiles < 1 || d.maxFiles > 10
-        || d.labels.fr.trim().length < 2 || d.labels.en.trim().length < 2) bad(`pièce ${d.kind}`);
+        || d.labels.fr.trim().length < 2 || d.labels.en.trim().length < 2 || !DOCUMENT_SENSITIVITIES.includes(d.sensitivity)) bad(`pièce ${d.kind}`);
     if (kinds.has(d.kind)) bad(`pièce ${d.kind} en double`);
     kinds.add(d.kind);
   }

@@ -506,9 +506,9 @@ select t.check((select relkind from pg_class where oid = 'public.release_rules':
   'release_rules et required_documents : vues ; anciennes tables conservées (réversibilité)');
 select t.check((select string_agg(vertical || ':' || kind || ':' || required, ',' order by vertical, kind) from required_documents
                 where vertical in ('EDUCATION','HEALTH','RENT'))
-               = 'EDUCATION:ENROLMENT_CERTIFICATE:true,EDUCATION:SCHOOL_SCHEDULE:false,HEALTH:BENEFICIARY_ID:true,HEALTH:MEDICAL_CERTIFICATE:false,'
+               = 'EDUCATION:ENROLMENT_CERTIFICATE:true,EDUCATION:SCHOOL_SCHEDULE:false,'
                  || 'HEALTH:QUOTE:true,RENT:LAST_RECEIPT:false,RENT:LEASE:true',
-  'required_documents (vue) : pièces de la vague 1 inchangées (décision D2)');
+  'required_documents (vue) : pièces de la vague 1 (décision D2 ; santé : devis seul depuis 0022, K13)');
 select t.check((select data_type from information_schema.columns where table_name = 'transactions' and column_name = 'vertical') = 'text'
            and exists (select 1 from pg_constraint where conname = 'transactions_vertical_module_fk'),
   'transactions.vertical : texte, référencé par request_modules(code)');
@@ -531,7 +531,8 @@ select t.admin();
 select t.login('fa000000-0000-4000-8000-000000000007');
 insert into request_modules(code, label_fr, label_en, enabled, wave, release_mode, contest_hours, platform_review, required_documents, display_order)
 values ('TEST_NEVER', 'Module de test', 'Test module', true, 1, 'PAYER_CONFIRM', 24, 'NEVER',
-        '[{"kind":"INVOICE","required":true,"maxFiles":1,"labels":{"fr":"Facture","en":"Invoice"}}]', 90),
+        -- 0022 : une pièce facultative (PHOTO) permet encore de tester la pièce obligatoire manquante ; un type non prévu est refusé.
+        '[{"kind":"INVOICE","required":true,"maxFiles":1,"labels":{"fr":"Facture","en":"Invoice"}},{"kind":"PHOTO","required":false,"maxFiles":3,"labels":{"fr":"Photo","en":"Photo"}}]', 90),
        ('TEST_RISK', 'Module à risque', 'Risk module', true, 1, 'PROVIDER_CONFIRM', 48, 'RISK_BASED',
         '[{"kind":"INVOICE","required":true,"maxFiles":3,"labels":{"fr":"Facture","en":"Invoice"}}]', 91);
 select t.hint($$insert into request_modules(code, label_fr, label_en, release_mode, required_documents)
@@ -544,7 +545,9 @@ select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000a1', 'TEST_N
 select t.check((select release_mode::text || ':' || contest_hours from tranches where tx_id = 'fa300000-0000-4000-8000-0000000000a1') = 'PAYER_CONFIRM:24',
   'règle de déblocage lue dans le module');
 select t.hint($$select transition_tx('fa300000-0000-4000-8000-0000000000a1', 'SUBMITTED')$$, 'TX_NO_DOCUMENT', 'aucune pièce : refus (inchangé)');
-select add_document('fa300000-0000-4000-8000-0000000000a1', 'OTHER', 'fa300000-0000-4000-8000-0000000000a1/OTHER/o.pdf', 'o.pdf', 'application/pdf', 1000);
+select t.hint($$select add_document('fa300000-0000-4000-8000-0000000000a1', 'OTHER', 'fa300000-0000-4000-8000-0000000000a1/OTHER/o.pdf', 'o.pdf', 'application/pdf', 1000)$$,
+  'DOCUMENT_KIND_NOT_ALLOWED', 'type de pièce non prévu par le module refusé (0022)');
+select add_document('fa300000-0000-4000-8000-0000000000a1', 'PHOTO', 'fa300000-0000-4000-8000-0000000000a1/PHOTO/o.pdf', 'o.pdf', 'application/pdf', 1000);
 select t.hint($$select transition_tx('fa300000-0000-4000-8000-0000000000a1', 'SUBMITTED')$$, 'DOCUMENT_REQUIRED', 'pièce obligatoire du module manquante');
 select add_document('fa300000-0000-4000-8000-0000000000a1', 'INVOICE', 'fa300000-0000-4000-8000-0000000000a1/INVOICE/i.pdf', 'i.pdf', 'application/pdf', 1000);
 select t.hint($$select add_document('fa300000-0000-4000-8000-0000000000a1', 'INVOICE', 'fa300000-0000-4000-8000-0000000000a1/INVOICE/j.pdf', 'j.pdf', 'application/pdf', 1000)$$,

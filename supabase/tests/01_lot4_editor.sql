@@ -100,7 +100,7 @@ select t.check(exists (select 1 from pg_policies where schemaname = 'storage' an
 select t.check((select count(*) from cron.job where jobname = 'diaspay-release-due-tranches' and schedule = '*/10 * * * *') = 1
            and (select count(*) from cron.job where jobname = 'diaspay-activate-due-tranches' and schedule = '0 6 * * *') = 1,
   'pg_cron : déblocage toutes les 10 min, activation à 06:00 UTC');
-select t.check((select count(*) from required_documents where required) = 7, 'pièces obligatoires D2 en base (miroir du domaine)');
+select t.check((select count(*) from required_documents where required) = 6, 'pièces obligatoires D2 en base (miroir du domaine ; santé : devis seul, K13)');
 
 -- ---------- Codes d’erreur ----------
 -- Jeton sans identifiant : rôle authenticated mais aucun sub.
@@ -175,7 +175,7 @@ select t.admin();
 -- ---------- Invitation : prestataire inconnu, rattaché à l’inscription ----------
 select t.login('e1000000-0000-4000-8000-000000000001');   -- payeur créateur (profil PAYER)
 select save_draft('{"id":"e3000000-0000-4000-8000-000000000002","vertical":"HEALTH","amountMinor":"180000","currency":"XAF",
-  "purpose":"Soins dentaires","beneficiaryName":"Maman","provider":{"name":"Cabinet Dr Ngo","invitedPhone":"+237 6 1111 0009"},
+  "purpose":"Soins dentaires","beneficiaryReference":"MN","provider":{"name":"Cabinet Dr Ngo","invitedPhone":"+237 6 1111 0009"},
   "planType":"SINGLE","tranches":[{"label":"Soins","amountMinor":"180000"}]}');
 select t.check((select role from transaction_parties where tx_id = 'e3000000-0000-4000-8000-000000000002' and user_id = 'e1000000-0000-4000-8000-000000000001') = 'PAYER',
   'créateur au profil payeur : partie PAYER');
@@ -216,13 +216,14 @@ select t.admin();
 -- ---------- Soumission : contrôles du domaine en base ----------
 select t.login('e1000000-0000-4000-8000-000000000001');
 select add_document('e3000000-0000-4000-8000-000000000002', 'QUOTE', 'e3000000-0000-4000-8000-000000000002/QUOTE/q.pdf', 'q.pdf', 'application/pdf', 1000);
-select t.hint($$select transition_tx('e3000000-0000-4000-8000-000000000002', 'SUBMITTED')$$, 'DOCUMENT_REQUIRED', 'pièce obligatoire manquante (pièce d’identité, D2)');
-select add_document('e3000000-0000-4000-8000-000000000002', 'BENEFICIARY_ID', 'e3000000-0000-4000-8000-000000000002/BENEFICIARY_ID/id.jpg', 'id.jpg', 'image/jpeg', 1000);
+-- Lot X v2 (X6, K13) : la pièce d’identité du bénéficiaire n’est plus demandée ni acceptée pour la santé.
+select t.hint($$select add_document('e3000000-0000-4000-8000-000000000002', 'BENEFICIARY_ID', 'e3000000-0000-4000-8000-000000000002/BENEFICIARY_ID/id.jpg', 'id.jpg', 'image/jpeg', 1000)$$,
+  'DOCUMENT_KIND_NOT_ALLOWED', 'pièce d’identité du bénéficiaire refusée pour la santé (D2 corrigée, K13)');
 select save_draft(get_draft('e3000000-0000-4000-8000-000000000002') || '{"tranches":[{"label":"Soins","amountMinor":"100000"}]}');
 select t.hint($$select transition_tx('e3000000-0000-4000-8000-000000000002', 'SUBMITTED')$$, 'PLAN_SUM_MISMATCH', 'somme des tranches différente du total');
 select save_draft(get_draft('e3000000-0000-4000-8000-000000000002') || '{"tranches":[]}');
 select t.hint($$select transition_tx('e3000000-0000-4000-8000-000000000002', 'SUBMITTED')$$, 'PLAN_EMPTY', 'plan vide');
-select t.check((select count(*) from documents where tx_id = 'e3000000-0000-4000-8000-000000000002') = 2, 'save_draft conserve les pièces');
+select t.check((select count(*) from documents where tx_id = 'e3000000-0000-4000-8000-000000000002') = 1, 'save_draft conserve les pièces (le devis ; K13 : plus de pièce d’identité)');
 select save_draft('{"id":"e3000000-0000-4000-8000-000000000003","vertical":"AGRO","amountMinor":"5000","currency":"XAF","purpose":"Semences",
   "beneficiaryName":"Coop","planType":"SINGLE","tranches":[{"label":"Semences","amountMinor":"5000"}]}');
 select t.hint($$select transition_tx('e3000000-0000-4000-8000-000000000003', 'SUBMITTED')$$, 'VERTICAL_UNAVAILABLE', 'verticale de vague 2 non ouverte');
@@ -393,7 +394,7 @@ select t.hint($$select save_draft('{"id":"e3000000-0000-4000-8000-000000000002",
   'NOT_EDITABLE', 'un dossier rejeté ne se corrige plus par save_draft');
 -- Pièce d’un brouillon audité : la consultation journalisée d’une pièce par une autre partie (X4) audite le brouillon.
 select save_draft('{"id":"e3000000-0000-4000-8000-000000000006","vertical":"HEALTH","amountMinor":"50000","currency":"XAF",
-  "purpose":"Consultation","beneficiaryName":"Maman","provider":{"name":"Cabinet Dr Ngo","invitedPhone":"+237 6 1111 0009"},
+  "purpose":"Consultation","beneficiaryReference":"MN","provider":{"name":"Cabinet Dr Ngo","invitedPhone":"+237 6 1111 0009"},
   "planType":"SINGLE","tranches":[{"label":"Consultation","amountMinor":"50000"}]}');
 insert into t.ids select 'doc_q', (add_document('e3000000-0000-4000-8000-000000000006', 'QUOTE',
   'e3000000-0000-4000-8000-000000000006/QUOTE/q.pdf', 'q.pdf', 'application/pdf', 1000)->>'id')::uuid;

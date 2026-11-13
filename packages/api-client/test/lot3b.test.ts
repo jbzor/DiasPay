@@ -37,11 +37,10 @@ const types = async (api: MockApi, txId: string) =>
 async function submitHealth(api: MockApi, dueDate = '2026-11-12'): Promise<Transaction> {
   const d: NeedDraft = await api.saveDraft({
     ...emptyDraft(`need-${Math.random()}`, T0), vertical: 'HEALTH', amountMinor: 180_000, currency: 'XAF', purpose: 'Opération de la hanche',
-    beneficiaryName: 'Rose M.', provider: { id: 'pv-hopital-central', name: 'Hôpital Central' }, planType: 'SINGLE',
+    beneficiaryReference: 'RM-12', provider: { id: 'pv-hopital-central', name: 'Hôpital Central' }, planType: 'SINGLE',
     tranches: [{ label: 'Soins', amountMinor: 180_000, dueDate }],
   });
   await api.attachDocument(d.id, file('QUOTE'));
-  await api.attachDocument(d.id, file('BENEFICIARY_ID'));
   return api.submitNeed(d.id);
 }
 /** Scolarité en trois échéances (règlement direct, activée à la soumission). */

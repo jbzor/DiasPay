@@ -49,6 +49,8 @@ export interface Transaction {
   status: TxStatus;
   providerName: string;
   beneficiaryName: string;
+  /** Lot X v2 (X6, K13) : référence minimale du bénéficiaire (santé : code ou initiales, jamais un nom). */
+  beneficiaryReference?: string;
   tranches: Tranche[];
   createdAt: string;
   /** Nom affiché du payeur (reçu). */

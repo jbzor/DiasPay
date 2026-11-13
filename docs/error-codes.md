@@ -142,6 +142,15 @@ Les résultats de `apply_payment_event` (`APPLIED`, `IGNORED`, `REJECTED`, `INVA
 | `NOT_CONFIRMED` | D, S | Prestation pas encore confirmée : libération anticipée impossible (CONDITIONAL) |
 | `NOT_CONFIGURED` | S | Réglage non configuré (point ouvert, voir `docs/open-parameters.md`) : la fonction refuse par prudence |
 
+## Types de besoin et données minimales (lot X version 2, X6)
+
+| Code | Origine | Sens |
+|---|---|---|
+| `BENEFICIARY_NAME_NOT_ALLOWED` | D, S | Nom du bénéficiaire envoyé pour un type de besoin qui ne l’enregistre pas (`beneficiary_mode` REFERENCE_ONLY ou NONE ; santé, K13) |
+| `BENEFICIARY_REFERENCE_INVALID` | D, S | Référence du bénéficiaire : code ou initiales, sans espace, 16 caractères au plus (jamais un nom complet) |
+| `BENEFICIARY_REFERENCE_REQUIRED` | D, S | Soumission d’un dossier REFERENCE_ONLY sans référence du bénéficiaire |
+| `DOCUMENT_KIND_NOT_ALLOWED` | D, S | Type de pièce non prévu par le type de besoin (detail : type de pièce) ; la santé n’accepte plus ni pièce d’identité ni certificat médical |
+
 ## Enrôlement et plafonds (lot X version 2, X4)
 
 | Code | Origine | Sens |

@@ -2,10 +2,10 @@
  * Conversion entre les lignes du serveur (snake_case, bigint, NULL) et les types du domaine.
  * Aucune valeur inattendue ne traverse : un statut ou un montant hors domaine lève UNEXPECTED.
  */
-import { DISPUTE_OUTCOMES, DISPUTE_STATUSES, ENROLMENT_LEVELS, PAYMENT_METHODS, MODULE_CODE_RE, PLATFORM_REVIEWS, TRANCHE_STATUSES, TX_STATUSES } from '@diaspay/domain';
+import { BENEFICIARY_MODES, DISPUTE_OUTCOMES, DISPUTE_STATUSES, ENROLMENT_LEVELS, PAYMENT_METHODS, MODULE_CODE_RE, PLATFORM_REVIEWS, TRANCHE_STATUSES, TX_STATUSES } from '@diaspay/domain';
 import type {
   Currency, DisputeOutcome, DisputeStatus, DocumentKind, DraftDocument, FundsState, ModuleCode, ModuleDocument, SettlementMode, NeedDraft, PlanType, PlatformReview, ReleaseMode, RequestMessageKind, RequestModule, TrancheStatus,
-  TxStatus, EnrolmentCaseStatus, EnrolmentLevel, KycResult, PaymentMethod,
+  TxStatus, EnrolmentCaseStatus, EnrolmentLevel, KycResult, PaymentMethod, BeneficiaryMode,
 } from '@diaspay/domain';
 import { ApiError } from '../need';
 import type { ProviderSummary } from '../need';
@@ -67,9 +67,12 @@ export function toModule(row: ModuleRow): RequestModule {
     requiredDocuments: docs.map((d): ModuleDocument => {
       const o = asObject(d, 'pièce du module');
       const labels = asObject(o.labels as Json, 'libellés de la pièce');
-      return { kind: String(o.kind), required: o.required === true, maxFiles: Number(o.maxFiles ?? 3), labels: { fr: String(labels.fr ?? ''), en: String(labels.en ?? '') } };
+      return { kind: String(o.kind), required: o.required === true, maxFiles: Number(o.maxFiles ?? 3), labels: { fr: String(labels.fr ?? ''), en: String(labels.en ?? '') },
+               sensitivity: o.sensitivity === 'SENSITIVE' ? 'SENSITIVE' : 'STANDARD' };
     }),
     displayOrder: row.display_order,
+    beneficiaryMode: oneOf<BeneficiaryMode>(row.beneficiary_mode, BENEFICIARY_MODES, 'mode du bénéficiaire'),
+    ...(row.retention_days === null ? {} : { retentionDays: row.retention_days }),
   };
 }
 
@@ -134,6 +137,7 @@ export function toTransaction(row: TxWithRelations): Transaction {
     status: oneOf<TxStatus>(row.status, TX_STATUSES, 'statut de transaction'),
     providerName: row.provider_name ?? '',
     beneficiaryName: row.beneficiary_name ?? '',
+    ...(row.beneficiary_reference ? { beneficiaryReference: row.beneficiary_reference } : {}),
     tranches: [...(row.tranches ?? [])].sort((a, b) => a.seq - b.seq).map((t) => toTranche(t, docs)),
     createdAt: toIso(row.created_at),
     planType: row.plan_type === null ? undefined : oneOf<PlanType>(row.plan_type, PLAN_TYPES, 'type de plan'),

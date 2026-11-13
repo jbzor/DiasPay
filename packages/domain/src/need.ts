@@ -4,7 +4,7 @@ import type { Currency, RecurrenceFreq, ReleaseMode, TrancheDraft } from './type
 import { addDays, addMonths, generateRecurringTranches, validatePlan } from './plan';
 import { isNormalizablePhone } from './phone';
 import type { ModuleDocumentKind } from './documents';
-import { DEFAULT_MODULES, findModule, missingModuleDocuments } from './modules';
+import { BENEFICIARY_REFERENCE_RE, DEFAULT_MODULES, findModule, missingModuleDocuments } from './modules';
 import type { ModuleCode, RequestModule } from './modules';
 
 // Création d’un besoin (lot 3) : brouillon, validation étape par étape, constructeurs de plan.
@@ -68,6 +68,8 @@ export interface NeedDraft {
   currency?: Currency;
   purpose?: string;
   beneficiaryName?: string;
+  /** Lot X v2 (X6) : référence minimale du bénéficiaire (code ou initiales) pour un module REFERENCE_ONLY (santé, K13). */
+  beneficiaryReference?: string;
   desiredDate?: string;            // AAAA-MM-JJ
   provider?: NeedProvider;
   counterpartyPhone?: string;      // payeur invité quand le créateur est demandeur (ou prestataire initiateur)
@@ -131,13 +133,21 @@ function typeIssues(draft: NeedDraft, modules: readonly RequestModule[]): NeedIs
   return m.enabled ? [] : [{ path: 'vertical', code: 'VERTICAL_UNAVAILABLE' }];
 }
 
-function detailsSchema(c: NeedContext) {
+function detailsSchema(c: NeedContext, module: RequestModule | undefined) {
+  const mode = module?.beneficiaryMode ?? 'NAME';
   return z.object({
     amountMinor: z.number({ error: 'AMOUNT_REQUIRED' }).int({ error: 'AMOUNT_INVALID' }).positive({ error: 'AMOUNT_INVALID' }),
     currency: z.enum(CURRENCIES as [Currency, ...Currency[]], { error: 'CURRENCY_REQUIRED' }),
     purpose: z.string({ error: 'PURPOSE_TOO_SHORT' }).trim()
       .min(PURPOSE_MIN, { error: 'PURPOSE_TOO_SHORT' }).max(PURPOSE_MAX, { error: 'PURPOSE_TOO_LONG' }),
-    beneficiaryName: z.string({ error: 'BENEFICIARY_REQUIRED' }).trim().min(1, { error: 'BENEFICIARY_REQUIRED' }),
+    // X6 (K13) : le nom n’est demandé que si le module l’enregistre ; sinon une référence (REFERENCE_ONLY) ou rien (NONE).
+    beneficiaryName: mode === 'NAME'
+      ? z.string({ error: 'BENEFICIARY_REQUIRED' }).trim().min(1, { error: 'BENEFICIARY_REQUIRED' })
+      : z.string().optional().refine((v) => !v?.trim(), { error: 'BENEFICIARY_NAME_NOT_ALLOWED' }),
+    beneficiaryReference: mode === 'REFERENCE_ONLY'
+      ? z.string({ error: 'BENEFICIARY_REFERENCE_REQUIRED' }).trim().min(1, { error: 'BENEFICIARY_REFERENCE_REQUIRED' })
+          .refine((v) => !v.trim() || BENEFICIARY_REFERENCE_RE.test(v.trim().toUpperCase()), { error: 'BENEFICIARY_REFERENCE_INVALID' })
+      : z.string().optional(),
     desiredDate: z.string().optional(),
     counterpartyPhone: z.string().optional(),
   }).superRefine((d, ctx) => {
@@ -232,7 +242,7 @@ export function validateStep(step: NeedStep, draft: NeedDraft, context: NeedCont
   const module = findModule(draft.vertical, modules);
   switch (step) {
     case 'type': return typeIssues(draft, modules);
-    case 'details': return toIssues(detailsSchema(ctx).safeParse(draft));
+    case 'details': return toIssues(detailsSchema(ctx, module).safeParse(draft));
     // Demande initiée par un prestataire : le prestataire est le créateur, l’étape n’a rien à vérifier.
     case 'provider': return ctx.creatorRole === 'PROVIDER' ? [] : toIssues(providerSchema.safeParse(draft));
     case 'plan': return toIssues(planSchema(ctx, draft.amountMinor, module).safeParse(draft));

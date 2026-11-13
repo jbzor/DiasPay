@@ -334,3 +334,19 @@ Pourquoi : la section 3.3 du modèle cible fixe les statuts d’une tentative (I
 Les codes d’écart (`SUCCEEDED_WITHOUT_EVENT`…) et les types d’événement (`PAYMENT_SUCCEEDED`) sont inchangés. La table `payments` (lot 1) garde ses propres statuts.
 
 `06_lotx2_p2.sql`, partie X5 : 39 vérifications (droits, statuts, devis dans la devise de la demande et en EUR, taux non inventé, frais par poste, devis figé, expiré, inconnu, plafond dépassé ou absent, accepter et payer, contribution, rejeu, tentative en cours, événement « en cours », échec puis nouvelle tentative, devis à usage unique, frais au journal dans la devise débitée, rapprochement, remboursement demandé puis exécuté à la main, contrepassation, partiel puis total, jamais au-delà du payé).
+
+## Passe 2, X6 (0022, 0023) : santé à données minimales, types de pièce prévus
+
+Pourquoi : K13 (décision D2 corrigée). La santé ne demande plus que le devis, n’enregistre qu’une référence du patient, et refuse la pièce d’identité et le certificat médical.
+
+| Test | Contrôle | Avant | Après |
+|---|---|---|---|
+| `00_smoke.sql` | rejet avec motif ; dossier rejeté (jeu d’essai) | dossiers santé avec devis et pièce d’identité, sans référence | devis seul, `beneficiary_reference` posée (P-001, P-002) |
+| `01_lot4.sql` | pièces obligatoires D2 en base | 7 | 6 (santé : le devis seul) |
+| `01_lot4.sql` | pièce obligatoire manquante (pièce d’identité, D2) [`DOCUMENT_REQUIRED`] | soumission refusée sans pièce d’identité | **remplacé** : pièce d’identité du bénéficiaire refusée pour la santé [`DOCUMENT_KIND_NOT_ALLOWED`]. `DOCUMENT_REQUIRED` reste couvert par `04_lotx_p2.sql` (pièce obligatoire du module manquante) |
+| `01_lot4.sql` | save_draft conserve les pièces | 2 pièces | 1 (le devis) |
+| `01_lot4.sql` | brouillons santé (jeu d’essai) | `beneficiaryName` « Maman » | `beneficiaryReference` « MN » |
+| `04_lotx_p2.sql` | required_documents (vue) : pièces de la vague 1 | santé : devis, pièce d’identité, certificat | santé : devis seul |
+| `04_lotx_p2.sql` | pièce obligatoire du module manquante | une pièce `OTHER` (non prévue) déposée avant | le module de test prévoit une pièce facultative `PHOTO`, déposée à la place ; **ajout** : `OTHER` refusé [`DOCUMENT_KIND_NOT_ALLOWED`] (140 contrôles au lieu de 139) |
+
+`06_lotx2_p2.sql`, partie X6 : 20 vérifications (module santé, autres modules, sensibilité, mode inconnu, nom refusé, référence invalide, référence requise, référence enregistrée sans nom, pièce d’identité et certificat refusés, devis seul suffit, consultation d’une pièce sensible sans nom ni chemin, aucune donnée de santé dans le journal ni les alertes, pièce ordinaire inchangée, module ajouté par une ligne de données de bout en bout, vague 2 refusée, preuve de jalon acceptée (0023), type non prévu refusé).

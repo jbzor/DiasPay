@@ -156,7 +156,7 @@ export default function Scan() {
               <StatusLabel kind="active" label={t('qrValid')} />
               <Text style={st.sheetTitle}>{t('sheetTranche', { n: s.info.seq, amount: money({ amountMinor: s.info.amountMinor, currency: s.info.currency }) })}</Text>
               <View>
-                <Row label={t('beneficiary')} value={s.info.beneficiaryName} />
+                {s.info.beneficiaryName ? <Row label={t('beneficiary')} value={s.info.beneficiaryName} /> : null}
                 <Row label={t('purpose')} value={s.info.purpose} />
                 <Row label={t('status')} value={t(trancheStatusKey(s.info.status))} />
               </View>

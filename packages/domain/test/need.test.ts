@@ -11,10 +11,10 @@ const doc = (kind: DraftDocument['kind'], status: DraftDocument['status'] = 'UPL
   ({ id: `d-${kind}`, kind, name: `${kind}.pdf`, mimeType: 'application/pdf', sizeBytes: 1000, status });
 
 const health = (over: Partial<NeedDraft> = {}): NeedDraft => ({
-  id: 'n1', vertical: 'HEALTH', amountMinor: 180_000, currency: 'XAF', purpose: 'Opération du genou', beneficiaryName: 'Rose M.',
+  id: 'n1', vertical: 'HEALTH', amountMinor: 180_000, currency: 'XAF', purpose: 'Opération du genou', beneficiaryReference: 'RM-12',
   desiredDate: '2026-11-15', provider: { id: 'p-hc', name: 'Hôpital Central' }, planType: 'SINGLE',
   tranches: [{ label: 'Soins', amountMinor: 180_000, dueDate: '2026-11-15' }],
-  documents: [doc('QUOTE'), doc('BENEFICIARY_ID')], updatedAt: '2026-11-10T08:00:00Z', ...over,
+  documents: [doc('QUOTE')], updatedAt: '2026-11-10T08:00:00Z', ...over,
 });
 const codes = (d: NeedDraft, step: Parameters<typeof validateStep>[0], c = ctx) => validateStep(step, d, c).map((i) => i.code);
 
@@ -60,8 +60,13 @@ describe('étape 2 : détails', () => {
     expect(codes(health({ purpose: 'x'.repeat(501) }), 'details')).toEqual(['PURPOSE_TOO_LONG']);
     expect(codes(health({ purpose: 'x'.repeat(500) }), 'details')).toEqual([]);
   });
-  it('bénéficiaire obligatoire', () => {
-    expect(codes(health({ beneficiaryName: '  ' }), 'details')).toEqual(['BENEFICIARY_REQUIRED']);
+  it('bénéficiaire selon le module : nom (scolarité), référence minimale sans nom (santé, K13)', () => {
+    expect(codes(health({ vertical: 'EDUCATION', beneficiaryName: '  ' }), 'details')).toEqual(['BENEFICIARY_REQUIRED']);
+    expect(codes(health({ vertical: 'EDUCATION', beneficiaryName: 'Awa' }), 'details')).toEqual([]);
+    expect(codes(health({ beneficiaryReference: '  ' }), 'details')).toEqual(['BENEFICIARY_REFERENCE_REQUIRED']);
+    expect(codes(health({ beneficiaryReference: 'Rose Mbarga' }), 'details')).toEqual(['BENEFICIARY_REFERENCE_INVALID']);
+    expect(codes(health({ beneficiaryReference: 'rm-12' }), 'details')).toEqual([]);
+    expect(codes(health({ beneficiaryName: 'Rose M.' }), 'details')).toEqual(['BENEFICIARY_NAME_NOT_ALLOWED']);
   });
   it('date souhaitée facultative, pas dans le passé', () => {
     expect(codes(health({ desiredDate: undefined }), 'details')).toEqual([]);
@@ -147,17 +152,16 @@ describe('constructeurs de plan', () => {
 describe('pièces requises', () => {
   it('par verticale', () => {
     const req = (v: keyof typeof REQUIRED_DOCUMENTS) => REQUIRED_DOCUMENTS[v].filter((d) => d.required).map((d) => d.kind);
-    expect(req('HEALTH')).toEqual(['QUOTE', 'BENEFICIARY_ID']);
+    expect(req('HEALTH')).toEqual(['QUOTE']);   // K13
     expect(req('EDUCATION')).toEqual(['ENROLMENT_CERTIFICATE']);
     expect(req('RENT')).toEqual(['LEASE']);
     for (const v of ['AGRO', 'REAL_ESTATE', 'LAND'] as const) expect(req(v)).toEqual(['SUPPORTING_DOCUMENT']);
   });
   it('une pièce en échec ou en cours ne compte pas', () => {
-    expect(missingRequiredDocuments('HEALTH', [doc('QUOTE'), doc('BENEFICIARY_ID', 'FAILED')])).toEqual(['BENEFICIARY_ID']);
-    expect(codes(health({ documents: [doc('QUOTE')] }), 'documents')).toEqual(['DOCUMENT_REQUIRED']);
-    expect(validateStep('documents', health({ documents: [] }), ctx).map((i) => i.params?.kind)).toEqual(['QUOTE', 'BENEFICIARY_ID']);
-    expect(codes(health({ documents: [doc('QUOTE'), doc('BENEFICIARY_ID'), doc('MEDICAL_CERTIFICATE', 'UPLOADING')] }), 'documents'))
-      .toEqual(['DOCUMENT_UPLOADING']);
+    expect(missingRequiredDocuments('HEALTH', [doc('QUOTE', 'FAILED')])).toEqual(['QUOTE']);
+    expect(codes(health({ documents: [doc('QUOTE', 'UPLOADING')] }), 'documents')).toEqual(['DOCUMENT_REQUIRED', 'DOCUMENT_UPLOADING']);
+    expect(validateStep('documents', health({ documents: [] }), ctx).map((i) => i.params?.kind)).toEqual(['QUOTE']);
+    expect(codes(health({ documents: [doc('QUOTE'), doc('QUOTE', 'UPLOADING')] }), 'documents')).toEqual(['DOCUMENT_UPLOADING']);
   });
   it('limites de fichier : JPEG, PNG, PDF, 10 Mo', () => {
     expect(checkFile({ name: 'a.PDF', sizeBytes: 1 })).toBe('application/pdf');

@@ -170,7 +170,8 @@ export default function TransactionDetail() {
       <Divider />
       {linked ? <Banner tone="pending" text={t('linkNotice', { n: linked.seq, status: t(trancheStatusKey(linked.status)) })} /> : null}
       <View>
-        <Row label={t('beneficiary')} value={tx.beneficiaryName} />
+        {tx.beneficiaryReference ? <Row label={t('beneficiaryReference')} value={tx.beneficiaryReference} />
+          : tx.beneficiaryName ? <Row label={t('beneficiary')} value={tx.beneficiaryName} /> : null}
         <Row label={t('providerLabel')} value={tx.providerName} />
         <Row label={t('purpose')} value={tx.purpose} />
         <View style={{ paddingTop: spacing.xs }}><StatusLabel kind={txStatusKind(tx.status)} label={t(txStatusKey(tx.status))} /></View>

@@ -277,11 +277,15 @@ describe('X5 — paiements, événements, journal financier', () => {
 describe('X6 — modules (types de besoin) décrits par des données', () => {
   const testModule = (over: Partial<RequestModule> = {}): RequestModule => ({
     code: 'TEST_NEVER', labels: { fr: 'Module de test', en: 'Test module' }, enabled: true, wave: 1, settlementMode: 'DIRECT', releaseMode: 'PAYER_CONFIRM', contestHours: 24,
-    dualValidation: false, platformReview: 'NEVER', multiplePayers: false, displayOrder: 90,
-    requiredDocuments: [{ kind: 'INVOICE', required: true, maxFiles: 1, labels: { fr: 'Facture', en: 'Invoice' } }], ...over,
+    dualValidation: false, platformReview: 'NEVER', multiplePayers: false, displayOrder: 90, beneficiaryMode: 'NAME',
+    requiredDocuments: [{ kind: 'INVOICE', required: true, maxFiles: 1, labels: { fr: 'Facture', en: 'Invoice' }, sensitivity: 'STANDARD' }], ...over,
   });
 
-  it('DEFAULT_MODULES (RELEASE_RULES, REQUIRED_DOCUMENTS, vague 1) coïncide avec l’amorçage SQL de request_modules (0011, complété par 0014)', () => {
+  it('DEFAULT_MODULES (RELEASE_RULES, REQUIRED_DOCUMENTS, vague 1) coïncide avec l’amorçage SQL de request_modules (0011, complété par 0014 et 0022)', () => {
+    // 0022 (X6, K13) : sensibilité de chaque pièce (STANDARD), santé réduite au devis (SENSITIVE) et en REFERENCE_ONLY.
+    const x6 = sql('0022_lotx2_x6.sql');
+    const healthDocs = JSON.parse(/required_documents = '(\[.*?\])'::jsonb\s+where code = 'HEALTH'/s.exec(x6)![1]!) as RequestModule['requiredDocuments'];
+    expect(x6).toMatch(/update request_modules set beneficiary_mode = 'REFERENCE_ONLY',/);
     const mig = sql('0011_lotx_x6.sql');
     const block = mig.slice(mig.indexOf('-- seed:begin'), mig.indexOf('-- seed:end'));
     const json = block.slice(block.indexOf('$seed$') + 6, block.lastIndexOf('$seed$'));
@@ -294,8 +298,11 @@ describe('X6 — modules (types de besoin) décrits par des données', () => {
       // 0014 (lot X v2) : platform_review passe à NEVER partout ; vague 1 en DIRECT, vague 2 en CONDITIONAL.
       platformReview: (x.platform_review === 'ALWAYS' ? 'NEVER' : x.platform_review) as PlatformReview,
       settlementMode: ['EDUCATION', 'HEALTH', 'RENT'].includes(String(x.code)) ? 'DIRECT' : 'CONDITIONAL',
-      multiplePayers: x.multiple_payers as boolean, requiredDocuments: x.required_documents as RequestModule['requiredDocuments'],
+      multiplePayers: x.multiple_payers as boolean,
+      requiredDocuments: x.code === 'HEALTH' ? healthDocs
+        : (x.required_documents as Array<Omit<RequestModule['requiredDocuments'][number], 'sensitivity'>>).map((d) => ({ ...d, sensitivity: 'STANDARD' as const })),
       displayOrder: x.display_order as number,
+      beneficiaryMode: x.code === 'HEALTH' ? 'REFERENCE_ONLY' as const : 'NAME' as const,
     }));
     expect(fromSql).toEqual(DEFAULT_MODULES);
     for (const m of DEFAULT_MODULES) expect(() => checkModule(m)).not.toThrow();

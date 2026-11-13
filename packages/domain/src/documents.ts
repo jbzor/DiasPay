@@ -20,10 +20,10 @@ export interface RequiredDocument { kind: DocumentKind; required: boolean }
 // Vague 1 (Santé, Scolarité, Loyer) : Décision D2, 10/11/2026 (docs/decisions.md).
 // Agro, Immobilier et Terrain : À CONFIRMER, valeurs provisoires à définir en vague 2 (jalons et preuves).
 export const REQUIRED_DOCUMENTS: Record<Vertical, RequiredDocument[]> = {
+  // Décision D2 corrigée pour la santé (K13, 12/11/2026, 0022) : le devis seul ; plus de pièce d’identité du bénéficiaire
+  // ni de certificat médical (données de santé minimales).
   HEALTH: [
-    { kind: 'QUOTE', required: true }, // Décision D2, 10/11/2026
-    { kind: 'BENEFICIARY_ID', required: true }, // Décision D2, 10/11/2026
-    { kind: 'MEDICAL_CERTIFICATE', required: false }, // Décision D2, 10/11/2026
+    { kind: 'QUOTE', required: true },
   ],
   EDUCATION: [
     { kind: 'ENROLMENT_CERTIFICATE', required: true }, // Décision D2, 10/11/2026

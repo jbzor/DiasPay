@@ -24,11 +24,10 @@ const file = (kind: string, name = `${kind}.pdf`, sizeBytes = 120_000) => ({ kin
 async function healthDraft(api: MockApi, dueDate = '2026-11-15'): Promise<NeedDraft> {
   const d = await api.saveDraft({
     ...emptyDraft('need-h', T0), vertical: 'HEALTH', amountMinor: 180_000, currency: 'XAF', purpose: 'Opération du genou',
-    beneficiaryName: 'Rose M.', desiredDate: dueDate, provider: { id: 'pv-hopital-central', name: 'Hôpital Central' },
+    beneficiaryReference: 'RM-12', desiredDate: dueDate, provider: { id: 'pv-hopital-central', name: 'Hôpital Central' },
     planType: 'SINGLE', tranches: [{ label: 'Soins', amountMinor: 180_000, dueDate }],
   });
   await api.attachDocument(d.id, file('QUOTE'));
-  await api.attachDocument(d.id, file('BENEFICIARY_ID', 'cni.jpg'));
   return api.getDraft(d.id);
 }
 
@@ -99,7 +98,7 @@ describe('soumission', () => {
     const tx = await api.submitNeed(d.id);
     expect(tx).toMatchObject({ status: 'ACTIVE', settlementMode: 'DIRECT' });
     expect(tx.tranches.map((t) => [t.status, t.releaseMode, t.contestHours, t.fundsState])).toEqual([['SUBMITTED', 'PROVIDER_CONFIRM', 48, 'NONE']]);
-    expect(tx.documentCount).toBe(2);
+    expect(tx.documentCount).toBe(1);   // santé : le devis seul (K13)
     expect(await api.listDrafts()).toEqual([]);
     expect((await api.listTransactions()).some((t) => t.id === tx.id)).toBe(true);
     expect((await api.timeline(tx.id)).map((e) => e.event)).toEqual(['NEED_SUBMITTED', 'AUTO_ACTIVATED', 'REQUEST_SUBMITTED', 'PAYMENT_READY']);
@@ -122,7 +121,7 @@ describe('soumission', () => {
       expect((e as ApiError).code).toBe('DOCUMENT_REQUIRED');
       expect((e as ApiError).details).toEqual({ kind: 'QUOTE' });
     }
-    const rent = await api.saveDraft({ ...d, id: 'need-r', vertical: 'RENT', documents: [] });
+    const rent = await api.saveDraft({ ...d, id: 'need-r', vertical: 'RENT', documents: [], beneficiaryName: 'Rose M.', beneficiaryReference: undefined });
     await api.attachDocument(rent.id, file('LAST_RECEIPT'));
     expect(await code(api.submitNeed(rent.id))).toBe('DOCUMENT_REQUIRED');
     await api.attachDocument(rent.id, file('LEASE'));

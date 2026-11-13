@@ -6,7 +6,7 @@ import {
   formatReference, isAutoReleasable, messageError, normalizeReference, paymentOutcome, rejectRequestDecision, requestInfoDecision,
   resolveDisputeDecision, shouldActivateTranche, shouldCloseOperation, toIsoDate, tokenRevocationError, tooManyAttempts, transitionOperation,
   transitionPaymentRequest, validateNeed, verifyChain, validatorDecisionError,
-  SimulatedKycAdapter, applyKycResult, checkEnrolmentSubmission, checkInitiation, enrolmentRoute, checkLimits, DEV_ENROLMENT_LIMITS,
+  SimulatedKycAdapter, applyKycResult, checkBeneficiary, isAllowedKind, checkEnrolmentSubmission, checkInitiation, enrolmentRoute, checkLimits, DEV_ENROLMENT_LIMITS,
 } from '@diaspay/domain';
 import type {
   Actor, ChainedAuditEntry, CreatorRole, DisputeOutcome, DraftDocument, FundsState, DraftDocumentInput, IncomingWebhook, LedgerState, ModuleCode, NeedDraft,
@@ -156,7 +156,7 @@ export function seedTransactions(now: Date): Transaction[] {
   const health: Transaction = {
     id: 'tx-health', vertical: 'HEALTH', settlementMode: 'DIRECT', purpose: 'Opération du genou',
     amount: { amountMinor: 180_000, currency: 'XAF' }, status: 'ACTIVE',
-    payerName: 'Marie N.', providerName: 'Hôpital Central', beneficiaryName: 'R. M.', createdAt: iso(-1 * 24 * HOUR),
+    payerName: 'Marie N.', providerName: 'Hôpital Central', beneficiaryName: '', beneficiaryReference: 'RM-12', createdAt: iso(-1 * 24 * HOUR),
     tranches: [mkTranche(1, 'Soins', 180_000, { vertical: 'HEALTH', status: 'SUBMITTED', dueDate: '2026-11-20' })],
   };
   const rent: Transaction = {
@@ -872,6 +872,8 @@ export class MockApi implements TransactionApi {
     }
     // Miroir de save_draft (X4 v2) : niveau d’enrôlement du rôle de création (demandeur N1, prestataire N2).
     checkInitiation(this.levelOf(user), this.creatorRoleOf(draft));
+    // X6 (K13) : aucun nom de bénéficiaire pour un module REFERENCE_ONLY ou NONE ; référence courte, sans espace.
+    if (draft.vertical) checkBeneficiary(findModule(draft.vertical, this.modules), { name: draft.beneficiaryName, reference: draft.beneficiaryReference });
     if (draft.creatorRole === 'PROVIDER') {
       // Jamais soi-même comme payeur.
       const digits = (v?: string) => (v ?? '').replace(/\D/g, '');
@@ -896,6 +898,10 @@ export class MockApi implements TransactionApi {
   async attachDocument(draftId: string, file: DraftDocumentInput, onProgress?: (p: number) => void): Promise<DraftDocument> {
     const mimeType = checkFile(file);
     const current = await this.ownDraft(draftId);
+    // X6 (K13) : seul un type de pièce prévu par le module est accepté (la santé : le devis seul).
+    if (!isAllowedKind(findModule(current.vertical, this.modules), file.kind)) {
+      throw new ApiError('DOCUMENT_KIND_NOT_ALLOWED', 'Type de pièce non prévu pour ce type de besoin', { kind: file.kind });
+    }
     checkFileCount(current.documents.filter((x) => x.kind === file.kind && x.status === 'UPLOADED' && x.id !== file.id).length,
       maxFilesFor(findModule(current.vertical, this.modules), file.kind));
     // Lot X (X4) : empreinte calculée avant l’envoi, comme pour le serveur (HASH_INVALID si une empreinte fournie est mal formée).
@@ -933,6 +939,9 @@ export class MockApi implements TransactionApi {
     if (sum) throw new ApiError('PLAN_SUM_MISMATCH', 'La somme des tranches ne correspond pas au montant', { ...sum.params });
     const missing = issues.find((i) => i.code === 'DOCUMENT_REQUIRED');
     if (missing) throw new ApiError('DOCUMENT_REQUIRED', 'Pièce obligatoire manquante', { kind: missing.params?.kind });
+    for (const c of ['BENEFICIARY_NAME_NOT_ALLOWED', 'BENEFICIARY_REFERENCE_REQUIRED', 'BENEFICIARY_REFERENCE_INVALID'] as const) {
+      if (issues.some((i) => i.code === c)) throw new ApiError(c, 'Bénéficiaire : référence minimale requise (K13)');
+    }
     if (issues.length) throw new ApiError('VALIDATION', 'Dossier incomplet', { issues });
 
     const vertical = draft.vertical as ModuleCode;
@@ -944,6 +953,11 @@ export class MockApi implements TransactionApi {
     // Contexte de soumission réel : plan et pièces (le domaine lève PLAN_SUM_MISMATCH ou TX_NO_DOCUMENT).
     const creatorRole = this.creatorRoleOf(draft);
     checkInitiation(this.levelOf(user), creatorRole);   // niveau contrôlé de nouveau à la soumission (submit_operation)
+    // X6 (K13) : bénéficiaire selon le module (référence minimale pour la santé, jamais un nom).
+    const beneficiary = checkBeneficiary(module, { name: draft.beneficiaryName, reference: draft.beneficiaryReference });
+    if (module.beneficiaryMode === 'REFERENCE_ONLY' && !beneficiary.reference) {
+      throw new ApiError('BENEFICIARY_REFERENCE_REQUIRED', 'Référence du bénéficiaire requise (code ou initiales)');
+    }
     if (creatorRole === 'PROVIDER' && !draft.counterpartyPhone?.trim()) throw new ApiError('VALIDATION', 'Téléphone du payeur requis');
     // Contrôles de la soumission (plan, pièces) : DRAFT → ACTIVE ou PENDING_REVIEW, décidé ci-dessous par le module.
     transitionOperation('DRAFT', 'ACTIVE', { ...this.creatorActor(creatorRole), isCreator: true } as Actor, {
@@ -954,7 +968,7 @@ export class MockApi implements TransactionApi {
     const tx: Transaction = previous ?? ({ id: newId('tx') } as Transaction);
     Object.assign(tx, {
       vertical, settlementMode: module.settlementMode, purpose: (draft.purpose ?? '').trim(),
-      amount: { amountMinor: totalMinor, currency: draft.currency ?? 'XAF' }, status: 'DRAFT', providerName: draft.provider?.name ?? (creatorRole === 'PROVIDER' ? user.name ?? '' : ''), beneficiaryName: (draft.beneficiaryName ?? '').trim(),
+      amount: { amountMinor: totalMinor, currency: draft.currency ?? 'XAF' }, status: 'DRAFT', providerName: draft.provider?.name ?? (creatorRole === 'PROVIDER' ? user.name ?? '' : ''), beneficiaryName: beneficiary.name ?? '', beneficiaryReference: beneficiary.reference,
       tranches: tranches.map((t, i) => mkTranche(i + 1, t.label.trim(), t.amountMinor,
         { vertical, dueDate: t.dueDate, releaseMode: module.releaseMode, contestHours: module.contestHours })),
       createdAt: previous?.createdAt ?? now, submittedAt: now, planType: draft.planType, documentCount: uploaded.length,

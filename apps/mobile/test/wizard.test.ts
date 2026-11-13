@@ -20,10 +20,10 @@ const patch = (p: Partial<NeedDraft>): WizardAction => ({ type: 'patch', patch: 
 function filledHealth(): WizardState {
   return run(start(),
     patch({ vertical: 'HEALTH' }), { type: 'next', ctx },
-    patch({ amountMinor: 180_000, currency: 'XAF', purpose: 'Opération du genou', beneficiaryName: 'Rose M.' }), { type: 'next', ctx },
+    patch({ amountMinor: 180_000, currency: 'XAF', purpose: 'Opération du genou', beneficiaryReference: 'RM-12' }), { type: 'next', ctx },
     patch({ provider: { id: 'pv-hopital-central', name: 'Hôpital Central' } }), { type: 'next', ctx },
     { type: 'setPlanType', planType: 'SINGLE', labels, today }, { type: 'next', ctx },
-    { type: 'upsertDocument', doc: doc('QUOTE') }, { type: 'upsertDocument', doc: doc('BENEFICIARY_ID') }, { type: 'next', ctx },
+    { type: 'upsertDocument', doc: doc('QUOTE') }, { type: 'next', ctx },
   );
 }
 
@@ -48,7 +48,7 @@ describe('assistant : validité par étape et navigation', () => {
     const s = run(filledHealth(), { type: 'back' }, { type: 'back' }, { type: 'back' });
     expect(s.step).toBe('provider');
     expect(s.draft).toMatchObject({ amountMinor: 180_000, purpose: 'Opération du genou', provider: { name: 'Hôpital Central' } });
-    expect(s.draft.documents).toHaveLength(2);
+    expect(s.draft.documents).toHaveLength(1);   // santé : le devis seul (K13)
     expect(prevStep('type')).toBeNull();
     expect(run(start(), { type: 'back' }).step).toBe('type');
   });
@@ -59,7 +59,7 @@ describe('assistant : validité par étape et navigation', () => {
   });
   it('un demandeur doit indiquer le téléphone du payeur', () => {
     const req = { ...ctx, creatorRole: 'REQUESTER' as const };
-    const s = run(start(), patch({ vertical: 'HEALTH', amountMinor: 1, currency: 'XAF', purpose: 'abc', beneficiaryName: 'R' }), { type: 'goto', step: 'details' });
+    const s = run(start(), patch({ vertical: 'HEALTH', amountMinor: 1, currency: 'XAF', purpose: 'abc', beneficiaryReference: 'R' }), { type: 'goto', step: 'details' });
     expect(canContinue(s, req)).toBe(false);
     expect(canContinue(run(s, patch({ counterpartyPhone: '+237 699 00 11 22' })), req)).toBe(true);
   });

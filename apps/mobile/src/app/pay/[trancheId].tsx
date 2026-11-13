@@ -51,7 +51,8 @@ export default function Pay() {
         <Text style={st.label}>{t('amountToPay')}</Text>
         <Text style={st.amount}>{money({ amountMinor: tr.amountMinor, currency: tx.amount.currency })}</Text>
         <Row label={t('purpose')} value={tx.purpose} />
-        <Row label={t('beneficiary')} value={tx.beneficiaryName} />
+        {tx.beneficiaryReference ? <Row label={t('beneficiaryReference')} value={tx.beneficiaryReference} />
+          : tx.beneficiaryName ? <Row label={t('beneficiary')} value={tx.beneficiaryName} /> : null}
         <Row label={t('fees')} value={t('feesTbd')} />
       </View>
       <View accessibilityRole="radiogroup" accessibilityLabel={t('payMethod')} style={{ gap: spacing.sm }}>

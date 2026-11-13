@@ -19,13 +19,14 @@ Choix délégués par le client au prestataire. Chaque décision reste révisabl
 
 | Verticale | Pièces |
 |---|---|
-| Santé | Devis ou facture proforma (obligatoire) ; pièce d’identité du bénéficiaire (obligatoire) ; certificat médical (facultatif) |
+| Santé | Devis ou facture proforma (obligatoire). **Corrigé le 12 novembre 2026** (K13, lot X version 2, X6) : la pièce d’identité du bénéficiaire et le certificat médical sont supprimés |
 | Scolarité | Attestation d’inscription (obligatoire) ; échéancier de l’école (facultatif) |
 | Loyer | Bail (obligatoire) ; dernière quittance (facultatif) |
 
 - **Fichiers** : jusqu’à 3 fichiers par type de pièce (une pièce d’identité se photographie recto et verso), 10 Mo chacun, JPEG, PNG ou PDF. Une pièce est « fournie » dès qu’un fichier est envoyé. Le validateur juge de la suffisance ; l’application ne le fait pas.
 - **Hors décision** : Agro, Immobilier et Terrain restent « À CONFIRMER » (vague 2).
 - **Mise en œuvre** : `packages/domain/src/documents.ts` (`REQUIRED_DOCUMENTS`, `MAX_FILES_PER_KIND`, erreur `TOO_MANY_FILES`).
+- **Correction santé (12 novembre 2026, K13)** : données de santé minimales. Le type « Santé » ne demande plus que le devis ou la facture proforma, marqué sensible. Il n’enregistre qu’une **référence minimale du patient** (un code ou des initiales, jamais un nom complet), pas son nom. La pièce d’identité et le certificat médical ne sont plus acceptés pour ce type (`DOCUMENT_KIND_NOT_ALLOWED`). Raison : décision du kickoff ; une plateforme de paiement n’a pas à conserver de données médicales ni d’identité du patient. Voir X6-v2.
 
 ## D3 — Textes d’aide du plan de paiement (étape 4)
 
@@ -299,3 +300,28 @@ Le prompt « Lot X (version 2) » remplace le premier lot X. Modèle cible : `do
   - **Simulateur** : moteur `PaymentEngine` mis à jour (devis, contributions, statuts, exécution manuelle), et `getQuote` et `acceptAndPay` dans l’API ; un ancien instantané est converti au chargement. `SupabaseApi` : `getQuote`, `acceptAndPay` ; `payTranche` règle la démonstration dès que la tentative est INITIATED ou PENDING.
 - **Contrôles SQL modifiés** : 00, 02, 04 et 05 (noms de statut de tentative et de remboursement). Détail dans `docs/lotx2-controles-sql.md`. Test de bout en bout du bureau (`litiges.spec.ts`) : remboursement REQUESTED.
 - **Reste à décider** : cotations du partenaire (point ouvert 7), durée de vie d’un devis (point ouvert 8), barème des frais et qui les paie (point ouvert 9), arrondi au supérieur à valider avec le partenaire, expiration d’une tentative sans réponse du partenaire.
+
+## X6-v2 — Types de besoin configurables, données minimales (K13)
+
+- **Date** : 12 novembre 2026
+- **Choisi** (migrations `0022_lotx2_x6.sql` et `0023_lotx2_fixes4.sql`, test `06_lotx2_p2.sql`, partie X6) : 0011 est complétée (`request_modules`, colonne `vertical` en texte avec clé étrangère, `release_rules` et `required_documents` en vues). Le nom de colonne `vertical` reste, comme le demande le lot.
+  - **Nouvelles colonnes du module** :
+    - `beneficiary_mode` : NAME, REFERENCE_ONLY ou NONE ;
+    - `retention_days` : vide tant que la durée n’est pas décidée (point ouvert 6), sans purge automatique ;
+    - une **sensibilité** pour chaque pièce requise : STANDARD, ou SENSITIVE pour la santé.
+
+    Valeurs vérifiées par le déclencheur `_check_module_documents` et par `checkModule` du domaine.
+  - **Santé (K13)** : le devis seul, sensible ; référence du patient au lieu du nom. Décision D2 corrigée (date et raison ci-dessus).
+  - **Référence du bénéficiaire** : `transactions.beneficiary_reference`, mise en majuscules. Elle ne contient ni espace (donc jamais un nom complet) ni plus de 16 caractères (`BENEFICIARY_REFERENCE_INVALID`).
+    - `save_draft` refuse un nom pour un module REFERENCE_ONLY ou NONE (`BENEFICIARY_NAME_NOT_ALLOWED`), et le nom ne reste pas non plus dans le brouillon enregistré (`draft_data`).
+    - `submit_operation` exige la référence (`BENEFICIARY_REFERENCE_REQUIRED`).
+    - Données de développement : les noms des bénéficiaires de la santé déjà enregistrés sont effacés. Les anciennes pièces d’identité de dossiers de développement restent, mais aucune nouvelle n’est acceptée.
+  - **Types de pièce** : une pièce du dossier doit être d’un type prévu par le module (`DOCUMENT_KIND_NOT_ALLOWED`). Exception : la preuve de jalon (`EVIDENCE`), rattachée à une demande et non au module (0023, défaut trouvé par le test de bout en bout du bureau).
+  - **Journaux** : la consultation d’une pièce sensible (`get_document_access`, `open_document`) est journalisée sans nom de fichier ni chemin, avec l’empreinte SHA-256 du chemin, qui suffit à la lecture du fichier dans les 2 minutes. Les alertes n’ont jamais contenu de nom, d’objet ni de référence ; un test le vérifie pour la santé.
+  - **Client** :
+    - le domaine (`checkBeneficiary`, `isAllowedKind`, `isSensitiveKind`), `DEFAULT_MODULES` et le test de coïncidence avec l’amorçage SQL (0011, 0014, 0022) sont mis à jour ;
+    - l’assistant de création lit le mode du bénéficiaire dans le module : « Référence du patient » pour la santé, rien pour NONE ;
+    - simulateur et `SupabaseApi` : `beneficiaryReference`, mode du bénéficiaire, sensibilité.
+  - Un type de besoin s’ajoute par une ligne de données (test : module `TEST_ANON`, sans bénéficiaire, de bout en bout). Un type de la vague 2 désactivé est refusé.
+- **Contrôles modifiés** : 00, 01 et 04 (santé sans pièce d’identité, référence au lieu du nom, type de pièce non prévu) ; tests du domaine, du client, de l’application et de bout en bout du bureau (`fixtures.ts`). Détail dans `docs/lotx2-controles-sql.md`.
+- **Reste à décider** : les durées de conservation (point ouvert 6) et la purge, le format exact de la référence du patient avec les établissements de santé, et la sensibilité des autres pièces (le bail et l’attestation d’inscription contiennent aussi des données personnelles).

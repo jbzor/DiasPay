@@ -99,6 +99,11 @@ export const ERROR_CODES = {
   ALREADY_CONFIRMED: 'D S — prestation déjà confirmée (CONDITIONAL)',
   NOT_CONFIRMED: 'D S — prestation pas encore confirmée : libération anticipée impossible (CONDITIONAL)',
   NOT_CONFIGURED: 'S — réglage non configuré (point ouvert, docs/open-parameters.md) : refus prudent',
+  // Lot X version 2 : types de besoin, données minimales (X6, K13)
+  BENEFICIARY_NAME_NOT_ALLOWED: 'D S — ce type de besoin n’enregistre pas le nom du bénéficiaire (référence seulement, ou aucun bénéficiaire)',
+  BENEFICIARY_REFERENCE_INVALID: 'D S — référence du bénéficiaire : code ou initiales, sans espace, 16 caractères au plus',
+  BENEFICIARY_REFERENCE_REQUIRED: 'D S — référence du bénéficiaire requise (santé : REFERENCE_ONLY)',
+  DOCUMENT_KIND_NOT_ALLOWED: 'D S — type de pièce non prévu par le type de besoin (detail : type de pièce)',
   // Lot X version 2 : enrôlement et plafonds (X4)
   PROFILE_PROTECTED: 'S — rôle de plateforme, statut KYC ou niveau d’enrôlement non modifiables par l’utilisateur',
   ENROLMENT_PENDING: 'D S — un dossier d’enrôlement est déjà en cours',

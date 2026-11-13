@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text } from '@/ui/text';
-import { CURRENCIES, toIsoDate } from '@diaspay/domain';
+import { CURRENCIES, findModule, toIsoDate } from '@diaspay/domain';
 import type { Currency, NeedDraft } from '@diaspay/domain';
 import { fontSize, palette } from '@diaspay/ui-tokens';
 import { useI18n, verticalLabel } from '@/i18n';
 import { dispatch, needContext, useWizard } from '@/state/needWizard';
+import { getModules } from '@/state/modules';
 import { AmountField } from '@/features/need/AmountField';
 import { useNeedText } from '@/features/need/text';
 import { issueFor, stepIssues } from '@/features/need/wizard';
@@ -33,6 +34,7 @@ export default function NeedDetails() {
   const patch = (p: Partial<NeedDraft>) => dispatch({ type: 'patch', patch: p, labels: planLabels, today: ctx.today });
   const currency: Currency = d.currency ?? 'XAF';
   const isRequester = ctx.creatorRole === 'REQUESTER';
+  const beneficiaryMode = findModule(d.vertical, getModules())?.beneficiaryMode ?? 'NAME';
 
   return (
     <WizardFrame detail={d.vertical ? verticalLabel(d.vertical, locale) : undefined}>
@@ -42,8 +44,17 @@ export default function NeedDetails() {
         onChange={(c) => patch({ currency: c })} accessibilityLabel={t('currency')} />
       <Field label={t('purpose')} value={d.purpose ?? ''} placeholder={t('purposePlaceholder')} maxLength={500}
         onChangeText={(v) => patch({ purpose: v })} onBlur={() => touch('purpose')} error={err('purpose')} />
-      <Field label={t('beneficiary')} value={d.beneficiaryName ?? ''} placeholder={t('beneficiaryPlaceholder')} autoCapitalize="words"
-        onChangeText={(v) => patch({ beneficiaryName: v })} onBlur={() => touch('beneficiaryName')} error={err('beneficiaryName')} />
+      {/* Lot X v2 (X6, K13) : le module dit comment désigner le bénéficiaire (nom, référence minimale, ou rien). */}
+      {beneficiaryMode === 'NAME' ? (
+        <Field label={t('beneficiary')} value={d.beneficiaryName ?? ''} placeholder={t('beneficiaryPlaceholder')} autoCapitalize="words"
+          onChangeText={(v) => patch({ beneficiaryName: v })} onBlur={() => touch('beneficiaryName')} error={err('beneficiaryName')} />
+      ) : beneficiaryMode === 'REFERENCE_ONLY' ? (
+        <View style={{ gap: 4 }}>
+          <Field label={t('beneficiaryReference')} value={d.beneficiaryReference ?? ''} autoCapitalize="characters" maxLength={16}
+            onChangeText={(v) => patch({ beneficiaryReference: v })} onBlur={() => touch('beneficiaryReference')} error={err('beneficiaryReference')} />
+          <Text style={st.help}>{t('beneficiaryReferenceHint')}</Text>
+        </View>
+      ) : null}
       <DateField label={t('desiredDate')} value={d.desiredDate} minimumDate={toIsoDate(new Date())} clearable
         onChange={(v) => { touch('desiredDate'); patch({ desiredDate: v }); }} error={err('desiredDate')} />
       {isRequester ? (

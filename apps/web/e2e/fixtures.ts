@@ -125,14 +125,15 @@ async function submitDossier(spec: DossierSpec): Promise<Transaction> {
   const tranches = (spec.tranches ?? [{ label: 'Année', amountMinor: spec.amountMinor, dueInDays: 3 }])
     .map((t) => ({ label: t.label, amountMinor: t.amountMinor, dueDate: inDays(t.dueInDays) }));
   const draft: NeedDraft = {
-    ...emptyDraft(id, new Date()), vertical, amountMinor: spec.amountMinor, currency: 'XAF', purpose: spec.purpose, beneficiaryName: 'Awa (e2e)',
+    ...emptyDraft(id, new Date()), vertical, amountMinor: spec.amountMinor, currency: 'XAF', purpose: spec.purpose,
+    ...(vertical === 'HEALTH' ? { beneficiaryReference: 'AWA-E2E' } : { beneficiaryName: 'Awa (e2e)' }),
     desiredDate: tranches[0]!.dueDate, counterpartyPhone: spec.payerPhone ?? (spec.by === 'PAYER' ? undefined : PHONES.PAYER.phone),
     provider: spec.provider ?? { name: 'Collège Les Manguiers' },
     planType: tranches.length > 1 ? 'PARTIAL' : 'SINGLE', tranches, step: 'recap',
   } as NeedDraft;
   await api.saveDraft(draft);
   if (vertical === 'EDUCATION') await api.attachDocument(id, pdf('ENROLMENT_CERTIFICATE', 'attestation_inscription.pdf'));
-  if (vertical === 'HEALTH') { await api.attachDocument(id, pdf('QUOTE', 'devis.pdf')); await api.attachDocument(id, pdf('BENEFICIARY_ID', 'piece_identite.pdf')); }
+  if (vertical === 'HEALTH') { await api.attachDocument(id, pdf('QUOTE', 'devis.pdf')); }   // K13 (0022) : le devis seul
   if (vertical === 'RENT') await api.attachDocument(id, pdf('LEASE', 'bail.pdf'));
   return api.submitNeed(id);
 }

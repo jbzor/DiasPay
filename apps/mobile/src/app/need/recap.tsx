@@ -75,7 +75,8 @@ export default function NeedRecap() {
       <View>
         <Row label={t('needType')} value={verticalLabel(vertical, locale)} />
         <Row label={t('purpose')} value={d.purpose ?? ''} />
-        <Row label={t('beneficiary')} value={d.beneficiaryName ?? ''} />
+        {module?.beneficiaryMode === 'REFERENCE_ONLY' ? <Row label={t('beneficiaryReference')} value={d.beneficiaryReference ?? ''} />
+          : module?.beneficiaryMode === 'NONE' ? null : <Row label={t('beneficiary')} value={d.beneficiaryName ?? ''} />}
         <Row label={t('providerLabel')} value={d.provider?.name ?? ''} />
         <Row label={t('amount')} value={money(total)} />
         {d.counterpartyPhone ? <Row label={t('payerPhone')} value={d.counterpartyPhone} /> : null}

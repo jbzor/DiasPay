@@ -167,3 +167,27 @@ Adaptations minimales, aucun nouvel écran. Rien n’est commité. packages/*, m
 - @diaspay/domain (`review.ts`) : `DisputeOutcomeCode` et `disputeDecisionError` en sont encore aux anciennes issues. Le web ne les utilise plus ; il faudra les aligner dans le paquet.
 - Si une exécution e2e est interrompue avant `cleanup()`, les réglages des modules ne sont pas rétablis. Il faut alors les remettre à la main (platform_review NEVER ; EDUCATION, HEALTH et RENT en DIRECT).
 - Les captures (`zz-capture.spec.ts`) n’ont pas été exécutées.
+
+## Passe 2 (X4 à X6) : adaptations minimales
+
+Aucun écran nouveau. L’enrôlement (X4), le devis et le détail des frais (X5) n’ont pas d’interface avant le lot Y.
+
+### Application mobile
+
+- `src/app/need/details.tsx` (étape « détails » de l’assistant) : le champ du bénéficiaire suit `beneficiaryMode` du module (X6, K13). NAME : « Bénéficiaire » (nom), comme avant ; REFERENCE_ONLY (santé) : « Référence du patient » (majuscules, 16 caractères au plus) et une aide « un code ou des initiales, jamais le nom » ; NONE : aucun champ.
+- `src/app/need/recap.tsx` : la ligne « Bénéficiaire » devient « Référence du patient » pour la santé, et disparaît pour un module sans bénéficiaire.
+- `src/app/tx/[id].tsx` (détail) et `src/app/pay/[trancheId].tsx` (paiement) : la référence du patient remplace le nom quand le dossier en a une ; aucune ligne si ni nom ni référence.
+- `src/app/(tabs)/scan.tsx` : la ligne « Bénéficiaire » n’apparaît que si un nom existe (santé : aucun nom).
+- `src/state/api.ts` : dans le simulateur, le compte de démonstration est enrôlé N2 (X4), pour que l’assistant reste utilisable dans tous les rôles. Sur Supabase, le niveau vient du serveur ; un compte N0 qui initie une demande reçoit le message `err_ENROLMENT_REQUIRED`.
+- `src/i18n/messages.ts` (français et anglais, apostrophes typographiques) :
+  - X4 : `err_ENROLMENT_REQUIRED` (remplace `err_INITIATION_NOT_ALLOWED`), `err_PROFILE_PROTECTED`, `err_ENROLMENT_PENDING`, `err_ALREADY_ENROLLED`, `err_SELF_REVIEW`, `err_CASE_CLOSED`, `err_NOT_CLAIMED`, `err_ALREADY_CLAIMED`, `err_KYC_PENDING`, `err_AUDIT_IMMUTABLE`, `err_LIMITS_NOT_CONFIGURED`, `err_LIMIT_EXCEEDED`.
+  - X5 : `err_QUOTE_UNAVAILABLE`, `err_QUOTE_INVALID`, `err_QUOTE_USED`, `err_QUOTE_EXPIRED`, `err_QUOTE_FROZEN`, `err_REFUND_NOT_PENDING`.
+  - X6 : `err_BENEFICIARY_NAME_NOT_ALLOWED`, `err_BENEFICIARY_REFERENCE_INVALID`, `err_BENEFICIARY_REFERENCE_REQUIRED`, `err_DOCUMENT_KIND_NOT_ALLOWED`, les messages d’étape `need_BENEFICIARY_NAME_NOT_ALLOWED`, `need_BENEFICIARY_REFERENCE_INVALID`, `need_BENEFICIARY_REFERENCE_REQUIRED`, et les libellés `beneficiaryReference`, `beneficiaryReferenceHint`.
+- Écran de paiement : inchangé. `payTranche` demande un devis dans la devise de la demande, puis accepte et paie (X5) ; le détail des frais sera affiché au lot Y.
+- Tests : `test/wizard.test.ts` (santé : référence du patient, devis seul).
+
+### Bureau de contrôle (web)
+
+- `src/i18n/fr.ts` : mêmes codes d’erreur que ci-dessus, en français (`frErrors` est un `Record<ErrorCode>`).
+- Aucun autre changement de code. Les écrans d’enrôlement et de médiation sont prévus au lot Y.
+- Tests de bout en bout : `e2e/fixtures.ts` (dossier santé : référence et devis seul), `e2e/litiges.spec.ts` (remboursement REQUESTED).

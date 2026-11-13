@@ -19,3 +19,4 @@ export * from './links';
 export * from './trustvault';
 export * from './payments';
 export * from './modules';
+export * from './enrolment';

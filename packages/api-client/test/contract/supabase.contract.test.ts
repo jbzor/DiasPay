@@ -38,6 +38,8 @@ async function signIn(who: Who): Promise<ContractApi> {
 // PDF minimal (1 page) : contenu réel envoyé au bucket par URL signée.
 const PDF = 'JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqIDIgMCBvYmo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iaiAzIDAgb2JqPDwvVHlwZS9QYWdlL01lZGlhQm94WzAgMCAzIDNdPj5lbmRvYmoKdHJhaWxlcjw8L1Jvb3QgMSAwIFI+Pg==';
 
+const signedIn = (who: Who) => { if (!sessions.has(who)) sessions.set(who, signIn(who)); return sessions.get(who)!; };
+
 if (URL && KEY) {
   contractSuite({
     name: 'Supabase (SupabaseApi)',
@@ -47,6 +49,7 @@ if (URL && KEY) {
     refundSettlement: 'AWAITING_PARTNER_EVENT',   // remboursement PENDING jusqu’à l’événement du partenaire (voir Harness.refundSettlement)
     partyIsolation: true,
     phones: { PAYER: PHONES.PAYER.phone, REQUESTER: PHONES.REQUESTER.phone, OTHER: PHONES.OTHER.phone },
+    userId: async (who) => (await signedIn(who) as unknown as { userId(): Promise<string> }).userId(),
     timeout: 30_000,
   });
   // Nettoyage : dossiers, journal et alertes des comptes de test (demo_reset, permis en mock_mode uniquement).

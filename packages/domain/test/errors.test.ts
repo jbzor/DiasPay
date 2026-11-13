@@ -22,7 +22,9 @@ describe('table des codes d’erreur', () => {
     expect(migrations).toContain('0009_lotx_x4.sql');
     const codes = [...new Set(migrations.flatMap((f) => sqlCodes(read('supabase', 'migrations', f))))];
     expect(codes.length).toBeGreaterThan(40);
-    expect(codes.filter((c) => !isErrorCode(c))).toEqual([]);
+    // Codes renommés (docs/error-codes.md, « Codes renommés ») : encore écrits dans des migrations appliquées, plus levés.
+    const renamed = new Set([...(read('docs', 'error-codes.md').split('## Codes renommés').slice(1).join('')).matchAll(/^\| `([A-Z_]+)`/gm)].map((m) => m[1]));
+    expect(codes.filter((c) => !isErrorCode(c) && !renamed.has(c))).toEqual([]);
   });
 
   it('chaque code levé en TypeScript (domaine, client, application) est dans la table', () => {

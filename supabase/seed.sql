@@ -79,10 +79,12 @@ where p.user_id is null and p.phone is not null and _norm_phone(pr.phone) = _nor
 -- comme la validation de démonstration. Sans effet hors mock_mode ; en production le jeton relève du TrustEngine.
 insert into app_config(key, value) values ('auto_issue_token', 'true') on conflict (key) do update set value = 'true';
 
--- Lot X : le compte de test « demandeur » des tests de contrat (+33 6 39 98 00 12) est aussi autorisé à initier une
--- demande en prestataire (enrôlement provisoire can_initiate_requests, réglé ici comme le ferait un administrateur).
--- Le compte se crée à la première connexion : réexécuter le seed après un premier passage des tests de contrat.
-update profiles set can_initiate_requests = true where phone = '33639980012';
+-- Lot X version 2 (X4) : niveaux d’enrôlement des comptes de démonstration et de test, réglés ici comme après la revue
+-- d’un dossier (aucun dossier fictif) : demandeur de démonstration (+33 6 39 98 00 02) N1, prestataire de démonstration
+-- (+33 6 39 98 00 03) N2, compte « demandeur » des tests de contrat (+33 6 39 98 00 12) N2 (il initie aussi en prestataire).
+-- Les comptes se créent à la première connexion : réexécuter le seed après un premier passage.
+update profiles set enrolment_level = 'N1' where phone = '33639980002' and enrolment_level = 'N0';
+update profiles set enrolment_level = 'N2' where phone in ('33639980012', '33639980003') and enrolment_level < 'N2';
 
 commit;
 

@@ -46,6 +46,8 @@ insert into auth.users(id, phone) values
  ('00000000-0000-0000-0000-000000000007','+33600000007');  -- étranger au dossier
 update profiles set platform_role='VALIDATOR' where phone in ('+237600000004','+237600000005');
 update profiles set platform_role='ADMIN' where phone='+237600000006';
+-- Lot X v2 (X4, 0020) : niveau d’enrôlement réglé ici comme après la revue d’un dossier (N1 requis pour initier en demandeur).
+update profiles set enrolment_level = 'N1' where id = '00000000-0000-0000-0000-000000000001';
 -- Compte seulement les sept utilisateurs du test (la base peut déjà contenir des comptes, dont ceux du seed).
 select t.check((select count(*) from profiles where id::text like '00000000-0000-0000-0000-00000000000_')=7, 'profils créés automatiquement à l''inscription');
 

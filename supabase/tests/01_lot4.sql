@@ -52,6 +52,8 @@ insert into auth.users(id, phone) values
 update profiles set platform_role = 'VALIDATOR' where id = 'e1000000-0000-4000-8000-000000000004';
 update profiles set platform_role = 'ADMIN' where id = 'e1000000-0000-4000-8000-000000000006';
 update profiles set primary_role = 'REQUESTER' where id = 'e1000000-0000-4000-8000-000000000002';
+-- Lot X v2 (X4, 0020) : niveau d’enrôlement réglé ici comme après la revue d’un dossier (N1 requis pour initier en demandeur).
+update profiles set enrolment_level = 'N1' where id = 'e1000000-0000-4000-8000-000000000002';
 insert into providers(id, name, city, verticals, verified, phone) values
  ('e2000000-0000-4000-8000-000000000001', 'Lycée Général Leclerc (test)', 'Yaoundé', '{EDUCATION}', true, '+237611110003'),
  ('e2000000-0000-4000-8000-000000000002', 'Clinique de l’Espérance (test)', 'Douala', '{HEALTH}', true, null);

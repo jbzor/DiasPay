@@ -66,6 +66,8 @@ from (values ('f1000000-0000-4000-8000-000000000001'::uuid, 'Marie N. (test)', '
              ('f1000000-0000-4000-8000-000000000007'::uuid, 'Paul T. (test)', 'USER', 'PAYER'),
              ('f1000000-0000-4000-8000-000000000008'::uuid, 'Validateur partie (test)', 'VALIDATOR', null)) v(id, n, r, pr)
 where p.id = v.id;
+-- Lot X v2 (X4, 0020) : niveau d’enrôlement réglé ici comme après la revue d’un dossier (N1 requis pour initier en demandeur).
+update profiles set enrolment_level = 'N1' where id = 'f1000000-0000-4000-8000-000000000002';
 insert into providers(id, name, city, verticals, verified, phone) values
  ('f2000000-0000-4000-8000-000000000001', 'Lycée de la Réunification (test)', 'Yaoundé', '{EDUCATION}', true, '+237622220003'),
  ('f2000000-0000-4000-8000-000000000002', 'Institut Non Vérifié (test)', 'Douala', '{EDUCATION}', false, null);

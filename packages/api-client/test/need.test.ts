@@ -147,11 +147,11 @@ describe('soumission', () => {
     api.setUser({ id: 'u-marie', role: 'PROVIDER' });
     expect((await api.submitNeed(d.id)).status).toBe('ACTIVE');
   });
-  it('rôle PROVIDER explicite : autorisation exigée (INITIATION_NOT_ALLOWED), jamais soi-même payeur (SELF_PAYER)', async () => {
+  it('rôle PROVIDER explicite : niveau N2 exigé (ENROLMENT_REQUIRED), jamais soi-même payeur (SELF_PAYER)', async () => {
     const { api } = make();
     api.setUser({ id: 'u-ecole', role: 'PROVIDER', phone: '+237699000777' });
-    expect(await code(api.createDraft({ vertical: 'EDUCATION', creatorRole: 'PROVIDER' }))).toBe('INITIATION_NOT_ALLOWED');
-    api.setUser({ id: 'u-ecole', role: 'PROVIDER', phone: '+237699000777', canInitiateRequests: true });
+    expect(await code(api.createDraft({ vertical: 'EDUCATION', creatorRole: 'PROVIDER' }))).toBe('ENROLMENT_REQUIRED');
+    api.setUser({ id: 'u-ecole', role: 'PROVIDER', phone: '+237699000777', enrolmentLevel: 'N2' });
     const d = await api.createDraft({ vertical: 'EDUCATION', creatorRole: 'PROVIDER' });
     expect(d).toMatchObject({ vertical: 'EDUCATION', creatorRole: 'PROVIDER', ownerId: 'u-ecole' });
     expect(await code(api.saveDraft({ ...d, counterpartyPhone: '+237 6 99 00 07 77' }))).toBe('SELF_PAYER');

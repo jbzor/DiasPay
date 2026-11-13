@@ -293,3 +293,23 @@ Résultat : `RESULTAT : 139 vérifications, toutes réussies`.
 
 ### X7
 - Aucune vérification modifiée.
+
+## Passe 2, X4 (0020) : niveaux d’enrôlement
+
+### Jeu d’essai (sans vérification)
+
+- `00_smoke.sql`, `01_lot4.sql`, `02_lot5.sql`, `03_lotx.sql`, `05_lotx2_p1.sql` : le demandeur du jeu d’essai est relevé à N1 (`update profiles set enrolment_level = 'N1'`, comme après la revue d’un dossier). Pourquoi : `save_draft` exige désormais N1 pour initier en demandeur. Aucun contrôle n’est modifié par ce réglage.
+
+### Vérifications remplacées (`03_lotx.sql`, partie « demandes initiées par un prestataire »)
+
+| Avant | Après | Pourquoi |
+|---|---|---|
+| prestataire sans autorisation refusé [`INITIATION_NOT_ALLOWED`] | prestataire sans le niveau N2 refusé [`ENROLMENT_REQUIRED`] | `can_initiate_requests` remplacée par le niveau (K3) |
+| un utilisateur ne s’accorde pas l’autorisation d’initier (échec quelconque) | un utilisateur ne s’accorde pas de niveau d’enrôlement [`PROFILE_PROTECTED`] | même garantie, sur la nouvelle colonne, avec un code stable |
+| autorisation inchangée (`can_initiate_requests` faux) | niveau inchangé (N0) | idem |
+
+Le réglage du jeu d’essai `can_initiate_requests = true` du prestataire autorisé devient `enrolment_level = 'N2'`.
+
+### Nouveau test
+
+`06_lotx2_p2.sql`, partie X4 : 60 vérifications (droits, niveau protégé, initiation selon le niveau, KYC simulé approuvé, refusé ou en revue, revue par le personnel, bucket `identity` et consultations journalisées, N2 puis N3, contrôle à la soumission, adaptateur réel réservé au rôle service, journal immuable, plafonds).

@@ -6,13 +6,15 @@ import {
   formatReference, isAutoReleasable, messageError, normalizeReference, paymentOutcome, rejectRequestDecision, requestInfoDecision,
   resolveDisputeDecision, shouldActivateTranche, shouldCloseOperation, toIsoDate, tokenRevocationError, tooManyAttempts, transitionOperation,
   transitionPaymentRequest, validateNeed, verifyChain, validatorDecisionError,
+  SimulatedKycAdapter, applyKycResult, checkEnrolmentSubmission, checkInitiation, enrolmentRoute,
 } from '@diaspay/domain';
 import type {
   Actor, ChainedAuditEntry, CreatorRole, DisputeOutcome, DraftDocument, FundsState, DraftDocumentInput, IncomingWebhook, LedgerState, ModuleCode, NeedDraft,
   RequestModule, RequestMessageKind, TrancheStatus, TxRole,
+  EnrolmentDocumentInput, EnrolmentLevel, KycPort,
 } from '@diaspay/domain';
 import type {
-  AppNotification, AuditEntry, DisputeView, DocumentAccess, DocumentReuse, NotificationEvent, Persona, Receipt, ReferenceInfo, RequestMessage, Tranche,
+  AppNotification, AuditEntry, DisputeView, DocumentAccess, DocumentReuse, EnrolmentCaseView, EnrolmentView, NotificationEvent, Persona, Receipt, ReferenceInfo, RequestMessage, Tranche,
   TrancheToken, Transaction, TransactionApi,
 } from './types';
 import { ApiError, MemoryDraftStore, SEED_PROVIDERS, foldText, newId, uriHasher } from './need';
@@ -60,6 +62,8 @@ export interface MockApiOptions {
   hashFile?: FileHasher;
   /** Lot X (X6) : types de besoin (défaut : DEFAULT_MODULES, valeurs du code). */
   modules?: readonly RequestModule[];
+  /** Lot X v2 (X4) : adaptateur KYC (défaut : simulé, résultat APPROVED, comme kyc_simulated_result en développement). */
+  kyc?: KycPort;
 }
 
 /** Jeton révoqué (lot X) : conservé pour refuser explicitement sa référence (TOKEN_REVOKED). */
@@ -88,13 +92,15 @@ interface Snapshot {
   viewed?: Record<string, string>;
   /** Lot X (X5) : tentatives, événements, remboursements et journal financier du simulateur. */
   payments?: LedgerState;
+  /** Lot X v2 (X4) : niveaux et dossiers d’enrôlement. */
+  enrolments?: Record<string, { level?: EnrolmentLevel; cases: EnrolmentCaseView[] }>;
 }
 
 /** Utilisateur connecté vu par la simulation : propriétaire des brouillons et rôle du créateur. */
 export interface MockUser {
   id: string; role: 'PAYER' | 'REQUESTER' | 'PROVIDER'; name?: string;
-  /** Lot X : autorisation d’initier une demande en prestataire (profiles.can_initiate_requests, réglée par un administrateur). */
-  canInitiateRequests?: boolean;
+  /** Lot X v2 (X4) : niveau d’enrôlement de départ (défaut N0, comme profiles.enrolment_level) ; relevé par submitEnrolment. */
+  enrolmentLevel?: EnrolmentLevel;
   /** Numéro du compte, pour refuser qu’un prestataire initiateur se désigne payeur. */
   phone?: string;
 }
@@ -201,6 +207,9 @@ export class MockApi implements TransactionApi {
   private readonly eqrImage: boolean;
   private readonly hashFile: FileHasher;
   private readonly modules: readonly RequestModule[];
+  /** Lot X v2 (X4) : niveaux relevés et dossiers d’enrôlement, par utilisateur. */
+  private enrolments: Record<string, { level?: EnrolmentLevel; cases: EnrolmentCaseView[] }> = {};
+  private readonly kyc: KycPort;
   /** Lot X (X5) : moteur de paiement (miroir de 0010) et partenaire simulé, qui répond par des événements signés. */
   private payments: PaymentEngine;
   private readonly paymentPort: SimulatedPaymentAdapter;
@@ -229,6 +238,7 @@ export class MockApi implements TransactionApi {
     this.eqrImage = options.eqrImageEnabled ?? false;   // 0015 : image du QR retirée du parcours par défaut
     this.hashFile = options.hashFile ?? uriHasher;
     this.modules = options.modules ?? DEFAULT_MODULES;
+    this.kyc = options.kyc ?? new SimulatedKycAdapter();
     this.payments = new PaymentEngine(clock);
     // Secret du simulateur (pas un secret réel) : les événements sont signés et vérifiés comme ceux d’un partenaire.
     this.paymentPort = new SimulatedPaymentAdapter({ secret: 'diaspay-simulateur', sink: (w) => this.receiveWebhook(w), clock, newId: () => newId('evt') });
@@ -359,7 +369,7 @@ export class MockApi implements TransactionApi {
       version: STATE_VERSION, savedAt: this.clock().toISOString(), txs: this.txs, chains: this.chains, anchors: this.anchors,
       notifications: this.notifications, disputes: this.disputes, tokens: [...this.tokens.values()], submitted: [...this.submitted],
       revoked: this.revoked, withdrawn: [...this.withdrawn], messages: this.messages, creators: this.creators, viewed: this.viewed,
-      payments: this.payments.state(),
+      payments: this.payments.state(), enrolments: this.enrolments,
     };
   }
   private scheduleSave(): void {
@@ -398,6 +408,7 @@ export class MockApi implements TransactionApi {
     this.creators = snap.creators ?? {};
     this.viewed = snap.viewed ?? {};
     this.payments = new PaymentEngine(this.clock, snap.payments);
+    this.enrolments = snap.enrolments ?? {};
     this.refreshVisible();
     this.listeners.forEach((l) => l());
     return true;
@@ -782,9 +793,10 @@ export class MockApi implements TransactionApi {
     if ((existing?.ownerId && existing.ownerId !== user.id) || (draft.ownerId && draft.ownerId !== user.id)) {
       throw new ApiError('TX_NOT_FOUND', 'Brouillon introuvable');
     }
+    // Miroir de save_draft (X4 v2) : niveau d’enrôlement du rôle de création (demandeur N1, prestataire N2).
+    checkInitiation(this.levelOf(user), this.creatorRoleOf(draft));
     if (draft.creatorRole === 'PROVIDER') {
-      // Miroir de save_draft (lot X) : autorisation, et jamais soi-même comme payeur.
-      if (!user.canInitiateRequests) throw new ApiError('INITIATION_NOT_ALLOWED', 'Votre compte n’est pas autorisé à initier des demandes de paiement');
+      // Jamais soi-même comme payeur.
       const digits = (v?: string) => (v ?? '').replace(/\D/g, '');
       if (draft.counterpartyPhone && user.phone && digits(draft.counterpartyPhone) === digits(user.phone)) {
         throw new ApiError('SELF_PAYER', 'Vous ne pouvez pas être le payeur de votre propre demande');
@@ -854,6 +866,7 @@ export class MockApi implements TransactionApi {
     const previous = draft.correctionOf ? this.txs.find((t) => t.id === draft.correctionOf && t.status === 'DRAFT') : undefined;
     // Contexte de soumission réel : plan et pièces (le domaine lève PLAN_SUM_MISMATCH ou TX_NO_DOCUMENT).
     const creatorRole = this.creatorRoleOf(draft);
+    checkInitiation(this.levelOf(user), creatorRole);   // niveau contrôlé de nouveau à la soumission (submit_operation)
     if (creatorRole === 'PROVIDER' && !draft.counterpartyPhone?.trim()) throw new ApiError('VALIDATION', 'Téléphone du payeur requis');
     // Contrôles de la soumission (plan, pièces) : DRAFT → ACTIVE ou PENDING_REVIEW, décidé ci-dessous par le module.
     transitionOperation('DRAFT', 'ACTIVE', { ...this.creatorActor(creatorRole), isCreator: true } as Actor, {
@@ -896,6 +909,37 @@ export class MockApi implements TransactionApi {
 
   /** Lot X (X6) : types de besoin, dans l’ordre d’affichage. */
   async listModules(): Promise<RequestModule[]> { return sortModules(this.modules).map((m) => structuredClone(m)); }
+
+  // ——— Lot X v2 (X4) : enrôlement (miroir de submit_enrolment et my_enrolment) ———
+
+  private levelOf(user: MockUser): EnrolmentLevel { return this.enrolments[user.id]?.level ?? user.enrolmentLevel ?? 'N0'; }
+
+  async getEnrolment(): Promise<EnrolmentView> {
+    const user = this.requireUser();
+    const last = this.enrolments[user.id]?.cases.at(-1);
+    return { level: this.levelOf(user), ...(last ? { case: structuredClone(last) } : {}) };
+  }
+
+  async submitEnrolment(input: { level: EnrolmentLevel; documents: EnrolmentDocumentInput[]; data?: Record<string, string> }): Promise<EnrolmentCaseView> {
+    const user = this.requireUser();
+    const entry = (this.enrolments[user.id] ??= { cases: [] });
+    checkEnrolmentSubmission({
+      userId: user.id, current: this.levelOf(user), requested: input.level, documents: input.documents,
+      hasOpenCase: entry.cases.some((c) => c.status === 'SUBMITTED' || c.status === 'IN_REVIEW'),
+    });
+    const c: EnrolmentCaseView = { id: newId('enr'), requestedLevel: input.level, status: 'SUBMITTED', route: enrolmentRoute(input.level), submittedAt: this.clock().toISOString() };
+    entry.cases.push(c);
+    if (c.route === 'KYC') {
+      const r = await this.kyc.check({ caseId: c.id, userId: user.id, level: input.level as 'N1' | 'N2', documents: input.documents });
+      c.kycResult = r.result;
+      c.status = applyKycResult(c.status, r.result);
+      if (c.status !== 'SUBMITTED') c.reviewedAt = this.clock().toISOString();
+      if (c.status === 'REJECTED') c.rejectionReason = r.reason ?? 'Vérification d’identité refusée';
+      if (c.status === 'APPROVED') entry.level = input.level;
+    }
+    this.emit();
+    return structuredClone(c);
+  }
 
   /**
    * Mode démonstration : le bureau de contrôle simulé décide d’une opération en revue (PENDING_REVIEW ou IN_REVIEW).

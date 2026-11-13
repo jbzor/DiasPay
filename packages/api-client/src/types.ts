@@ -1,6 +1,7 @@
 import type {
   CreatorRole, Currency, DisputeOutcome, DisputeStatus, DraftDocument, DraftDocumentInput, FundsState, ModuleCode, Money, NeedDraft, PlanType, ReleaseMode,
   RequestMessageKind, RequestModule, SettlementMode, TrancheStatus, TxStatus,
+  EnrolmentCaseStatus, EnrolmentDocumentInput, EnrolmentLevel, KycResult,
 } from '@diaspay/domain';
 import type { ProviderSummary } from './need';
 
@@ -235,4 +236,17 @@ export interface TransactionApi {
 
   // Lot X (X6) : types de besoin décrits par des données (request_modules), lus par l’assistant de création.
   listModules(): Promise<RequestModule[]>;
+
+  // Lot X version 2 (X4) : enrôlement, sans écran (lot Y).
+  /** Niveau de l’utilisateur connecté et son dernier dossier. */
+  getEnrolment(): Promise<EnrolmentView>;
+  /** Dépôt d’un dossier (pièces déjà envoyées dans le bucket « identity », sous <uid>/). N1 et N2 : vérification automatique ; N3 : revue. */
+  submitEnrolment(input: { level: EnrolmentLevel; documents: EnrolmentDocumentInput[]; data?: Record<string, string> }): Promise<EnrolmentCaseView>;
 }
+
+/** Lot X version 2 (X4) : dossier d’enrôlement vu par son titulaire. */
+export interface EnrolmentCaseView {
+  id: string; requestedLevel: EnrolmentLevel; status: EnrolmentCaseStatus; route: 'KYC' | 'MANUAL';
+  kycResult?: KycResult; rejectionReason?: string; submittedAt: string; reviewedAt?: string;
+}
+export interface EnrolmentView { level: EnrolmentLevel; case?: EnrolmentCaseView }

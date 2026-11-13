@@ -76,3 +76,4 @@
 39. **Règlement direct par défaut vérifié** : `select code, settlement_mode, platform_review from request_modules order by display_order;` correspond aux décisions K1 et K2 ; `supabase/tests/05_lotx2_p1.sql` passe sur l’environnement de recette.
 40. **Aucun ancien statut en base** : `select count(*) from tranches where status::text in ('PLANNED','AWAITING_PAYMENT','PAID_LOCKED','CONFIRMED','RELEASED','EVIDENCE_SUBMITTED','DISPUTED');` est nul (les contraintes l’imposent).
 
+41. **Enrôlement prêt** (X4) : aucune ligne `dev_only` dans `enrolment_limits` (`select count(*) from enrolment_limits where dev_only;` est nul) ; plafonds saisis ou refus prudent accepté par écrit ; `kyc_simulated_result` absent (`select count(*) from app_config where key = 'kyc_simulated_result';` est nul) ; adaptateur KYC réel choisi et branché sur `apply_kyc_result` (rôle service) ; bucket `identity` privé.

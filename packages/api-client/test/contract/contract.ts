@@ -34,6 +34,8 @@ export interface Harness {
   partyIsolation: boolean;
   /** Numéros des comptes (E.164). Lot X : le payeur désigné par un demandeur ou un prestataire, refus de se désigner soi-même. */
   phones: Record<Who, string>;
+  /** Identifiant du compte (préfixe des chemins de pièces d’identité, X4 v2). */
+  userId(who: Who): Promise<string>;
   timeout: number;
 }
 
@@ -239,10 +241,10 @@ export function contractSuite(h: Harness): void {
       expect((await (await h.as('REQUESTER')).listNotifications()).some((n) => n.event.type === 'REQUEST_REJECTED' && n.event.txId === tx(done))).toBe(true);
     }, t * 3);
 
-    it('X3 : demande initiée par un prestataire autorisé, refusée sans autorisation', async () => {
+    it('X3 : demande initiée par un prestataire enrôlé N2, refusée sans le niveau requis', async () => {
       const other = await h.as('OTHER');
-      expect(await code(other.createDraft({ vertical: 'EDUCATION', creatorRole: 'PROVIDER' }))).toBe('INITIATION_NOT_ALLOWED');
-      const prov = await h.as('REQUESTER');   // compte de test autorisé à initier (seed : can_initiate_requests)
+      expect(await code(other.createDraft({ vertical: 'EDUCATION', creatorRole: 'PROVIDER' }))).toBe('ENROLMENT_REQUIRED');
+      const prov = await h.as('REQUESTER');   // compte de test enrôlé N2 (seed : enrolment_level)
       const draft = await prov.createDraft({ vertical: 'EDUCATION', creatorRole: 'PROVIDER' });
       expect(draft.creatorRole).toBe('PROVIDER');
       const due = inDays(3);
@@ -438,5 +440,27 @@ export function contractSuite(h: Harness): void {
       }
       expect(await code(api.simulateDisputeResolution(tr.id, { outcome: 'NO_ACTION', note: 'Encore' }))).toBe('NO_OPEN_DISPUTE');
     }, t * 3);
+  });
+
+  describe('lot X version 2 (X4) : enrôlement', () => {
+    it('N1 par la vérification simulée, puis niveau atteint ; pièces hors de son dossier refusées', async () => {
+      const me = await h.as('PAYER');
+      const uid = await h.userId('PAYER');
+      const docs = (owner: string) => [
+        { kind: 'ID_DOCUMENT', path: `${owner}/contrat-id-${newUuid()}.jpg`, mimeType: 'image/jpeg', sizeBytes: 2_000 },
+        { kind: 'SELFIE', path: `${owner}/contrat-selfie-${newUuid()}.jpg`, mimeType: 'image/jpeg', sizeBytes: 2_000 },
+      ];
+      expect(await code(me.submitEnrolment({ level: 'N1', documents: docs('un-autre-compte') }))).toBe('VALIDATION');
+      expect(await code(me.submitEnrolment({ level: 'N1', documents: docs(uid).slice(0, 1) }))).toBe(
+        (await me.getEnrolment()).level === 'N0' ? 'DOCUMENT_REQUIRED' : 'ALREADY_ENROLLED');
+      if ((await me.getEnrolment()).level === 'N0') {
+        const c = await me.submitEnrolment({ level: 'N1', documents: docs(uid) });
+        expect(c).toMatchObject({ requestedLevel: 'N1', status: 'APPROVED', route: 'KYC', kycResult: 'APPROVED' });
+      }
+      const after = await me.getEnrolment();
+      expect(after.level).toBe('N1');
+      expect(await code(me.submitEnrolment({ level: 'N1', documents: docs(uid) }))).toBe('ALREADY_ENROLLED');
+      expect(await code(me.submitEnrolment({ level: 'N2', documents: [{ kind: 'BUSINESS_REGISTRATION', path: `${uid}/rc.pdf` }] }))).toBe('DOCUMENT_REQUIRED');
+    }, h.timeout);
   });
 }

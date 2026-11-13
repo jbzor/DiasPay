@@ -73,7 +73,7 @@ export interface NeedDraft {
   counterpartyPhone?: string;      // payeur invité quand le créateur est demandeur (ou prestataire initiateur)
   /**
    * Rôle explicite du créateur (lot X). Absent : déduit du profil (demandeur, sinon payeur), comportement inchangé.
-   * PROVIDER : exige l’autorisation can_initiate_requests et le téléphone du payeur ; le prestataire est le créateur.
+   * PROVIDER : exige le niveau d’enrôlement N2 (REQUESTER : N1 ; X4 v2) et le téléphone du payeur ; le prestataire est le créateur.
    */
   creatorRole?: CreatorRole;
   planType?: PlanType;

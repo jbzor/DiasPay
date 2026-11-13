@@ -55,7 +55,9 @@ let currentUser: CurrentUser | null = null;
 export const getCurrentUser = () => currentUser;
 export function setCurrentUser(u: CurrentUser | null): void {
   currentUser = u;
-  mockApi.setUser(u);
+  // Simulateur : le compte de démonstration est déjà enrôlé (N2 : il peut aussi initier en prestataire). Sur Supabase, le
+  // niveau vient du serveur (profiles.enrolment_level, X4 v2).
+  mockApi.setUser(u && { ...u, enrolmentLevel: 'N2' });
 }
 
 let persona: Persona = 'PAYER';

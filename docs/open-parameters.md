@@ -4,7 +4,7 @@ Les valeurs ci-dessous ne sont pas fournies par le client, le partenaire de paie
 
 | # | Paramètre | Où | Sans valeur | Valeur de développement | À fournir par |
 |---|---|---|---|---|---|
-| 1 | Plafonds par niveau d’enrôlement (par opération, jour, mois) | `enrolment_limits` (lot X v2, X4, passe 2) | refus explicite à l’acceptation | — | client, partenaire, conseil juridique |
+| 1 | Plafonds par niveau d’enrôlement et devise (par paiement, jour, mois), et période (civile UTC aujourd’hui, ou glissante) | `enrolment_limits` (0020) ; réglage `limits_when_missing` | `LIMITS_NOT_CONFIGURED` : paiement refusé (REFUSE par défaut) | lignes `dev_only` sans aucun plafond (valeurs nulles), mock_mode seulement | client, partenaire, conseil juridique |
 | 2 | Durée de vie du jeton de présentation (QR du commerçant) et fréquence de rotation | `app_config.presentation_token_ttl_seconds` | `issue_presentation_token` répond `NOT_CONFIGURED` | `90` (mock_mode, posé par 0016) | partenaire, essais |
 | 3 | Durée d’expiration d’une demande soumise, par type de besoin | `request_modules.request_expiry_days` | aucune expiration (`expires_at` vide) | — | client |
 | 4 | Seuil du mode `RISK_BASED` (montant, par devise) | `app_config.risk_review_threshold` (JSON, par exemple `{"XAF": 1000000}`) | revue par le bureau (`THRESHOLD_NOT_CONFIGURED`) | — | bureau de contrôle |
@@ -20,3 +20,5 @@ Les valeurs ci-dessous ne sont pas fournies par le client, le partenaire de paie
 | `request_modules.platform_review` | `NEVER` partout (K2) | `ALWAYS` ou `RISK_BASED` par module, si le bureau le demande |
 | `request_modules.settlement_mode` | DIRECT (vague 1), CONDITIONAL (vague 2) | séquestre en phases 2 et 3 (K1) |
 | `app_config.payment_provider` | `SIMULATED` | TrustPayWay quand l’adaptateur réel existera |
+| `app_config.kyc_simulated_result` | `APPROVED` (mock_mode seulement) | résultat de l’adaptateur KYC simulé ; absent en production, où l’adaptateur réel (à choisir) appelle `apply_kyc_result` |
+| `app_config.limits_when_missing` | absent (REFUSE) | ALLOW seulement par décision explicite (ligne 1) |

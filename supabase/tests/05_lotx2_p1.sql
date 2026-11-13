@@ -50,6 +50,8 @@ insert into auth.users(id, phone) values
 update profiles set platform_role = 'ADMIN' where id = 'fc000000-0000-4000-8000-000000000005';
 update profiles set primary_role = 'REQUESTER', full_name = 'Jean K. (test)' where id = 'fc000000-0000-4000-8000-000000000002';
 update profiles set primary_role = 'PROVIDER' where id = 'fc000000-0000-4000-8000-000000000003';
+-- Lot X v2 (X4, 0020) : niveau d’enrôlement réglé ici comme après la revue d’un dossier (N1 requis pour initier en demandeur).
+update profiles set enrolment_level = 'N1' where id = 'fc000000-0000-4000-8000-000000000002';
 update request_modules set enabled = true where code = 'AGRO';
 select t.check((select value from app_config where key = 'mock_mode') = 'true', 'prérequis : mock_mode = true');
 

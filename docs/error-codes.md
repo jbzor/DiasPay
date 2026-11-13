@@ -24,7 +24,7 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `PROVIDER_ONLY` | D, S | Réservé au prestataire |
 | `PAYER_ONLY` | D, S | Réservé au payeur : déblocage anticipé ; lot X : demande reçue (`mark_received`), demande d’informations, rejet |
 | `INITIATOR_ONLY` | D, S | Réservé à l’initiateur de la demande : réponse à une demande d’informations, révocation ou réémission du jeton (lot X) |
-| `INITIATION_NOT_ALLOWED` | D, S | Compte non autorisé à initier une demande de paiement (`profiles.can_initiate_requests`, réglé par un administrateur ; lot X) |
+| `ENROLMENT_REQUIRED` | D, S | Niveau d’enrôlement insuffisant : N1 pour initier une demande en demandeur, N2 en prestataire, N1 avant N2 ou N3 (detail : `required`, `current` ; lot X v2, X4). Remplace `INITIATION_NOT_ALLOWED` (`can_initiate_requests`, supprimée par 0020) |
 | `VALIDATOR_ONLY` | D, S | Réservé aux validateurs |
 | `VALIDATOR_IS_PARTY` | D, S | Un validateur ou administrateur partie au dossier ne peut pas décider |
 | `ADMIN_ONLY` | D, S | Réservé aux administrateurs (litiges, RG-09) |
@@ -136,6 +136,22 @@ Les résultats de `apply_payment_event` (`APPLIED`, `IGNORED`, `REJECTED`, `INVA
 | `NOT_CONFIRMED` | D, S | Prestation pas encore confirmée : libération anticipée impossible (CONDITIONAL) |
 | `NOT_CONFIGURED` | S | Réglage non configuré (point ouvert, voir `docs/open-parameters.md`) : la fonction refuse par prudence |
 
+## Enrôlement et plafonds (lot X version 2, X4)
+
+| Code | Origine | Sens |
+|---|---|---|
+| `PROFILE_PROTECTED` | S | Rôle de plateforme, statut KYC ou niveau d’enrôlement modifiés par l’utilisateur lui-même (déclencheur `guard_profile`) |
+| `ENROLMENT_PENDING` | D, S | Un dossier d’enrôlement est déjà en cours (SUBMITTED ou IN_REVIEW) |
+| `ALREADY_ENROLLED` | D, S | Niveau demandé déjà atteint |
+| `SELF_REVIEW` | S | Le personnel n’examine pas son propre dossier d’enrôlement |
+| `CASE_CLOSED` | S | Dossier d’enrôlement déjà tranché (APPROVED ou REJECTED) |
+| `NOT_CLAIMED` | S | Décision sans prise en charge préalable du dossier |
+| `ALREADY_CLAIMED` | S | Dossier pris en charge par un autre relecteur |
+| `KYC_PENDING` | S | Prise en charge d’un dossier N1 ou N2 avant le résultat de l’adaptateur KYC (seul REVIEW passe au bureau) |
+| `AUDIT_IMMUTABLE` | S | Journal d’enrôlement (`enrolment_events`) en ajout seul |
+| `LIMITS_NOT_CONFIGURED` | D, S | Aucune ligne de plafonds pour le niveau du payeur et la devise : paiement refusé par prudence (réglage `limits_when_missing`, point ouvert 1) |
+| `LIMIT_EXCEEDED` | D, S | Plafond du niveau dépassé (detail : `window` OPERATION, DAY ou MONTH, `limit`, `used`) |
+
 ## Litiges
 
 | Code | Origine | Signification |
@@ -184,3 +200,9 @@ Les résultats de `apply_payment_event` (`APPLIED`, `IGNORED`, `REJECTED`, `INVA
 | `NOT_FOUND` (transaction, brouillon, tranche) | `TX_NOT_FOUND`, `TRANCHE_NOT_FOUND` |
 
 Un validateur qui tente une transition réservée reçoit désormais `VALIDATOR_ONLY` (non validateur) ou `VALIDATOR_IS_PARTY` (partie au dossier), comme `transition_tx()`, au lieu de `TRANSITION_FORBIDDEN`. Le règlement d’un litige exige un administrateur (`ADMIN_ONLY`), comme `resolve_dispute()` depuis 0003.
+
+## Codes renommés au lot X version 2
+
+| Ancien code | Nouveau code |
+|---|---|
+| `INITIATION_NOT_ALLOWED` | `ENROLMENT_REQUIRED` (X4, 0020 : le niveau d’enrôlement remplace `can_initiate_requests` ; l’ancien code reste écrit dans 0008 et 0011, déjà appliquées, mais plus aucune fonction en vigueur ne le lève) |

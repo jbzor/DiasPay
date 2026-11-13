@@ -52,6 +52,8 @@ insert into auth.users(id, phone) values
 update profiles set platform_role = 'VALIDATOR' where id = 'f9000000-0000-4000-8000-000000000004';
 update profiles set platform_role = 'ADMIN' where id = 'f9000000-0000-4000-8000-000000000005';
 update profiles set primary_role = 'REQUESTER' where id = 'f9000000-0000-4000-8000-000000000002';
+-- Lot X v2 (X4, 0020) : niveau d’enrôlement réglé ici comme après la revue d’un dossier (N1 requis pour initier en demandeur).
+update profiles set enrolment_level = 'N1' where id = 'f9000000-0000-4000-8000-000000000002';
 update profiles set primary_role = 'PROVIDER', full_name = 'École Les Manguiers (test)' where id = 'f9000000-0000-4000-8000-000000000007';
 update profiles set primary_role = 'PROVIDER' where id in ('f9000000-0000-4000-8000-000000000003', 'f9000000-0000-4000-8000-000000000008');
 -- Jetons (TrustLink) : émis à la soumission d’une demande, en CONDITIONAL seulement. Le dossier A utilise le module AGRO
@@ -349,12 +351,12 @@ select t.check((select status from transactions where id = 'f9300000-0000-4000-8
 -- ---------- X3 : demande initiée par un prestataire ----------
 select t.login('f9000000-0000-4000-8000-000000000008');
 select t.hint($$select save_draft('{"id":"f9300000-0000-4000-8000-00000000000c","vertical":"EDUCATION","creatorRole":"PROVIDER","counterpartyPhone":"+33622220001"}')$$,
-  'INITIATION_NOT_ALLOWED', 'prestataire sans autorisation refusé');
-select t.fails($$update profiles set can_initiate_requests = true where id = auth.uid()$$, 'un utilisateur ne s’accorde pas l’autorisation d’initier');
+  'ENROLMENT_REQUIRED', 'prestataire sans le niveau N2 refusé (X4 : remplace can_initiate_requests)');
+select t.hint($$update profiles set enrolment_level = 'N2' where id = auth.uid()$$, 'PROFILE_PROTECTED', 'un utilisateur ne s’accorde pas de niveau d’enrôlement');
 select t.hint($$select save_draft('{"id":"f9300000-0000-4000-8000-00000000000c","vertical":"EDUCATION","creatorRole":"BANQUIER"}')$$, 'VALIDATION', 'rôle de créateur inconnu');
 select t.admin();
-select t.check(not (select can_initiate_requests from profiles where id = 'f9000000-0000-4000-8000-000000000008'), 'autorisation inchangée');
-update profiles set can_initiate_requests = true where id = 'f9000000-0000-4000-8000-000000000007';   -- administrateur (SQL)
+select t.check((select enrolment_level from profiles where id = 'f9000000-0000-4000-8000-000000000008') = 'N0', 'niveau inchangé');
+update profiles set enrolment_level = 'N2' where id = 'f9000000-0000-4000-8000-000000000007';   -- après revue (SQL)
 select t.login('f9000000-0000-4000-8000-000000000007');
 select t.hint($$select save_draft('{"id":"f9300000-0000-4000-8000-00000000000c","vertical":"EDUCATION","creatorRole":"PROVIDER","counterpartyPhone":"+237 6 2222 0007"}')$$,
   'SELF_PAYER', 'le prestataire ne se désigne pas payeur');

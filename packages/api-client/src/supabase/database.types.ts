@@ -264,6 +264,110 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"enrolment_cases": {
+                  Row: {
+                    "data": NonNullable<Json>,"id": string,"kyc_provider": string | null,"kyc_reference": string | null,"kyc_result": string | null,"profile_id": string,"rejection_reason": string | null,"requested_level": string,"reviewed_at": string | null,"reviewer_id": string | null,"route": string,"status": string,"submitted_at": string,"_enrolment_json": Json | null
+                  }
+                  ComputedFields: "_enrolment_json"
+                  Insert: {
+                    "data"?: NonNullable<Json>,"id"?: string,"kyc_provider"?: string | null,"kyc_reference"?: string | null,"kyc_result"?: string | null,"profile_id": string,"rejection_reason"?: string | null,"requested_level": string,"reviewed_at"?: string | null,"reviewer_id"?: string | null,"route": string,"status"?: string,"submitted_at"?: string
+                  }
+                  Update: {
+                    "data"?: NonNullable<Json>,"id"?: string,"kyc_provider"?: string | null,"kyc_reference"?: string | null,"kyc_result"?: string | null,"profile_id"?: string,"rejection_reason"?: string | null,"requested_level"?: string,"reviewed_at"?: string | null,"reviewer_id"?: string | null,"route"?: string,"status"?: string,"submitted_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "enrolment_cases_profile_id_fkey"
+      columns: ["profile_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "enrolment_cases_reviewer_id_fkey"
+      columns: ["reviewer_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"enrolment_documents": {
+                  Row: {
+                    "case_id": string,"content_hash": string | null,"id": string,"kind": string,"mime_type": string | null,"profile_id": string,"size_bytes": number | null,"storage_path": string,"uploaded_at": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "case_id": string,"content_hash"?: string | null,"id"?: string,"kind": string,"mime_type"?: string | null,"profile_id": string,"size_bytes"?: number | null,"storage_path": string,"uploaded_at"?: string
+                  }
+                  Update: {
+                    "case_id"?: string,"content_hash"?: string | null,"id"?: string,"kind"?: string,"mime_type"?: string | null,"profile_id"?: string,"size_bytes"?: number | null,"storage_path"?: string,"uploaded_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "enrolment_documents_case_id_fkey"
+      columns: ["case_id"]
+isOneToOne: false
+      referencedRelation: "enrolment_cases"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "enrolment_documents_profile_id_fkey"
+      columns: ["profile_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"enrolment_events": {
+                  Row: {
+                    "actor_id": string | null,"case_id": string | null,"created_at": string,"event": string,"id": number,"payload": NonNullable<Json>,"profile_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "actor_id"?: string | null,"case_id"?: string | null,"created_at"?: string,"event": string,"id"?: never,"payload"?: NonNullable<Json>,"profile_id": string
+                  }
+                  Update: {
+                    "actor_id"?: string | null,"case_id"?: string | null,"created_at"?: string,"event"?: string,"id"?: never,"payload"?: NonNullable<Json>,"profile_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "enrolment_events_actor_id_fkey"
+      columns: ["actor_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "enrolment_events_case_id_fkey"
+      columns: ["case_id"]
+isOneToOne: false
+      referencedRelation: "enrolment_cases"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "enrolment_events_profile_id_fkey"
+      columns: ["profile_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"enrolment_limits": {
+                  Row: {
+                    "currency": Database["public"]['Enums']["currency"],"dev_only": boolean,"level": string,"per_day_minor": number | null,"per_month_minor": number | null,"per_operation_minor": number | null,"updated_at": string,"updated_by": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "currency": Database["public"]['Enums']["currency"],"dev_only"?: boolean,"level": string,"per_day_minor"?: number | null,"per_month_minor"?: number | null,"per_operation_minor"?: number | null,"updated_at"?: string,"updated_by"?: string | null
+                  }
+                  Update: {
+                    "currency"?: Database["public"]['Enums']["currency"],"dev_only"?: boolean,"level"?: string,"per_day_minor"?: number | null,"per_month_minor"?: number | null,"per_operation_minor"?: number | null,"updated_at"?: string,"updated_by"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "enrolment_limits_updated_by_fkey"
+      columns: ["updated_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"ledger_accounts": {
                   Row: {
                     "code": string,"kind": string,"label_en": string,"label_fr": string
@@ -544,14 +648,14 @@ isOneToOne: false
                   ]
                 },"profiles": {
                   Row: {
-                    "can_initiate_requests": boolean,"country": string | null,"created_at": string,"full_name": string,"id": string,"kyc_status": string,"locale": string,"phone": string | null,"platform_role": Database["public"]['Enums']["platform_role"],"primary_role": string | null,"push_enabled": boolean
+                    "country": string | null,"created_at": string,"enrolment_level": string,"full_name": string,"id": string,"kyc_status": string,"locale": string,"phone": string | null,"platform_role": Database["public"]['Enums']["platform_role"],"primary_role": string | null,"push_enabled": boolean
                   }
                   ComputedFields: never
                   Insert: {
-                    "can_initiate_requests"?: boolean,"country"?: string | null,"created_at"?: string,"full_name": string,"id": string,"kyc_status"?: string,"locale"?: string,"phone"?: string | null,"platform_role"?: Database["public"]['Enums']["platform_role"],"primary_role"?: string | null,"push_enabled"?: boolean
+                    "country"?: string | null,"created_at"?: string,"enrolment_level"?: string,"full_name": string,"id": string,"kyc_status"?: string,"locale"?: string,"phone"?: string | null,"platform_role"?: Database["public"]['Enums']["platform_role"],"primary_role"?: string | null,"push_enabled"?: boolean
                   }
                   Update: {
-                    "can_initiate_requests"?: boolean,"country"?: string | null,"created_at"?: string,"full_name"?: string,"id"?: string,"kyc_status"?: string,"locale"?: string,"phone"?: string | null,"platform_role"?: Database["public"]['Enums']["platform_role"],"primary_role"?: string | null,"push_enabled"?: boolean
+                    "country"?: string | null,"created_at"?: string,"enrolment_level"?: string,"full_name"?: string,"id"?: string,"kyc_status"?: string,"locale"?: string,"phone"?: string | null,"platform_role"?: Database["public"]['Enums']["platform_role"],"primary_role"?: string | null,"push_enabled"?: boolean
                   }
                   Relationships: [
                     
@@ -1310,11 +1414,61 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"_apply_kyc":
+{ Args: { "p_case": string,"p_provider": string,"p_reason": string,"p_reference": string,"p_result": string }; Returns: {
+              "data": NonNullable<Json>,
+"id": string,
+"kyc_provider": string | null,
+"kyc_reference": string | null,
+"kyc_result": string | null,
+"profile_id": string,
+"rejection_reason": string | null,
+"requested_level": string,
+"reviewed_at": string | null,
+"reviewer_id": string | null,
+"route": string,
+"status": string,
+"submitted_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "enrolment_cases"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"_approve_enrolment":
+{ Args: { "p_actor": string,"p_case": string,"p_via": string }; Returns: {
+              "data": NonNullable<Json>,
+"id": string,
+"kyc_provider": string | null,
+"kyc_reference": string | null,
+"kyc_result": string | null,
+"profile_id": string,
+"rejection_reason": string | null,
+"requested_level": string,
+"reviewed_at": string | null,
+"reviewer_id": string | null,
+"route": string,
+"status": string,
+"submitted_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "enrolment_cases"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "_attempt_json":
 { Args: { "a": Omit<Database["public"]['Tables']["payment_attempts"]['Row'], Database["public"]['Tables']["payment_attempts"]['ComputedFields']> }; Returns: Json
                            },
+"_check_initiator_level":
+{ Args: { "p_tx": string }; Returns: undefined
+                           },
 "_check_message":
 { Args: { "p_text": string }; Returns: string
+                           },
+"_check_payer_limits":
+{ Args: { "p_amount": number,"p_currency": Database["public"]['Enums']["currency"],"p_payer": string }; Returns: undefined
                            },
 "_check_token_manager":
 { Args: { "p_tranche": string }; Returns: {
@@ -1450,6 +1604,12 @@ isOneToOne: false
 "_duplicate_refs":
 { Args: { "p_tx": string }; Returns: (string)[]
                            },
+"_enrolment_json":
+{ Args: { "c": Omit<Database["public"]['Tables']["enrolment_cases"]['Row'], Database["public"]['Tables']["enrolment_cases"]['ComputedFields']> }; Returns: Json
+                           },
+"_enrolment_required_kinds":
+{ Args: { "p_level": string }; Returns: (string)[]
+                           },
 "_err":
 { Args: { "p_code": string,"p_detail"?: string,"p_message": string }; Returns: undefined
                            },
@@ -1462,11 +1622,17 @@ isOneToOne: false
 "_hash_reuse":
 { Args: { "p_hash": string,"p_tx": string }; Returns: (string)[]
                            },
+"_identity_recently_opened":
+{ Args: { "p_path": string }; Returns: boolean
+                           },
 "_is_initiator":
 { Args: { "p_tx": string }; Returns: boolean
                            },
 "_issue_tranche_token":
 { Args: { "p_tranche": string }; Returns: undefined
+                           },
+"_level_rank":
+{ Args: { "p_level": string }; Returns: number
                            },
 "_mock_mode":
 { Args: Record<PropertyKey, never>; Returns: boolean
@@ -1525,6 +1691,28 @@ isOneToOne: false
 "_refunded":
 { Args: { "p_attempt": string }; Returns: number
                            },
+"_reject_enrolment":
+{ Args: { "p_actor": string,"p_case": string,"p_reason": string,"p_via": string }; Returns: {
+              "data": NonNullable<Json>,
+"id": string,
+"kyc_provider": string | null,
+"kyc_reference": string | null,
+"kyc_result": string | null,
+"profile_id": string,
+"rejection_reason": string | null,
+"requested_level": string,
+"reviewed_at": string | null,
+"reviewer_id": string | null,
+"route": string,
+"status": string,
+"submitted_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "enrolment_cases"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "_request_final":
 { Args: { "tr": Omit<Database["public"]['Tables']["tranches"]['Row'], Database["public"]['Tables']["tranches"]['ComputedFields']> }; Returns: boolean
                            },
@@ -1561,11 +1749,17 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"_require_enrolment":
+{ Args: { "p_me": Omit<Database["public"]['Tables']["profiles"]['Row'], Database["public"]['Tables']["profiles"]['ComputedFields']>,"p_role": string }; Returns: undefined
+                           },
 "_require_user":
 { Args: Record<PropertyKey, never>; Returns: string
                            },
 "_require_validator":
 { Args: Record<PropertyKey, never>; Returns: string
+                           },
+"_required_level":
+{ Args: { "p_role": string }; Returns: string
                            },
 "_resolve_dispute_core":
 { Args: { "p_actor": string,"p_dispute": string,"p_note": string,"p_outcome": string }; Returns: {
@@ -1876,6 +2070,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"apply_kyc_result":
+{ Args: { "p_case": string,"p_provider"?: string,"p_reason"?: string,"p_reference": string,"p_result": string }; Returns: Json
+                           },
 "apply_payment_event":
 { Args: { "p_event_id": string,"p_payload": Json,"p_provider": string,"p_signature_valid": boolean }; Returns: Json
                            },
@@ -1960,6 +2157,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"claim_enrolment_case":
+{ Args: { "p_case": string }; Returns: Json
+                           },
 "claim_presentation_token":
 { Args: { "p_reference": string }; Returns: Json
                            },
@@ -2062,6 +2262,9 @@ isOneToOne: false
         isOneToOne: false
         isSetofReturn: true
       } },
+"decide_enrolment":
+{ Args: { "p_approve": boolean,"p_case": string,"p_reason"?: string }; Returns: Json
+                           },
 "decide_tranche":
 { Args: { "p_approved": boolean,"p_reason"?: string,"p_tranche": string }; Returns: {
               "amount_minor": number,
@@ -2258,6 +2461,9 @@ isOneToOne: false
 "get_drafts":
 { Args: Record<PropertyKey, never>; Returns: Json
                            },
+"get_enrolment_document_access":
+{ Args: { "p_document": string }; Returns: Json
+                           },
 "get_receipt":
 { Args: { "p_tranche": string }; Returns: Json
                            },
@@ -2345,6 +2551,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"my_enrolment":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
 "needs_platform_review":
 { Args: { "p_tx": string }; Returns: boolean
                            },
@@ -2635,6 +2844,9 @@ isOneToOne: false
                            },
 "status_ok":
 { Args: { "p_tx": string }; Returns: boolean
+                           },
+"submit_enrolment":
+{ Args: { "p_data"?: Json,"p_documents": Json,"p_level": string }; Returns: Json
                            },
 "submit_evidence":
 { Args: { "p_tranche": string }; Returns: {

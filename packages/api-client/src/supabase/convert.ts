@@ -2,15 +2,15 @@
  * Conversion entre les lignes du serveur (snake_case, bigint, NULL) et les types du domaine.
  * Aucune valeur inattendue ne traverse : un statut ou un montant hors domaine lève UNEXPECTED.
  */
-import { DISPUTE_OUTCOMES, DISPUTE_STATUSES, MODULE_CODE_RE, PLATFORM_REVIEWS, TRANCHE_STATUSES, TX_STATUSES } from '@diaspay/domain';
+import { DISPUTE_OUTCOMES, DISPUTE_STATUSES, ENROLMENT_LEVELS, MODULE_CODE_RE, PLATFORM_REVIEWS, TRANCHE_STATUSES, TX_STATUSES } from '@diaspay/domain';
 import type {
   Currency, DisputeOutcome, DisputeStatus, DocumentKind, DraftDocument, FundsState, ModuleCode, ModuleDocument, SettlementMode, NeedDraft, PlanType, PlatformReview, ReleaseMode, RequestMessageKind, RequestModule, TrancheStatus,
-  TxStatus,
+  TxStatus, EnrolmentCaseStatus, EnrolmentLevel, KycResult,
 } from '@diaspay/domain';
 import { ApiError } from '../need';
 import type { ProviderSummary } from '../need';
 import type {
-  AppNotification, AuditEntry, DisputeView, NotificationEvent, Receipt, ReferenceInfo, RequestMessage, Tranche, TrancheToken, Transaction,
+  AppNotification, AuditEntry, DisputeView, EnrolmentCaseView, EnrolmentView, NotificationEvent, Receipt, ReferenceInfo, RequestMessage, Tranche, TrancheToken, Transaction,
 } from '../types';
 import type { Database, Json } from './database.types';
 
@@ -274,4 +274,29 @@ export function draftFromServer(v: Json): NeedDraft {
 export function storagePath(txId: string, kind: string, fileId: string, mimeType: string): string {
   const ext = mimeType === 'application/pdf' ? 'pdf' : mimeType === 'image/png' ? 'png' : 'jpg';
   return `${txId}/${kind}/${fileId}.${ext}`;
+}
+
+// ——— Lot X v2 (X4) : enrôlement ———
+
+const ENROLMENT_CASE_STATUSES: readonly EnrolmentCaseStatus[] = ['SUBMITTED', 'IN_REVIEW', 'APPROVED', 'REJECTED'];
+const KYC_RESULTS: readonly KycResult[] = ['APPROVED', 'REJECTED', 'REVIEW'];
+
+export function toEnrolmentCase(v: Json): EnrolmentCaseView {
+  const o = asObject(v, 'dossier d’enrôlement');
+  return {
+    id: String(o.id),
+    requestedLevel: oneOf<EnrolmentLevel>(o.requestedLevel, ENROLMENT_LEVELS, 'niveau d’enrôlement'),
+    status: oneOf<EnrolmentCaseStatus>(o.status, ENROLMENT_CASE_STATUSES, 'statut d’enrôlement'),
+    route: o.route === 'MANUAL' ? 'MANUAL' : 'KYC',
+    kycResult: o.kycResult === undefined || o.kycResult === null ? undefined : oneOf<KycResult>(o.kycResult, KYC_RESULTS, 'résultat KYC'),
+    rejectionReason: typeof o.rejectionReason === 'string' ? o.rejectionReason : undefined,
+    submittedAt: toIso(String(o.submittedAt)),
+    reviewedAt: typeof o.reviewedAt === 'string' ? toIso(o.reviewedAt) : undefined,
+  };
+}
+
+export function toEnrolment(v: Json): EnrolmentView {
+  const o = asObject(v, 'enrôlement');
+  const c = o.case === undefined || o.case === null ? undefined : toEnrolmentCase(o.case as Json);
+  return { level: oneOf<EnrolmentLevel>(o.level, ENROLMENT_LEVELS, 'niveau d’enrôlement'), ...(c ? { case: c } : {}) };
 }

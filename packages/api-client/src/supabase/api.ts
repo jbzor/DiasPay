@@ -1,16 +1,18 @@
 import { checkContentHash, checkFile, checkFileCount, emptyDraft, normalizeReference } from '@diaspay/domain';
-import type { CreatorRole, DisputeOutcome, DraftDocument, DraftDocumentInput, ModuleCode, NeedDraft, RequestModule } from '@diaspay/domain';
+import type {
+  CreatorRole, DisputeOutcome, DraftDocument, DraftDocumentInput, EnrolmentDocumentInput, EnrolmentLevel, ModuleCode, NeedDraft, RequestModule,
+} from '@diaspay/domain';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ApiError, fetchHasher, newUuid } from '../need';
 import type { FileHasher, ProviderSummary } from '../need';
 import type {
-  AppNotification, AuditEntry, DisputeView, DocumentAccess, DocumentReuse, Receipt, ReferenceInfo, RequestMessage, Tranche, TrancheToken, Transaction,
+  AppNotification, AuditEntry, DisputeView, DocumentAccess, DocumentReuse, EnrolmentCaseView, EnrolmentView, Receipt, ReferenceInfo, RequestMessage, Tranche, TrancheToken, Transaction,
   TransactionApi,
 } from '../types';
-import type { Database } from './database.types';
+import type { Database, Json } from './database.types';
 import {
   TX_SELECT, draftFromServer, draftToServer, storagePath, storagePathOf, toAuditEntry, toDispute, toMessage, toModule, toNotification, toProvider,
-  toReceipt, toReferenceInfo, toToken, toTransaction,
+  toReceipt, toReferenceInfo, toToken, toTransaction, toEnrolment, toEnrolmentCase,
 } from './convert';
 import type { TxWithRelations } from './convert';
 import { toDomainError, unwrap, unwrapMaybe } from './errors';
@@ -371,6 +373,19 @@ export class SupabaseApi implements TransactionApi {
   async listModules(): Promise<RequestModule[]> {
     const rows = unwrap(await this.sb.from('request_modules').select('*').order('display_order').order('code'), 'listModules');
     return rows.map(toModule);
+  }
+
+  // ——— Lot X v2 (X4) : enrôlement ———
+
+  async getEnrolment(): Promise<EnrolmentView> {
+    return toEnrolment(unwrap(await this.sb.rpc('my_enrolment'), 'getEnrolment'));
+  }
+
+  async submitEnrolment(input: { level: EnrolmentLevel; documents: EnrolmentDocumentInput[]; data?: Record<string, string> }): Promise<EnrolmentCaseView> {
+    const o = unwrap(await this.sb.rpc('submit_enrolment', {
+      p_level: input.level, p_documents: input.documents as unknown as Json, p_data: (input.data ?? {}) as Json,
+    }), 'submitEnrolment');
+    return toEnrolmentCase(o);
   }
 
   // ——— Temps réel ———

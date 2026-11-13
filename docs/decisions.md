@@ -251,3 +251,26 @@ Le prompt « Lot X (version 2) » remplace le premier lot X. Modèle cible : `do
   - Aucun écran nouveau. `acceptPlan` est exposé par l’API ; le jeton de présentation ne l’est pas encore (interface du lot Y).
 - **Reste à décider** : durée de vie et rotation du QR de présentation (avec le partenaire et en test) ; affichage obligatoire du nom du commerçant, du montant puis des frais avant toute autorisation (lot Y, X5 pour les frais).
 
+
+## X4-v2 — Enrôlement et niveaux (K3)
+
+- **Date** : 12 novembre 2026
+- **Choisi** (migration `0020_lotx2_x4.sql`, test `06_lotx2_p2.sql`, partie X4) :
+  - **Niveau** : `profiles.enrolment_level` (N0 à N3, défaut N0). C’est du texte avec une contrainte, pas une énumération, pour se passer d’un fichier d’énumérations séparé. Le niveau est protégé comme `platform_role` (déclencheur `guard_profile`, code `PROFILE_PROTECTED`). Un profil créé directement par un client est forcé à N0.
+  - **Initiation** : N1 pour initier une demande en demandeur, N2 en prestataire (commerçant). Le payeur qui crée son propre besoin reste en N0 : il n’envoie de demande à personne. Contrôle dans `save_draft`, puis de nouveau à la soumission (`ENROLMENT_REQUIRED`).
+  - **`can_initiate_requests` (lot X, 0008) supprimée.** Conversion des données de développement seulement (mock_mode) : l’ancienne autorisation devient N2, et un demandeur (rôle principal ou initiateur d’un dossier) devient N1. Hors mock_mode, personne n’est relevé sans dossier. Le code `INITIATION_NOT_ALLOWED` devient `ENROLMENT_REQUIRED` (`docs/error-codes.md`, codes renommés).
+  - **Dossiers** : `enrolment_cases` (un seul dossier ouvert par profil), `enrolment_documents`, et le journal immuable `enrolment_events`. Les dossiers d’enrôlement ne concernent aucune transaction, d’où un journal à part plutôt que `audit_log`. Pièces exigées : N1 pièce d’identité et selfie ; N2 immatriculation et justificatif d’activité, après le N1 du représentant ; N3 documents légaux et mandat du représentant, après le N1.
+  - **KycPort** (`@diaspay/domain`) : N1 et N2 passent par l’adaptateur, N3 par la revue manuelle.
+    - En mock_mode, le résultat simulé vient du réglage `kyc_simulated_result` (APPROVED, REJECTED ou REVIEW ; APPROVED en développement). Il passe par le même chemin (`_apply_kyc`) que l’adaptateur réel.
+    - L’adaptateur réel appellera `apply_kyc_result`, réservée au rôle service. Elle est sans effet sur un dossier déjà tranché.
+    - REVIEW envoie le dossier au bureau.
+  - **Revue par le personnel** : `claim_enrolment_case` (un seul relecteur), puis `decide_enrolment` (approbation, ou refus avec motif). Le personnel n’examine jamais son propre dossier (`SELF_REVIEW`). Aucun écran (lot Y).
+  - **Pièces d’identité** : bucket privé distinct `identity`. Chaque titulaire dépose dans son dossier `<uid>/` ; aucune modification ni suppression. La lecture n’est possible que dans les 2 minutes qui suivent une consultation journalisée (`get_enrolment_document_access`), par le titulaire ou par le relecteur qui a pris le dossier en charge. Les autres validateurs n’y ont pas accès.
+  - **Plafonds** (`enrolment_limits`, par niveau et devise, par paiement, par jour et par mois) :
+    - Aucune valeur n’a été fournie (point ouvert 1) : la table est vide hors développement.
+    - Ligne absente : refus prudent (`LIMITS_NOT_CONFIGURED`), sauf si le réglage `limits_when_missing` vaut explicitement ALLOW.
+    - En mock_mode, des lignes de développement sans aucun plafond (`dev_only`) gardent les démonstrations payables, sans inventer de nombre.
+    - Le contrôle porte sur le payeur, dans la devise de la demande. Jour et mois sont des périodes civiles UTC, et les paiements en cours comptent. Il s’applique à l’acceptation (`accept_and_pay`, X5).
+  - **Simulateur** : niveau par utilisateur (`MockUser.enrolmentLevel`, N0 par défaut) et adaptateur KYC simulé. Le compte de démonstration de l’application est N2 dans le simulateur ; sur Supabase, les comptes de démonstration et de test sont relevés par `seed.sql`.
+- **Contrôles SQL modifiés** : 00, 01, 02, 03 et 05 relèvent leur demandeur à N1 dans le jeu d’essai. Dans 03, les trois contrôles de `can_initiate_requests` sont remplacés par des contrôles du niveau. Détail dans `docs/lotx2-controles-sql.md`.
+- **Reste à décider** : le prestataire de vérification d’identité (adaptateur réel) ; les plafonds (point ouvert 1) ; la période des plafonds (jour civil UTC ou glissant) ; si le prestataire désigné par un payeur doit aussi être enrôlé ; la conservation des pièces d’identité (point ouvert 6).

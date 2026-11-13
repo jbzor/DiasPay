@@ -274,3 +274,28 @@ Le prompt « Lot X (version 2) » remplace le premier lot X. Modèle cible : `do
   - **Simulateur** : niveau par utilisateur (`MockUser.enrolmentLevel`, N0 par défaut) et adaptateur KYC simulé. Le compte de démonstration de l’application est N2 dans le simulateur ; sur Supabase, les comptes de démonstration et de test sont relevés par `seed.sql`.
 - **Contrôles SQL modifiés** : 00, 01, 02, 03 et 05 relèvent leur demandeur à N1 dans le jeu d’essai. Dans 03, les trois contrôles de `can_initiate_requests` sont remplacés par des contrôles du niveau. Détail dans `docs/lotx2-controles-sql.md`.
 - **Reste à décider** : le prestataire de vérification d’identité (adaptateur réel) ; les plafonds (point ouvert 1) ; la période des plafonds (jour civil UTC ou glissant) ; si le prestataire désigné par un payeur doit aussi être enrôlé ; la conservation des pièces d’identité (point ouvert 6).
+
+## X5-v2 — Paiements, devises, remboursements (K7, K9, K10, K12)
+
+- **Date** : 12 novembre 2026
+- **Choisi** (migration `0021_lotx2_x5.sql`, test `06_lotx2_p2.sql`, partie X5) : 0010 (tentatives, événements, journal, rapprochement) est complétée, pas refaite.
+  - **Statuts du modèle cible** : tentative INITIATED → PENDING → CONFIRMED ou FAILED, uniquement par des événements du partenaire ou du simulateur ; remboursement REQUESTED, EXECUTED, FAILED. Les anciennes valeurs (SUCCEEDED, PENDING) sont converties par la migration et refusées par les contraintes. Les **types d’événement** du partenaire (`PAYMENT_SUCCEEDED`, `REFUND_SUCCEEDED`…) et les **codes d’écart** du rapprochement (`SUCCEEDED_WITHOUT_EVENT`…) gardent leur nom : ce sont des codes stables, pas des statuts.
+  - **Contributions** (K9) : une demande est payée quand la somme des contributions confirmées atteint son montant cible. En phase 1, une seule contribution du montant total, créée à l’acceptation. Après un échec, la contribution passe en FAILED et une nouvelle tentative en crée une autre. Une contribution entièrement remboursée passe en REFUNDED.
+  - **Devis** (`fx_quotes`, K10) : demandé avant l’autorisation (`get_quote`), figé (déclencheur, `QUOTE_FROZEN`), utilisable une fois, conservé avec le paiement.
+    - Contenu : devises, taux, source, horodatage, expiration, frais par poste (service, change, moyen de paiement) et total débité.
+    - Devise canonique : celle de la demande. Le journal et les montants des tentatives restent dans cette devise ; les frais sont des lignes du journal `PAYMENT` dans la devise débitée (équilibre par devise inchangé).
+    - Conversion exacte, **arrondie au supérieur** : le payeur couvre toujours le montant de la demande.
+    - Le partenaire ne cote pas encore (point ouvert 7). Le simulateur cote à partir du réglage `simulated_fx_rates` et marque le devis `simulated`. En développement, seule la parité fixe EUR/XAF (655,957) est posée : aucun taux USD n’est inventé, d’où `QUOTE_UNAVAILABLE`.
+    - Durée de vie : `fx_quote_ttl_seconds` (300 s en développement seulement ; absent, `NOT_CONFIGURED`). Frais : barème `fee_schedule` (absent : aucun frais), point ouvert 9.
+  - **`accept_and_pay(p_request, p_idempotency_key, p_quote_id)`** contrôle, dans l’ordre :
+    - le rejeu de la même clé ;
+    - la partie, le payeur, la suspension, l’opération active, une tentative en cours et la demande à payer ;
+    - le devis (`QUOTE_INVALID`, `QUOTE_USED`, `QUOTE_EXPIRED`) ;
+    - le plafond du niveau du payeur (X4).
+
+    Il crée la contribution et la tentative INITIATED, et fait passer la demande en ACCEPTED. La condition de témoin s’ajoutera en X8.
+  - **`start_payment` est conservée** comme raccourci des écrans existants : devis dans la devise de la demande, puis `accept_and_pay`, avec la même idempotence. Pourquoi : l’écran de paiement ne change pas avant le lot Y (détail des frais).
+  - **Remboursement manuel (pilote)** : `mark_refund_executed(p_refund, p_partner_ref)`, réservée à un administrateur non partie. Elle exige la référence du partenaire et pose automatiquement la contrepassation (`REFUND_SETTLED`), par le même chemin (`_refund_executed`) que l’événement du partenaire. Elle est idempotente pour la même référence ; avec une autre référence, elle répond `REFUND_NOT_PENDING`.
+  - **Simulateur** : moteur `PaymentEngine` mis à jour (devis, contributions, statuts, exécution manuelle), et `getQuote` et `acceptAndPay` dans l’API ; un ancien instantané est converti au chargement. `SupabaseApi` : `getQuote`, `acceptAndPay` ; `payTranche` règle la démonstration dès que la tentative est INITIATED ou PENDING.
+- **Contrôles SQL modifiés** : 00, 02, 04 et 05 (noms de statut de tentative et de remboursement). Détail dans `docs/lotx2-controles-sql.md`. Test de bout en bout du bureau (`litiges.spec.ts`) : remboursement REQUESTED.
+- **Reste à décider** : cotations du partenaire (point ouvert 7), durée de vie d’un devis (point ouvert 8), barème des frais et qui les paie (point ouvert 9), arrondi au supérieur à valider avec le partenaire, expiration d’une tentative sans réponse du partenaire.

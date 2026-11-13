@@ -235,7 +235,173 @@ select t.admin();
 select t.check((select per_operation_minor from enrolment_limits where level = 'N0' and currency = 'EUR') = 50000, 'X4 : plafond inchangé par un utilisateur');
 -- (restauré à la fin par le rollback)
 
--- @@X5@@
+-- ===================== X5 : paiements, devises, remboursements =====================
+-- Opération d’un demandeur N1 (fd..02) pour le payeur fd..01 (N0), scolarité (règlement direct), 100 000 XAF.
+create function t.op(p_id uuid, p_module text, p_amount int, p_phone text) returns jsonb language sql as $$
+  select jsonb_build_object('id', p_id, 'vertical', p_module, 'amountMinor', p_amount::text, 'currency', 'XAF', 'purpose', 'Besoin (passe 2)',
+    'beneficiaryName', 'Awa', 'counterpartyPhone', p_phone, 'provider', jsonb_build_object('name', 'Prestataire (passe 2)', 'invitedPhone', '+237 6 2555 0003'),
+    'planType', 'SINGLE', 'tranches', jsonb_build_array(jsonb_build_object('label', 'Unique', 'amountMinor', p_amount::text, 'dueDate', (current_date + 2)::text)))
+$$;
+create function t.submit(p_id uuid, p_kind text) returns void language plpgsql as $$
+begin
+  perform t.login('fd000000-0000-4000-8000-000000000002');
+  perform add_document(p_id, p_kind, p_id::text || '/' || p_kind || '/x.pdf', 'x.pdf', 'application/pdf', 1000);
+  perform submit_operation(p_id);
+  perform t.admin();
+end $$;
+grant execute on function t.op(uuid, text, int, text), t.submit(uuid, text) to authenticated;
+
+-- ---------- Structure et droits ----------
+select t.check(not exists (
+  select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute')
+    and p.proname in ('get_quote','accept_and_pay','start_payment','mark_refund_executed','request_refund','apply_payment_event','_refund_executed','_quote_fees')),
+  'X5 : aucune fonction de paiement exécutable par anon');
+select t.check(not exists (
+  select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and has_function_privilege('authenticated', p.oid, 'execute')
+    and p.proname in ('_refund_executed','_quote_fees','_quote_json','_process_payment_event','apply_payment_event','_create_refund','_post_journal')),
+  'X5 : fonctions internes et réception des événements non exécutables par authenticated');
+select t.check(not has_table_privilege('authenticated', 'fx_quotes', 'INSERT') and not has_table_privilege('authenticated', 'contributions', 'INSERT')
+           and not has_table_privilege('anon', 'fx_quotes', 'SELECT') and not has_table_privilege('anon', 'contributions', 'SELECT'),
+  'X5 : devis et contributions : aucune écriture par le client, rien pour anon');
+select t.check(not exists (select 1 from payment_attempts where status not in ('INITIATED','PENDING','CONFIRMED','FAILED'))
+           and not exists (select 1 from refunds where status not in ('REQUESTED','EXECUTED','FAILED')),
+  'X5 : statuts de tentative et de remboursement du modèle cible seulement');
+
+select t.login('fd000000-0000-4000-8000-000000000002');
+select save_draft(t.op('fd300000-0000-4000-8000-000000000001', 'EDUCATION', 100000, '+33625550001'));
+select t.submit('fd300000-0000-4000-8000-000000000001', 'ENROLMENT_CERTIFICATE');
+insert into t.ids select 'p1', id from tranches where tx_id = 'fd300000-0000-4000-8000-000000000001';
+select t.check((select status from tranches where id = (select v from t.ids where k = 'p1')) = 'SUBMITTED', 'X5 : demande soumise au payeur');
+
+-- ---------- Devis ----------
+select t.login('fd000000-0000-4000-8000-000000000002');
+select t.hint($$select get_quote((select v from t.ids where k = 'p1'))$$, 'PAYER_ONLY', 'X5 : devis réservé au payeur');
+select t.login('fd000000-0000-4000-8000-000000000001');
+insert into t.res values ('qx', get_quote((select v from t.ids where k = 'p1')));
+select t.check((select v->>'source' = 'IDENTITY' and (v->>'rate')::numeric = 1 and (v->>'debitAmountMinor')::bigint = 100000
+                and (v->>'totalDebitMinor')::bigint = 100000 and v->>'debitCurrency' = 'XAF' from t.res where k = 'qx'),
+  'X5 : devis dans la devise de la demande : taux 1, aucun frais (barème absent)');
+insert into t.res values ('qe', get_quote((select v from t.ids where k = 'p1'), 'EUR'));
+select t.check((select v->>'source' = 'SIMULATED' and (v->>'simulated')::boolean and (v->>'debitAmountMinor')::bigint = 15245
+                and v->>'requestCurrency' = 'XAF' and (v->>'requestAmountMinor')::bigint = 100000 and (v->'fees'->>'fxMinor')::bigint = 0 from t.res where k = 'qe'),
+  'X5 : devis EUR simulé et marqué : 100 000 XAF = 152,45 € (parité 655,957, arrondi au supérieur)');
+select t.check((select expires_at > quoted_at and source = 'SIMULATED' and simulated from fx_quotes where id = ((select v->>'id' from t.res where k = 'qe'))::uuid),
+  'X5 : devis conservé avec source, horodatage et expiration');
+select t.hint($$select get_quote((select v from t.ids where k = 'p1'), 'USD')$$, 'QUOTE_UNAVAILABLE', 'X5 : aucune cotation inventée (USD absent des taux simulés)');
+select t.admin();
+insert into app_config(key, value) values ('fee_schedule', '{"serviceBps": 100, "fxBps": 50, "methodBps": {"CARD": 200}}')
+on conflict (key) do update set value = excluded.value;
+select t.login('fd000000-0000-4000-8000-000000000001');
+insert into t.res values ('qf', get_quote((select v from t.ids where k = 'p1'), 'EUR', 'CARD'));
+select t.check((select (v->'fees'->>'serviceMinor')::bigint = 153 and (v->'fees'->>'fxMinor')::bigint = 77 and (v->'fees'->>'methodMinor')::bigint = 305
+                and (v->>'totalDebitMinor')::bigint = 15780 from t.res where k = 'qf'),
+  'X5 : frais par poste (service, change, moyen de paiement) et total débité, avant toute autorisation');
+select t.admin();
+select t.hint($$update fx_quotes set rate = 1 where id = ((select v->>'id' from t.res where k = 'qe'))::uuid$$, 'QUOTE_FROZEN', 'X5 : devis figé');
+delete from app_config where key = 'fee_schedule';
+-- Devis expiré (la transaction de test fige now() : expiration fabriquée en suspendant le déclencheur).
+alter table fx_quotes disable trigger fx_quotes_frozen;
+update fx_quotes set quoted_at = now() - interval '10 minutes', expires_at = now() - interval '5 minutes' where id = ((select v->>'id' from t.res where k = 'qx'))::uuid;
+alter table fx_quotes enable trigger fx_quotes_frozen;
+select t.login('fd000000-0000-4000-8000-000000000001');
+select t.hint($$select accept_and_pay((select v from t.ids where k = 'p1'), 'cle-p1-0000', ((select v->>'id' from t.res where k = 'qx'))::uuid)$$,
+  'QUOTE_EXPIRED', 'X5 : devis expiré refusé');
+select t.hint($$select accept_and_pay((select v from t.ids where k = 'p1'), 'cle-p1-0000', gen_random_uuid())$$, 'QUOTE_INVALID', 'X5 : devis inconnu refusé');
+
+-- ---------- Plafonds à l’acceptation ----------
+select t.admin();
+insert into enrolment_limits(level, currency, per_operation_minor) values ('N0', 'XAF', 50000)
+on conflict (level, currency) do update set per_operation_minor = 50000, dev_only = false;
+select t.login('fd000000-0000-4000-8000-000000000001');
+select t.hint($$select accept_and_pay((select v from t.ids where k = 'p1'), 'cle-p1-0001', ((select v->>'id' from t.res where k = 'qe'))::uuid)$$,
+  'LIMIT_EXCEEDED', 'X5 : plafond du niveau dépassé : paiement refusé');
+select t.admin();
+delete from enrolment_limits where level = 'N0' and currency = 'XAF';
+select t.login('fd000000-0000-4000-8000-000000000001');
+select t.hint($$select accept_and_pay((select v from t.ids where k = 'p1'), 'cle-p1-0001', ((select v->>'id' from t.res where k = 'qe'))::uuid)$$,
+  'LIMITS_NOT_CONFIGURED', 'X5 : plafonds absents : refus prudent');
+select t.check((select status from tranches where id = (select v from t.ids where k = 'p1')) = 'SUBMITTED'
+           and (select count(*) from contributions where tranche_id = (select v from t.ids where k = 'p1')) = 0,
+  'X5 : refus : demande toujours à payer, aucune contribution');
+select t.admin();
+insert into enrolment_limits(level, currency, dev_only) values ('N0', 'XAF', true);
+
+-- ---------- Accepter et payer ----------
+select t.login('fd000000-0000-4000-8000-000000000001');
+insert into t.ids select 'a1', (accept_and_pay((select v from t.ids where k = 'p1'), 'cle-p1-0001', ((select v->>'id' from t.res where k = 'qe'))::uuid)->>'id')::uuid;
+select t.check((select status = 'INITIATED' and amount_minor = 100000 and currency = 'XAF' and debit_currency = 'EUR' and debit_amount_minor = 15245
+                and quote_id = ((select v->>'id' from t.res where k = 'qe'))::uuid from payment_attempts where id = (select v from t.ids where k = 'a1'))
+           and (select status from tranches where id = (select v from t.ids where k = 'p1')) = 'ACCEPTED',
+  'X5 : accepter et payer : tentative INITIATED (montant canonique XAF, débit EUR du devis), demande ACCEPTED');
+select t.check((select c.status = 'PENDING' and c.amount_minor = 100000 and c.payer_id = auth.uid()
+                from contributions c join payment_attempts a on a.contribution_id = c.id where a.id = (select v from t.ids where k = 'a1')),
+  'X5 : contribution du montant total créée (phase 1 : un seul payeur)');
+select t.check((select used_at is not null and attempt_id = (select v from t.ids where k = 'a1') from fx_quotes where id = ((select v->>'id' from t.res where k = 'qe'))::uuid),
+  'X5 : devis consommé et rattaché au paiement');
+select t.check((accept_and_pay((select v from t.ids where k = 'p1'), 'cle-p1-0001', null)->>'id')::uuid = (select v from t.ids where k = 'a1'),
+  'X5 : même clé rejouée : même tentative');
+select t.hint($$select accept_and_pay((select v from t.ids where k = 'p1'), 'cle-p1-0002', ((select v->>'id' from t.res where k = 'qf'))::uuid)$$,
+  'PAYMENT_IN_PROGRESS', 'X5 : une seule tentative en cours');
+select demo_settle_payment((select v from t.ids where k = 'a1'), 'PENDING');
+select t.check((select status from payment_attempts where id = (select v from t.ids where k = 'a1')) = 'PENDING', 'X5 : événement « en cours » : INITIATED → PENDING');
+-- Échec puis nouvelle tentative.
+select demo_settle_payment((select v from t.ids where k = 'a1'), 'FAILED');
+select t.check((select status from payment_attempts where id = (select v from t.ids where k = 'a1')) = 'FAILED'
+           and (select c.status from contributions c join payment_attempts a on a.contribution_id = c.id where a.id = (select v from t.ids where k = 'a1')) = 'FAILED'
+           and (select status from tranches where id = (select v from t.ids where k = 'p1')) = 'SUBMITTED',
+  'X5 : échec : tentative et contribution en échec, demande de nouveau payable (SUBMITTED)');
+select t.hint($$select accept_and_pay((select v from t.ids where k = 'p1'), 'cle-p1-0002', ((select v->>'id' from t.res where k = 'qe'))::uuid)$$,
+  'QUOTE_USED', 'X5 : un devis ne sert qu’une fois');
+insert into t.ids select 'a2', (accept_and_pay((select v from t.ids where k = 'p1'), 'cle-p1-0002', ((select v->>'id' from t.res where k = 'qf'))::uuid)->>'id')::uuid;
+select t.check((select fees_minor = 535 and debit_amount_minor = 15245 and method = 'CARD' from payment_attempts where id = (select v from t.ids where k = 'a2')),
+  'X5 : nouvelle tentative avec son propre devis (frais figés)');
+select demo_settle_payment((select v from t.ids where k = 'a2'));
+select t.check((select status from payment_attempts where id = (select v from t.ids where k = 'a2')) = 'CONFIRMED'
+           and (select c.status from contributions c join payment_attempts a on a.contribution_id = c.id where a.id = (select v from t.ids where k = 'a2')) = 'CONFIRMED'
+           and (select status = 'PAID' and funds_state = 'NONE' from tranches where id = (select v from t.ids where k = 'p1')),
+  'X5 : tentative confirmée par un événement : contribution confirmée, somme suffisante, demande PAID');
+select t.admin();
+select t.check((select count(*) from ledger_entries e join ledger_journals j on j.id = e.journal_id
+                where j.attempt_id = (select v from t.ids where k = 'a2') and j.kind = 'PAYMENT' and e.currency = 'EUR' and e.account_code = 'FEES' and e.credit_minor = 535) = 1
+           and (select sum(credit_minor) from ledger_entries e join ledger_journals j on j.id = e.journal_id
+                where j.attempt_id = (select v from t.ids where k = 'a2') and j.kind = 'PAYMENT' and e.currency = 'XAF' and e.account_code = 'DUE_TO_PROVIDER') = 100000,
+  'X5 : journal : montant en XAF (devise canonique), frais en EUR (devise débitée), chaque devise équilibrée');
+select t.login('fd000000-0000-4000-8000-000000000004');   -- rapprochement : personnel seulement
+select t.check((select issues from v_reconciliation where attempt_id = (select v from t.ids where k = 'a2')) = '{}'
+           and (select issues from v_reconciliation where attempt_id = (select v from t.ids where k = 'a1')) = '{}',
+  'X5 : rapprochement sans écart');
+
+-- ---------- Remboursements : demande, exécution manuelle, plafond ----------
+select t.login('fd000000-0000-4000-8000-000000000007');
+insert into t.res values ('rf1', request_refund((select v from t.ids where k = 'p1'), 30000, 'cle-rf-p1-0001', 'Geste commercial'));
+insert into t.ids values ('rf1', ((select v->>'id' from t.res where k = 'rf1'))::uuid);
+select t.check((select v->>'status' from t.res where k = 'rf1') = 'REQUESTED', 'X5 : remboursement demandé (REQUESTED)');
+select t.login('fd000000-0000-4000-8000-000000000001');
+select t.hint($$select mark_refund_executed((select v from t.ids where k = 'rf1'), 'TPW-REF-0001')$$, 'ADMIN_ONLY', 'X5 : exécution réservée à un administrateur');
+select t.login('fd000000-0000-4000-8000-000000000007');
+select t.hint($$select mark_refund_executed((select v from t.ids where k = 'rf1'), '')$$, 'VALIDATION', 'X5 : référence du partenaire obligatoire');
+insert into t.res values ('rx1', mark_refund_executed((select v from t.ids where k = 'rf1'), 'TPW-REF-0001'));
+select t.check((select v->>'status' = 'EXECUTED' and v->>'partnerRef' = 'TPW-REF-0001' from t.res where k = 'rx1')
+           and (select status = 'REFUNDED' and refunded_minor = 30000 from tranches where id = (select v from t.ids where k = 'p1'))
+           and (select executed_by = 'fd000000-0000-4000-8000-000000000007' from refunds where id = (select v from t.ids where k = 'rf1')),
+  'X5 : exécution manuelle (pilote) : EXECUTED, demande REFUNDED partiellement (refunded_minor)');
+select t.check((select reverses_journal_id is not null from ledger_journals where refund_id = (select v from t.ids where k = 'rf1') and kind = 'REFUND_SETTLED'),
+  'X5 : contrepassation posée automatiquement (jamais une modification)');
+select t.check((mark_refund_executed((select v from t.ids where k = 'rf1'), 'TPW-REF-0001')->>'status') = 'EXECUTED'
+           and (select count(*) from ledger_journals where refund_id = (select v from t.ids where k = 'rf1') and kind = 'REFUND_SETTLED') = 1,
+  'X5 : même référence rejouée : sans effet');
+select t.hint($$select mark_refund_executed((select v from t.ids where k = 'rf1'), 'TPW-AUTRE-02')$$, 'REFUND_NOT_PENDING', 'X5 : remboursement déjà exécuté');
+insert into t.res values ('rf2', request_refund((select v from t.ids where k = 'p1'), 70000, 'cle-rf-p1-0002', 'Solde'));
+select mark_refund_executed(((select v->>'id' from t.res where k = 'rf2'))::uuid, 'TPW-REF-0002');
+select t.check((select refunded_minor = 100000 and status = 'REFUNDED' from tranches where id = (select v from t.ids where k = 'p1'))
+           and (select c.status from contributions c join payment_attempts a on a.contribution_id = c.id where a.id = (select v from t.ids where k = 'a2')) = 'REFUNDED',
+  'X5 : remboursement partiel puis total : contribution remboursée');
+select t.hint($$select request_refund((select v from t.ids where k = 'p1'), 1, 'cle-rf-p1-0003', 'Encore')$$, 'REFUND_EXCEEDS_PAID', 'X5 : jamais au-delà du payé');
+select t.check((select issues from v_reconciliation where attempt_id = (select v from t.ids where k = 'a2')) = '{}', 'X5 : rapprochement après remboursement total : sans écart');
+select t.admin();
+
 
 -- @@X6@@
 

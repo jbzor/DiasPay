@@ -10,7 +10,9 @@ Les valeurs ci-dessous ne sont pas fournies par le client, le partenaire de paie
 | 4 | Seuil du mode `RISK_BASED` (montant, par devise) | `app_config.risk_review_threshold` (JSON, par exemple `{"XAF": 1000000}`) | revue par le bureau (`THRESHOLD_NOT_CONFIGURED`) | — | bureau de contrôle |
 | 5 | Rétrofacturation : délais et recours selon le rail (carte, mobile money) | conditions générales ; plan de comptes (`docs/specs/ledger.md`) | remboursement manuel par un administrateur seulement | — | partenaire, conseil juridique |
 | 6 | Durées de conservation des données (santé en particulier) | `request_modules` (X6, passe 2) | conservation sans purge automatique | — | atelier juridique |
-| 7 | Disponibilité des cotations de change auprès du partenaire | `fx_quotes` (X5, passe 2) | cotation simulée marquée `simulated` | — | partenaire |
+| 7 | Disponibilité des cotations de change auprès du partenaire | `fx_quotes` (0021) ; taux du simulateur `simulated_fx_rates` | devise de la demande seulement ; autre devise : `QUOTE_UNAVAILABLE` (aucun taux inventé) | parité fixe EUR/XAF 655,957 seulement, devis marqué `simulated` (mock_mode) | partenaire |
+| 8 | Durée de vie d’un devis (« expiration courte ») | `app_config.fx_quote_ttl_seconds` | `get_quote` répond `NOT_CONFIGURED` : aucun paiement | `300` (mock_mode, posé par 0021) | partenaire, essais |
+| 9 | Frais : barème par poste (service, change, moyen de paiement), payeur des frais, arrondi | `app_config.fee_schedule` (JSON en points de base : `serviceBps`, `fxBps`, `methodBps` par moyen) | aucun frais | — | client, partenaire |
 
 ## Décisions de configuration également en attente
 

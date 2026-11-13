@@ -66,7 +66,7 @@ test('litige après un paiement direct, en faveur du payeur : issues valides seu
   // Base : la demande reste PAID (K7), remboursement demandé au partenaire, journal ; alerte au payeur.
   const sb = await staffClient(STAFF.ADMIN.email);
   expect((await sb.from('tranches').select('status').eq('id', d.trancheId).single()).data?.status).toBe('PAID');
-  expect((await sb.from('refunds').select('status, amount_minor').eq('tranche_id', d.trancheId).single()).data).toMatchObject({ status: 'PENDING', amount_minor: 300_000 });
+  expect((await sb.from('refunds').select('status, amount_minor').eq('tranche_id', d.trancheId).single()).data).toMatchObject({ status: 'REQUESTED', amount_minor: 300_000 });
   const audit = (await sb.rpc('bo_audit', { p_tx: d.txId })).data as Array<{ event: string; actor_name: string; payload: { outcome?: string } }>;
   expect(audit.find((r) => r.event === 'DISPUTE_RESOLVED')).toMatchObject({ actor_name: STAFF.ADMIN.name, payload: { outcome: 'REFUND_FULL' } });
   await expect.poll(async () => (await (await party('PAYER')).listNotifications())

@@ -84,6 +84,12 @@ export const ERROR_CODES = {
   NOT_REFUNDABLE: 'D S — aucun paiement réussi à rembourser, ou tranche déjà débloquée',
   REFUND_EXCEEDS_PAID: 'D S — remboursement au-delà du montant payé',
   LEDGER_UNBALANCED: 'D S — journal financier déséquilibré (par devise) ou incomplet',
+  QUOTE_UNAVAILABLE: 'D S — aucune cotation pour ces devises (partenaire sans devis, taux simulé absent ; point ouvert 7)',
+  QUOTE_INVALID: 'D S — devis inconnu, d’un autre payeur, d’une autre demande ou d’un autre montant',
+  QUOTE_USED: 'D S — devis déjà utilisé pour un paiement',
+  QUOTE_EXPIRED: 'D S — devis expiré : en demander un nouveau',
+  QUOTE_FROZEN: 'S — un devis ne se modifie ni ne se supprime (conservé avec le paiement)',
+  REFUND_NOT_PENDING: 'D S — remboursement déjà exécuté ou refusé',
   LEDGER_IMMUTABLE: 'S — journal financier et événements reçus en ajout seul (correction par contrepassation)',
   // Plusieurs payeurs (lot X, X7)
   MULTIPLE_PAYERS_NOT_ALLOWED: 'D S — un seul payeur pour ce type de besoin (request_modules.multiple_payers)',

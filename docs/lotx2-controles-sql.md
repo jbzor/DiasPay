@@ -313,3 +313,24 @@ Le réglage du jeu d’essai `can_initiate_requests = true` du prestataire autor
 ### Nouveau test
 
 `06_lotx2_p2.sql`, partie X4 : 60 vérifications (droits, niveau protégé, initiation selon le niveau, KYC simulé approuvé, refusé ou en revue, revue par le personnel, bucket `identity` et consultations journalisées, N2 puis N3, contrôle à la soumission, adaptateur réel réservé au rôle service, journal immuable, plafonds).
+
+## Passe 2, X5 (0021) : statuts de tentative et de remboursement du modèle cible
+
+Pourquoi : la section 3.3 du modèle cible fixe les statuts d’une tentative (INITIATED, PENDING, CONFIRMED, FAILED) et ceux d’un remboursement (REQUESTED, EXECUTED, FAILED). Chaque contrôle garde son intention ; seule la valeur attendue change.
+
+| Test | Contrôle | Avant | Après |
+|---|---|---|---|
+| `00_smoke.sql` | remboursement intégral créé (en attente d’exécution), demande encore PAID | `refunds.status = 'PENDING'` | `'REQUESTED'` |
+| `02_lot5.sql` | litige tranché : la demande payée reste PAID tant que le remboursement n’est pas exécuté | `'PENDING'` | `'REQUESTED'` |
+| `05_lotx2_p1.sql` | REFUND_FULL sur fonds bloqués : remboursement lié créé | `'PENDING'` | `'REQUESTED'` |
+| `04_lotx_p2.sql` | start_payment : tentative créée, demande ACCEPTED (libellé ajusté) | tentative `'PENDING'` | `'INITIATED'` (en cours seulement après l’événement PAYMENT_PENDING) |
+| `04_lotx_p2.sql` | signature invalide : événement enregistré, jamais appliqué | tentative toujours `'PENDING'` | toujours `'INITIATED'` |
+| `04_lotx_p2.sql` | montant différent : événement rejeté | tentative toujours `'PENDING'` | toujours `'INITIATED'` |
+| `04_lotx_p2.sql` | paiement réussi : tentative réussie, demande payée | `'SUCCEEDED'` | `'CONFIRMED'` |
+| `04_lotx_p2.sql` | hors d’ordre : « en cours » après la réussite ignoré, la réussite reste | `'SUCCEEDED'` | `'CONFIRMED'` |
+| `04_lotx_p2.sql` | même clé après la réussite : même résultat | `->>'status' = 'SUCCEEDED'` | `'CONFIRMED'` |
+| `04_lotx_p2.sql` | écart volontaire du rapprochement (jeu d’essai, sans vérification) | `update … set status = 'SUCCEEDED'` | `'CONFIRMED'` |
+
+Les codes d’écart (`SUCCEEDED_WITHOUT_EVENT`…) et les types d’événement (`PAYMENT_SUCCEEDED`) sont inchangés. La table `payments` (lot 1) garde ses propres statuts.
+
+`06_lotx2_p2.sql`, partie X5 : 39 vérifications (droits, statuts, devis dans la devise de la demande et en EUR, taux non inventé, frais par poste, devis figé, expiré, inconnu, plafond dépassé ou absent, accepter et payer, contribution, rejeu, tentative en cours, événement « en cours », échec puis nouvelle tentative, devis à usage unique, frais au journal dans la devise débitée, rapprochement, remboursement demandé puis exécuté à la main, contrepassation, partiel puis total, jamais au-delà du payé).

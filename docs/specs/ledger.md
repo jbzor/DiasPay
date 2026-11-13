@@ -24,7 +24,7 @@ Chaque ligne porte la devise de la transaction (`XAF`, `EUR`, `USD`). Il n’y a
 | Paiement confirmé par le partenaire (`PAYMENT_SUCCEEDED`) | `PAYMENT` | `PARTNER_CASH` montant + frais | `DUE_TO_PROVIDER` montant ; `FEES` frais |
 | Tranche débloquée (`release_events`, quel que soit le déclencheur) | `RELEASE` | `DUE_TO_PROVIDER` reste dû | `PARTNER_CASH` reste dû |
 | Remboursement demandé (`request_refund`) | `REFUND_REQUESTED` | `DUE_TO_PROVIDER` montant | `REFUNDS_PAYABLE` montant |
-| Remboursement versé (`REFUND_SUCCEEDED`) | `REFUND_SETTLED` | `REFUNDS_PAYABLE` montant | `PARTNER_CASH` montant |
+| Remboursement versé (`REFUND_SUCCEEDED`, ou `mark_refund_executed` pour le pilote) | `REFUND_SETTLED` | `REFUNDS_PAYABLE` montant | `PARTNER_CASH` montant |
 | Remboursement refusé (`REFUND_FAILED`) | `REFUND_REVERSED` | `REFUNDS_PAYABLE` montant | `DUE_TO_PROVIDER` montant |
 
 Les trois journaux de remboursement sont des **contrepassations** : ils portent `reverses_journal_id` (le journal `PAYMENT` d’origine) et ne modifient jamais une écriture existante. Une tranche intégralement remboursée ramène chaque compte à zéro pour cette tranche.
@@ -51,6 +51,10 @@ Les trois journaux de remboursement sont des **contrepassations** : ils portent 
 ## Règlement direct (lot X version 2)
 
 En `DIRECT` (par défaut, K1), le paiement confirmé est aussitôt versé au prestataire : un journal `PAYMENT` puis un journal `RELEASE`. Un remboursement ultérieur, issu d’un litige ou d’une décision d’administrateur, passe par `REFUND_REQUESTED` puis `REFUND_SETTLED`. Pour la demande, `DUE_TO_PROVIDER` termine alors au crédit et `PARTNER_CASH` au débit négatif : la somme est due par le prestataire (rétrofacturation). Le journal reste équilibré. Le traitement comptable et les recours, selon le rail de paiement, sont des points ouverts : `docs/open-parameters.md`, ligne 5.
+
+## Devises et frais (lot X version 2, X5)
+
+La devise canonique est celle de la demande : montants des tentatives, contributions et lignes `PARTNER_CASH` / `DUE_TO_PROVIDER` y restent. Le devis (`fx_quotes`) fixe le montant débité dans la devise du payeur et les frais par poste. Les frais sont deux lignes du journal `PAYMENT` dans la **devise débitée** : `PARTNER_CASH` au débit et `FEES` au crédit. Le journal reste équilibré **par devise**. Aucun écart de change n’est comptabilisé : le partenaire convertit, et le journal reflète ce qu’il annonce. À valider avec l’expert-comptable : comptes par devise, écart de change si le partenaire règle le prestataire dans une autre devise que celle de la demande.
 
 ## Remboursements
 

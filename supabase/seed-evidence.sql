@@ -21,7 +21,7 @@ begin;
 do $$
 declare
   v_tx uuid; v_req uuid; v_payer uuid; v_prov uuid; v_val1 uuid; v_val2 uuid; v_tr uuid; t transactions; v_n int;
-  v_amount bigint; v_cur currency; v_attempt uuid;
+  v_amount bigint; v_cur currency; v_attempt uuid; v_contrib uuid;
 begin
   if coalesce((select value from app_config where key = 'mock_mode'), 'false') <> 'true' then
     raise exception 'seed-evidence.sql refusé : app_config.mock_mode n’est pas ''true'' (projet de production ?)';
@@ -86,9 +86,13 @@ begin
   perform set_config('app.via_transition', 'on', true);
   if (select status from tranches where id = v_tr) = 'DRAFT' then perform _submit_request(v_tr, null); end if;
   select amount_minor, currency into v_amount, v_cur from tranches where id = v_tr;
-  insert into payment_attempts(tx_id, tranche_id, idempotency_key, provider, method, status, amount_minor, currency, provider_ref, created_by, completed_at)
-  values (v_tx, v_tr, 'seed-evidence-' || replace(gen_random_uuid()::text, '-', ''), 'SIMULATED', 'SIMULATED', 'SUCCEEDED', v_amount, v_cur,
-          'seed-' || replace(gen_random_uuid()::text, '-', ''), v_payer, now())
+  -- Lot X v2 (0021) : contribution du montant total, tentative confirmée (statuts du modèle cible).
+  insert into contributions(tx_id, tranche_id, payer_id, amount_minor, currency, status, confirmed_at)
+  values (v_tx, v_tr, v_payer, v_amount, v_cur, 'CONFIRMED', now()) returning id into v_contrib;
+  insert into payment_attempts(tx_id, tranche_id, contribution_id, idempotency_key, provider, method, status, amount_minor, currency,
+                               debit_currency, debit_amount_minor, provider_ref, created_by, completed_at)
+  values (v_tx, v_tr, v_contrib, 'seed-evidence-' || replace(gen_random_uuid()::text, '-', ''), 'SIMULATED', 'SIMULATED', 'CONFIRMED', v_amount, v_cur,
+          v_cur, v_amount, 'seed-' || replace(gen_random_uuid()::text, '-', ''), v_payer, now())
   returning id into v_attempt;
   perform _set_tranche_status(v_tr, 'ACCEPTED', v_payer, 'REQUEST_ACCEPTED', jsonb_build_object('attempt_id', v_attempt));
   insert into payments(tx_id, tranche_id, provider, status) values (v_tx, v_tr, 'SIMULATED', 'SUCCEEDED');

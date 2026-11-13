@@ -174,7 +174,7 @@ select t.admin();
 select t.login('00000000-0000-0000-0000-000000000006');
 select t.check((select status || '/' || outcome from resolve_dispute(current_setting('t.d1')::uuid,'REFUND_FULL','Prestation non justifiée'))='RESOLVED/REFUND_FULL', 'l''administrateur rembourse le payeur');
 select t.admin();
-select t.check((select count(*) from refunds where tranche_id=current_setting('t.t1')::uuid and amount_minor=300000 and status='PENDING')=1
+select t.check((select count(*) from refunds where tranche_id=current_setting('t.t1')::uuid and amount_minor=300000 and status='REQUESTED')=1
            and (select status from tranches where id=current_setting('t.t1')::uuid)='PAID',
   'remboursement intégral créé (en attente d’exécution), demande encore PAID');
 select t.login('00000000-0000-0000-0000-000000000006');

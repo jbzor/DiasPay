@@ -1,18 +1,19 @@
 import { checkContentHash, checkFile, checkFileCount, emptyDraft, normalizeReference } from '@diaspay/domain';
 import type {
-  CreatorRole, DisputeOutcome, DraftDocument, DraftDocumentInput, EnrolmentDocumentInput, EnrolmentLevel, ModuleCode, NeedDraft, RequestModule,
+  CreatorRole, Currency, DisputeOutcome, DraftDocument, DraftDocumentInput, EnrolmentDocumentInput, EnrolmentLevel, ModuleCode, NeedDraft, PaymentMethod,
+  RequestModule,
 } from '@diaspay/domain';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ApiError, fetchHasher, newUuid } from '../need';
 import type { FileHasher, ProviderSummary } from '../need';
 import type {
-  AppNotification, AuditEntry, DisputeView, DocumentAccess, DocumentReuse, EnrolmentCaseView, EnrolmentView, Receipt, ReferenceInfo, RequestMessage, Tranche, TrancheToken, Transaction,
+  AppNotification, AuditEntry, DisputeView, DocumentAccess, DocumentReuse, EnrolmentCaseView, EnrolmentView, PaymentQuote, Receipt, ReferenceInfo, RequestMessage, Tranche, TrancheToken, Transaction,
   TransactionApi,
 } from '../types';
 import type { Database, Json } from './database.types';
 import {
   TX_SELECT, draftFromServer, draftToServer, storagePath, storagePathOf, toAuditEntry, toDispute, toMessage, toModule, toNotification, toProvider,
-  toReceipt, toReferenceInfo, toToken, toTransaction, toEnrolment, toEnrolmentCase,
+  toReceipt, toReferenceInfo, toToken, toTransaction, toEnrolment, toEnrolmentCase, toQuote,
 } from './convert';
 import type { TxWithRelations } from './convert';
 import { toDomainError, unwrap, unwrapMaybe } from './errors';
@@ -104,8 +105,22 @@ export class SupabaseApi implements TransactionApi {
    */
   async payTranche(trancheId: string, idempotencyKey: string = newUuid()): Promise<Transaction> {
     const a = unwrap(await this.sb.rpc('start_payment', { p_tranche: trancheId, p_idempotency_key: idempotencyKey }), 'payTranche') as Record<string, unknown>;
-    if (a.status === 'PENDING') unwrap(await this.sb.rpc('demo_settle_payment', { p_attempt: String(a.id) }), 'payTranche');
+    return this.settleDemo(a);
+  }
+
+  /** Démonstration (mock_mode) : le partenaire simulé confirme une tentative en cours, par le chemin des événements. */
+  private async settleDemo(a: Record<string, unknown>): Promise<Transaction> {
+    if (a.status === 'INITIATED' || a.status === 'PENDING') unwrap(await this.sb.rpc('demo_settle_payment', { p_attempt: String(a.id) }), 'payTranche');
     return this.getTransaction(String(a.txId));
+  }
+
+  async getQuote(trancheId: string, debitCurrency?: Currency, method: PaymentMethod = 'SIMULATED'): Promise<PaymentQuote> {
+    return toQuote(unwrap(await this.sb.rpc('get_quote', { p_request: trancheId, ...(debitCurrency ? { p_debit_currency: debitCurrency } : {}), p_method: method }), 'getQuote'));
+  }
+
+  async acceptAndPay(trancheId: string, quoteId: string, idempotencyKey: string = newUuid()): Promise<Transaction> {
+    const a = unwrap(await this.sb.rpc('accept_and_pay', { p_request: trancheId, p_idempotency_key: idempotencyKey, p_quote_id: quoteId }), 'acceptAndPay') as Record<string, unknown>;
+    return this.settleDemo(a);
   }
 
   async getToken(trancheId: string): Promise<TrancheToken> {

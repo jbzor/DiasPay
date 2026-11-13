@@ -116,6 +116,12 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `NOT_REFUNDABLE` | D, S | Aucun paiement réussi à rembourser, ou tranche déjà débloquée (fonds versés au prestataire) |
 | `REFUND_EXCEEDS_PAID` | D, S | Remboursement au-delà du montant payé (`detail` : `{refunded, paid}`) |
 | `LEDGER_UNBALANCED` | D, S | Journal financier déséquilibré pour une devise, ou de moins de deux lignes |
+| `QUOTE_UNAVAILABLE` | D, S | Aucune cotation pour ces devises : le partenaire n’en fournit pas encore et aucun taux simulé n’est configuré (point ouvert 7) ; jamais de taux inventé |
+| `QUOTE_INVALID` | D, S | Devis inconnu, d’un autre payeur, d’une autre demande, ou montant de la demande changé depuis |
+| `QUOTE_USED` | D, S | Devis déjà utilisé pour un paiement (un devis ne sert qu’une fois) |
+| `QUOTE_EXPIRED` | D, S | Devis expiré (réglage `fx_quote_ttl_seconds`, point ouvert 8) : en demander un nouveau |
+| `QUOTE_FROZEN` | S | Un devis ne se modifie ni ne se supprime : il est conservé avec le paiement |
+| `REFUND_NOT_PENDING` | D, S | Remboursement déjà exécuté ou refusé (`mark_refund_executed` avec une autre référence) |
 | `LEDGER_IMMUTABLE` | S | Journal financier et événements reçus en ajout seul : une correction est une contrepassation |
 
 Les résultats de `apply_payment_event` (`APPLIED`, `IGNORED`, `REJECTED`, `INVALID_SIGNATURE`, `DUPLICATE`) et leurs précisions (`UNKNOWN_ATTEMPT`, `AMOUNT_MISMATCH`, `CONTRADICTS_FINAL_STATE`, `STALE_EVENT`, `ALREADY_APPLIED`, `TRANCHE_NOT_AWAITING`…) ne sont pas des erreurs : la fonction répond toujours, pour que l’événement reçu reste enregistré. Voir `docs/specs/ledger.md`.

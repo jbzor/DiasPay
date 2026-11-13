@@ -6,15 +6,15 @@ import {
   formatReference, isAutoReleasable, messageError, normalizeReference, paymentOutcome, rejectRequestDecision, requestInfoDecision,
   resolveDisputeDecision, shouldActivateTranche, shouldCloseOperation, toIsoDate, tokenRevocationError, tooManyAttempts, transitionOperation,
   transitionPaymentRequest, validateNeed, verifyChain, validatorDecisionError,
-  SimulatedKycAdapter, applyKycResult, checkEnrolmentSubmission, checkInitiation, enrolmentRoute,
+  SimulatedKycAdapter, applyKycResult, checkEnrolmentSubmission, checkInitiation, enrolmentRoute, checkLimits, DEV_ENROLMENT_LIMITS,
 } from '@diaspay/domain';
 import type {
   Actor, ChainedAuditEntry, CreatorRole, DisputeOutcome, DraftDocument, FundsState, DraftDocumentInput, IncomingWebhook, LedgerState, ModuleCode, NeedDraft,
   RequestModule, RequestMessageKind, TrancheStatus, TxRole,
-  EnrolmentDocumentInput, EnrolmentLevel, KycPort,
+  EnrolmentDocumentInput, EnrolmentLevel, KycPort, Currency, EnrolmentLimit, FeeSchedule, FxQuote, FxRates, LimitsWhenMissing, PaymentMethod,
 } from '@diaspay/domain';
 import type {
-  AppNotification, AuditEntry, DisputeView, DocumentAccess, DocumentReuse, EnrolmentCaseView, EnrolmentView, NotificationEvent, Persona, Receipt, ReferenceInfo, RequestMessage, Tranche,
+  AppNotification, AuditEntry, DisputeView, DocumentAccess, DocumentReuse, EnrolmentCaseView, EnrolmentView, NotificationEvent, PaymentQuote, Persona, Receipt, ReferenceInfo, RequestMessage, Tranche,
   TrancheToken, Transaction, TransactionApi,
 } from './types';
 import { ApiError, MemoryDraftStore, SEED_PROVIDERS, foldText, newId, uriHasher } from './need';
@@ -64,6 +64,13 @@ export interface MockApiOptions {
   modules?: readonly RequestModule[];
   /** Lot X v2 (X4) : adaptateur KYC (défaut : simulé, résultat APPROVED, comme kyc_simulated_result en développement). */
   kyc?: KycPort;
+  /** Lot X v2 (X4, X5) : plafonds (défaut : lignes de développement sans plafond, comme l’amorçage mock_mode) et règle d’absence. */
+  limits?: readonly EnrolmentLimit[];
+  limitsWhenMissing?: LimitsWhenMissing;
+  /** Lot X v2 (X5) : devis : durée de vie (défaut 300 s, valeur de développement), taux simulés (défaut : parité EUR/XAF), frais (défaut : aucun). */
+  quoteTtlSeconds?: number;
+  fxRates?: FxRates;
+  feeSchedule?: FeeSchedule;
 }
 
 /** Jeton révoqué (lot X) : conservé pour refuser explicitement sa référence (TOKEN_REVOKED). */
@@ -210,6 +217,11 @@ export class MockApi implements TransactionApi {
   /** Lot X v2 (X4) : niveaux relevés et dossiers d’enrôlement, par utilisateur. */
   private enrolments: Record<string, { level?: EnrolmentLevel; cases: EnrolmentCaseView[] }> = {};
   private readonly kyc: KycPort;
+  private readonly limits: readonly EnrolmentLimit[];
+  private readonly limitsWhenMissing: LimitsWhenMissing;
+  private readonly quoteTtl: number;
+  private readonly fxRates: FxRates;
+  private readonly feeSchedule?: FeeSchedule;
   /** Lot X (X5) : moteur de paiement (miroir de 0010) et partenaire simulé, qui répond par des événements signés. */
   private payments: PaymentEngine;
   private readonly paymentPort: SimulatedPaymentAdapter;
@@ -239,6 +251,11 @@ export class MockApi implements TransactionApi {
     this.hashFile = options.hashFile ?? uriHasher;
     this.modules = options.modules ?? DEFAULT_MODULES;
     this.kyc = options.kyc ?? new SimulatedKycAdapter();
+    this.limits = options.limits ?? DEV_ENROLMENT_LIMITS;
+    this.limitsWhenMissing = options.limitsWhenMissing ?? 'REFUSE';
+    this.quoteTtl = options.quoteTtlSeconds ?? 300;           // DÉVELOPPEMENT, comme fx_quote_ttl_seconds en mock_mode
+    this.fxRates = options.fxRates ?? { 'EUR/XAF': '655.957' };
+    this.feeSchedule = options.feeSchedule;
     this.payments = new PaymentEngine(clock);
     // Secret du simulateur (pas un secret réel) : les événements sont signés et vérifiés comme ceux d’un partenaire.
     this.paymentPort = new SimulatedPaymentAdapter({ secret: 'diaspay-simulateur', sink: (w) => this.receiveWebhook(w), clock, newId: () => newId('evt') });
@@ -502,23 +519,82 @@ export class MockApi implements TransactionApi {
     return tx;
   }
   /**
-   * Paiement simulé (lot X, X5), par le même chemin que le partenaire : tentative idempotente (start_payment), demande au
-   * partenaire simulé, qui répond par des événements signés, vérifiés puis appliqués (apply_payment_event). Même clé : même
-   * tentative, aucun nouveau paiement.
+   * Paiement simulé (lot X, X5 ; v2 : devis puis acceptation), par le même chemin que le partenaire : devis dans la devise de la
+   * demande (get_quote), puis accepter et payer (accept_and_pay), le partenaire simulé répondant par des événements signés,
+   * vérifiés puis appliqués (apply_payment_event). Même clé : même tentative, aucun nouveau paiement.
    */
   async payTranche(trancheId: string, idempotencyKey?: string) {
+    const { tx } = this.find(trancheId);
+    if (this.replayOf(trancheId, idempotencyKey)) return tx;
+    this.checkKey(idempotencyKey);   // comme start_payment : clé invalide refusée avant le devis
+    const q = await this.getQuote(trancheId);
+    return this.acceptAndPay(trancheId, q.id, idempotencyKey);
+  }
+
+  private checkKey(key?: string): void {
+    if (key !== undefined && (key.trim().length < 8 || key.trim().length > 200)) throw new DomainError('VALIDATION', 'Clé d’idempotence invalide (8 à 200 caractères)');
+  }
+  private payerKey(): string { return this.user?.id ?? `persona:${this.persona}`; }
+  private replayOf(trancheId: string, key?: string) {
+    const replay = key ? this.payments.attemptsOf(trancheId).find((a) => a.idempotencyKey === key.trim()) : undefined;
+    return replay && replay.createdBy === this.payerKey() ? replay : undefined;
+  }
+  /** Contrôles communs à get_quote et accept_and_pay, dans le même ordre que le serveur. */
+  private payable(trancheId: string): { tx: Transaction; tr: Tranche } {
     const { tx, tr } = this.find(trancheId);
     if (!this.isParty(tx) && !this.isCreatorOf(tx)) throw new DomainError('TRANCHE_NOT_FOUND', 'Tranche introuvable');
     if (!this.rolesFor(tx).includes('PAYER')) throw new DomainError('PAYER_ONLY', 'Réservé au payeur');
-    // Même clé rejouée : même résultat, quel que soit l’état actuel (comme start_payment).
-    const replay = idempotencyKey ? this.payments.attemptsOf(trancheId).find((a) => a.idempotencyKey === idempotencyKey.trim()) : undefined;
-    if (replay && replay.createdBy === (this.user?.id ?? `persona:${this.persona}`)) return tx;
     // Comme 0018 : la suspension par un litige est annoncée avant l’état de l’opération (qu’elle suspend).
     if (tr.onHold) throw new DomainError('REQUEST_ON_HOLD', 'Demande suspendue par un litige');
     if (tx.status !== 'ACTIVE') throw new DomainError('TX_NOT_ACTIVE', 'L’opération n’est pas active');
+    return { tx, tr };
+  }
+
+  /** Devis (miroir de get_quote) : taux simulés marqués, frais du barème, durée de vie de développement. */
+  async getQuote(trancheId: string, debitCurrency?: Currency, method?: PaymentMethod): Promise<PaymentQuote> {
+    const { tx, tr } = this.payable(trancheId);
+    if (this.payments.attemptsOf(trancheId).some((a) => a.status === 'INITIATED' || a.status === 'PENDING')) {
+      throw new DomainError('PAYMENT_IN_PROGRESS', 'Un paiement est déjà en cours pour cette tranche');
+    }
+    if (tr.status !== 'SUBMITTED') throw new DomainError('NOT_PAYABLE', 'Cette demande n’est pas à payer');
+    const q = this.payments.createQuote({
+      trancheId, payerId: this.payerKey(), amount: { amountMinor: tr.amountMinor, currency: tx.amount.currency }, debitCurrency, method,
+      ttlSeconds: this.quoteTtl, rates: this.fxRates, fees: this.feeSchedule, providerQuote: null,
+    });
+    this.record(tx.id, 'QUOTE_ISSUED', tr.id, undefined, 'payer');
+    return toPaymentQuote(q);
+  }
+
+  /** Accepter et payer (miroir de accept_and_pay) : devis valide, plafond du niveau, contribution et tentative INITIATED. */
+  async acceptAndPay(trancheId: string, quoteId: string, idempotencyKey?: string) {
+    this.checkKey(idempotencyKey);
+    const { tx } = this.find(trancheId);
+    if (this.replayOf(trancheId, idempotencyKey)) return tx;
+    const { tr } = this.payable(trancheId);
+    const key = idempotencyKey ?? newId('pay');
+    // Contrôles de la tentative (clé, tentative en cours, demande à payer, devis) avant le plafond, comme le serveur.
+    const known = this.payments.attemptsOf(trancheId).some((a) => a.status === 'INITIATED' || a.status === 'PENDING');
+    if (known) throw new DomainError('PAYMENT_IN_PROGRESS', 'Un paiement est déjà en cours pour cette tranche');
+    if (tr.status !== 'SUBMITTED') throw new DomainError('NOT_PAYABLE', 'Cette demande n’est pas à payer');
+    const q = this.payments.quote(quoteId);
+    if (!q || q.trancheId !== trancheId || q.payerId !== this.payerKey() || q.requestAmountMinor !== tr.amountMinor) {
+      throw new DomainError('QUOTE_INVALID', 'Devis inconnu ou d’une autre demande');
+    }
+    if (q.usedAt) throw new DomainError('QUOTE_USED', 'Devis déjà utilisé');
+    if (q.expiresAt <= this.clock().toISOString()) throw new DomainError('QUOTE_EXPIRED', 'Devis expiré : demandez-en un nouveau');
+    const level = this.user ? this.levelOf(this.user) : 'N0';
+    const now = this.clock();
+    const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    checkLimits({
+      limit: this.limits.find((l) => l.level === level && l.currency === tx.amount.currency), level, currency: tx.amount.currency,
+      amountMinor: tr.amountMinor, whenMissing: this.limitsWhenMissing,
+      usedTodayMinor: this.payments.usedSince(this.payerKey(), tx.amount.currency, day),
+      usedThisMonthMinor: this.payments.usedSince(this.payerKey(), tx.amount.currency, month),
+    });
     const { attempt, created } = this.payments.startPayment({
-      txId: tx.id, trancheId, idempotencyKey: idempotencyKey ?? newId('pay'), amountMinor: tr.amountMinor, currency: tx.amount.currency,
-      trancheStatus: tr.status, createdBy: this.user?.id ?? `persona:${this.persona}`,
+      txId: tx.id, trancheId, idempotencyKey: key, amountMinor: tr.amountMinor, currency: tx.amount.currency,
+      trancheStatus: tr.status, createdBy: this.payerKey(), quoteId,
     });
     if (created) {
       // SUBMITTED → ACCEPTED (le payeur accepte et paie), puis l’événement du partenaire décide.
@@ -527,6 +603,7 @@ export class MockApi implements TransactionApi {
       const res = await this.paymentPort.createPayment({
         idempotencyKey: attempt.idempotencyKey, trancheId, amount: { amountMinor: tr.amountMinor, currency: tx.amount.currency },
         payer: { userId: this.user?.id }, payee: { name: tx.providerName }, method: attempt.method,
+        contributionId: attempt.contributionId, quoteId,
       });
       this.payments.setProviderRef(attempt.id, res.providerRef);
     }
@@ -539,7 +616,7 @@ export class MockApi implements TransactionApi {
     const signatureValid = this.paymentPort.verifyWebhook(w.headers, w.rawBody);
     const ev = this.paymentPort.parseWebhook(w.rawBody);
     this.payments.applyEvent({ provider: ev.provider, eventId: ev.eventId, signatureValid, payload: ev.payload }, {
-      tranche: (id) => { const { tx, tr } = this.find(id); return { status: tr.status, active: tx.status === 'ACTIVE' }; },
+      tranche: (id) => { const { tx, tr } = this.find(id); return { status: tr.status, active: tx.status === 'ACTIVE', targetMinor: tr.amountMinor }; },
       onPaid: (a) => {
         // Règlement direct : payée, versée au prestataire (journal) ; CONDITIONAL : fonds bloqués jusqu’à la libération.
         const { tx, tr } = this.find(a.trancheId);
@@ -690,7 +767,7 @@ export class MockApi implements TransactionApi {
     const dispute = this.disputes[trancheId];
     if (!dispute || dispute.status === 'RESOLVED') throw new ApiError('NO_OPEN_DISPUTE', 'Aucun litige en cours sur cette tranche');
     if (decision.note.trim().length < 3) throw new ApiError('REASON_REQUIRED', 'Note de décision obligatoire');
-    const attempt = this.payments.attemptsOf(tr.id).find((a) => a.status === 'SUCCEEDED');
+    const attempt = this.payments.attemptsOf(tr.id).find((a) => a.status === 'CONFIRMED');
     const refunded = this.payments.refunds.filter((r) => r.trancheId === tr.id && r.status !== 'FAILED').reduce((n, r) => n + r.amountMinor, 0);
     const res = resolveDisputeDecision({ status: tr.status, fundsState: tr.fundsState, paidMinor: attempt?.amountMinor ?? 0, refundedMinor: refunded },
       decision.outcome, ADMIN, decision.amountMinor);
@@ -1151,4 +1228,10 @@ export class MockApi implements TransactionApi {
     }
     return n;
   }
+}
+
+/** Devis du moteur vu par le payeur (sans le payeur ni la consommation). */
+function toPaymentQuote(q: FxQuote): PaymentQuote {
+  const { payerId: _p, usedAt: _u, attemptId: _a, ...rest } = q;
+  return { ...rest, fees: { ...q.fees } };
 }

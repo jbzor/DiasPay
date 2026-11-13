@@ -83,7 +83,7 @@ describe('X5 — paiements, événements, journal financier', () => {
   // Lot X v2 : la demande soumise est acceptée au démarrage du paiement (SUBMITTED → ACCEPTED), payée par l’événement du
   // partenaire (ACCEPTED → PAID, fonds NONE en DIRECT avec versement au journal, HELD en CONDITIONAL), redevient payable si
   // toutes les tentatives échouent (ACCEPTED → SUBMITTED), passe en REFUNDED au premier remboursement versé.
-  function setup(outcome: 'SUCCEEDED' | 'FAILED' = 'SUCCEEDED', mode: SettlementMode = 'CONDITIONAL') {
+  function setup(outcome: 'CONFIRMED' | 'FAILED' = 'CONFIRMED', mode: SettlementMode = 'CONDITIONAL') {
     const status: Record<string, TrancheStatus> = { T1: 'SUBMITTED' };
     const funds: Record<string, FundsState> = { T1: 'NONE' };
     const engine = new PaymentEngine(() => new Date('2026-11-12T10:00:00Z'));
@@ -126,12 +126,12 @@ describe('X5 — paiements, événements, journal financier', () => {
   it('PaymentPort simulé : résultats par événements signés, appliqués par le même chemin (aucun court-circuit)', async () => {
     const s = setup();
     const a = await s.pay('cle-paiement-0001');
-    expect(a.status).toBe('SUCCEEDED');
+    expect(a.status).toBe('CONFIRMED');
     expect(s.status.T1).toBe('PAID');
     expect(s.funds.T1).toBe('HELD');
     expect(s.received.map((w) => JSON.parse(w.rawBody).data.type)).toEqual(['PAYMENT_PENDING', 'PAYMENT_SUCCEEDED']);
     expect(s.received.every((w) => w.headers[SIMULATED_SIGNATURE_HEADER]?.length === 64)).toBe(true);
-    expect(await s.adapter.getPaymentStatus(a.providerRef!)).toMatchObject({ status: 'SUCCEEDED' });
+    expect(await s.adapter.getPaymentStatus(a.providerRef!)).toMatchObject({ status: 'CONFIRMED' });
     expect(s.engine.journals.map((j) => j.kind)).toEqual(['PAYMENT']);
   });
 
@@ -173,7 +173,7 @@ describe('X5 — paiements, événements, journal financier', () => {
     expect(apply('e-late', { type: 'PAYMENT_PENDING', idempotencyKey: 'cle-paiement-0001' })).toMatchObject({ result: 'IGNORED', error: 'STALE_EVENT' });
     expect(apply('e-contra', { type: 'PAYMENT_FAILED', idempotencyKey: 'cle-paiement-0001' })).toMatchObject({ result: 'REJECTED', error: 'CONTRADICTS_FINAL_STATE' });
     expect(apply('e-unknown', { type: 'PAYMENT_SUCCEEDED', idempotencyKey: 'cle-inconnue-01' })).toMatchObject({ result: 'REJECTED', error: 'UNKNOWN_ATTEMPT' });
-    expect(s.engine.attempt(a.id)!.status).toBe('SUCCEEDED');
+    expect(s.engine.attempt(a.id)!.status).toBe('CONFIRMED');
     expect(s.engine.journals).toHaveLength(1);
     // Signature invalide (événement forgé avec un autre secret) : enregistré, jamais appliqué.
     const s2 = setup();
@@ -185,7 +185,7 @@ describe('X5 — paiements, événements, journal financier', () => {
     expect(s2.adapter.verifyWebhook(forged.headers, forged.rawBody)).toBe(false);
     s2.deliver(forged);
     expect(s2.outcomes.at(-1)).toEqual({ result: 'INVALID_SIGNATURE' });
-    expect(s2.engine.attempt(attempt.id)!.status).toBe('PENDING');
+    expect(s2.engine.attempt(attempt.id)!.status).toBe('INITIATED');
     expect(s2.engine.event('SIMULATED', 'forge-1')?.result).toBe('INVALID_SIGNATURE');
     // Montant différent : rejeté.
     expect(s2.engine.applyEvent({ provider: 'SIMULATED', eventId: 'm-1', signatureValid: true, payload: { type: 'PAYMENT_SUCCEEDED',
@@ -228,11 +228,11 @@ describe('X5 — paiements, événements, journal financier', () => {
     expect(code(() => s.engine.requestRefund({ trancheId: 'T9', amountMinor: 1, idempotencyKey: 'remb-0005', reason: 'Rien', fundsState: 'HELD' }))).toBe('NOT_REFUNDABLE');
     await s.adapter.refund({ paymentId: a.providerRef!, amountMinor: 30_000, idempotencyKey: 'remb-0001' });
     await s.adapter.refund({ paymentId: a.providerRef!, amountMinor: 70_000, idempotencyKey: 'remb-0003' });
-    expect(s.engine.refunds.map((r) => r.status)).toEqual(['SUCCEEDED', 'SUCCEEDED']);
+    expect(s.engine.refunds.map((r) => r.status)).toEqual(['EXECUTED', 'EXECUTED']);
     expect(s.engine.journals.map((j) => j.kind)).toEqual(['PAYMENT', 'REFUND_REQUESTED', 'REFUND_REQUESTED', 'REFUND_SETTLED', 'REFUND_SETTLED']);
     expect(s.engine.journals.filter((j) => j.kind !== 'PAYMENT').every((j) => j.reversesJournalId === s.engine.journals[0]!.id)).toBe(true);
     expect(Object.values(s.engine.balances('T1')).every((v) => v === 0)).toBe(true);
-    expect(r2.status).toBe('PENDING');
+    expect(r2.status).toBe('REQUESTED');
   });
 
   it('remboursement refusé par le partenaire : contrepassation de la demande, le montant redevient dû', async () => {
@@ -246,7 +246,7 @@ describe('X5 — paiements, événements, journal financier', () => {
   });
 
   it('DIRECT (remplace IMMEDIATE) : payée sans blocage, versement au journal ; CONDITIONAL libéré : non remboursable', async () => {
-    const s = setup('SUCCEEDED', 'DIRECT');
+    const s = setup('CONFIRMED', 'DIRECT');
     await s.pay('cle-paiement-0001');
     expect(s.status.T1).toBe('PAID');
     expect(s.funds.T1).toBe('NONE');

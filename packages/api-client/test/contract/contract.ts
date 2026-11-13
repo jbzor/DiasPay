@@ -450,17 +450,42 @@ export function contractSuite(h: Harness): void {
         { kind: 'ID_DOCUMENT', path: `${owner}/contrat-id-${newUuid()}.jpg`, mimeType: 'image/jpeg', sizeBytes: 2_000 },
         { kind: 'SELFIE', path: `${owner}/contrat-selfie-${newUuid()}.jpg`, mimeType: 'image/jpeg', sizeBytes: 2_000 },
       ];
-      expect(await code(me.submitEnrolment({ level: 'N1', documents: docs('un-autre-compte') }))).toBe('VALIDATION');
-      expect(await code(me.submitEnrolment({ level: 'N1', documents: docs(uid).slice(0, 1) }))).toBe(
-        (await me.getEnrolment()).level === 'N0' ? 'DOCUMENT_REQUIRED' : 'ALREADY_ENROLLED');
+      // Le compte de test du serveur garde son niveau d’un passage à l’autre : N0 la première fois seulement.
       if ((await me.getEnrolment()).level === 'N0') {
+        expect(await code(me.submitEnrolment({ level: 'N1', documents: docs('un-autre-compte') }))).toBe('VALIDATION');
+        expect(await code(me.submitEnrolment({ level: 'N1', documents: docs(uid).slice(0, 1) }))).toBe('DOCUMENT_REQUIRED');
         const c = await me.submitEnrolment({ level: 'N1', documents: docs(uid) });
         expect(c).toMatchObject({ requestedLevel: 'N1', status: 'APPROVED', route: 'KYC', kycResult: 'APPROVED' });
       }
       const after = await me.getEnrolment();
       expect(after.level).toBe('N1');
       expect(await code(me.submitEnrolment({ level: 'N1', documents: docs(uid) }))).toBe('ALREADY_ENROLLED');
+      expect(await code(me.submitEnrolment({ level: 'N2', documents: [{ kind: 'BUSINESS_REGISTRATION', path: 'un-autre-compte/rc.pdf' }] }))).toBe('VALIDATION');
       expect(await code(me.submitEnrolment({ level: 'N2', documents: [{ kind: 'BUSINESS_REGISTRATION', path: `${uid}/rc.pdf` }] }))).toBe('DOCUMENT_REQUIRED');
+    }, h.timeout);
+  });
+
+  describe('lot X version 2 (X5) : devis, accepter et payer', () => {
+    it('devis EUR simulé et figé, refus d’un devis inconnu, paiement avec le devis, rejeu de la même clé', async () => {
+      const requester = await h.as('REQUESTER');
+      const tx0 = await submitHealth(requester, { counterpartyPhone: h.phones.PAYER });
+      const tr = tx0.tranches[0]!;
+      expect(await code(requester.getQuote(tr.id))).toBe('PAYER_ONLY');
+      const payer = await h.as('PAYER');
+      const same = await payer.getQuote(tr.id);
+      expect(same).toMatchObject({ source: 'IDENTITY', rate: '1', requestCurrency: 'XAF', debitCurrency: 'XAF', debitAmountMinor: 180_000, totalDebitMinor: 180_000 });
+      const eur = await payer.getQuote(tr.id, 'EUR');
+      // 180 000 XAF / 655,957 = 274,41 € (arrondi au supérieur) ; aucun frais sans barème.
+      expect(eur).toMatchObject({ source: 'SIMULATED', simulated: true, debitCurrency: 'EUR', debitAmountMinor: 27_441, totalDebitMinor: 27_441,
+        fees: { serviceMinor: 0, fxMinor: 0, methodMinor: 0 } });
+      expect(Date.parse(eur.expiresAt)).toBeGreaterThan(Date.parse(eur.quotedAt));
+      expect(await code(payer.getQuote(tr.id, 'USD'))).toBe('QUOTE_UNAVAILABLE');
+      expect(await code(payer.acceptAndPay(tr.id, newUuid(), newUuid()))).toBe('QUOTE_INVALID');
+      const key = newUuid();
+      const paid = await payer.acceptAndPay(tr.id, eur.id, key);
+      expect(paid.tranches[0]).toMatchObject({ status: 'PAID', fundsState: 'NONE' });
+      expect((await payer.acceptAndPay(tr.id, eur.id, key)).tranches[0]!.status).toBe('PAID');   // même clé : même résultat
+      expect(await code(payer.getQuote(tr.id))).toBe('TX_NOT_ACTIVE');                            // opération close après paiement
     }, h.timeout);
   });
 }

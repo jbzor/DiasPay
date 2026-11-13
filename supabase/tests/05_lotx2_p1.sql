@@ -206,7 +206,7 @@ select resolve_dispute((select id from disputes where tranche_id = (select v fro
 select t.admin();
 select t.check((select status::text || ':' || funds_state from tranches where id = (select v from t.ids where k = 'a1')) = 'PAID:RETURNED'
            and (select outcome from disputes where tranche_id = (select v from t.ids where k = 'a1')) = 'REFUND_FULL'
-           and exists (select 1 from refunds where tranche_id = (select v from t.ids where k = 'a1') and status = 'PENDING' and amount_minor = 50000),
+           and exists (select 1 from refunds where tranche_id = (select v from t.ids where k = 'a1') and status = 'REQUESTED' and amount_minor = 50000),
   'REFUND_FULL sur fonds bloqués : fonds rendus (RETURNED), remboursement lié créé, statut payé inchangé');
 select t.check(release_due_tranches() >= 0 and (select funds_state from tranches where id = (select v from t.ids where k = 'a1')) = 'RETURNED',
   'des fonds rendus ne sont jamais libérés ensuite');

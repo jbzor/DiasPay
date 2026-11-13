@@ -265,10 +265,10 @@ select t.check((select status from transactions where id = 'fa300000-0000-4000-8
 -- ---------- X5.2 Tentatives et idempotence ----------
 select t.login('fa000000-0000-4000-8000-000000000001');
 insert into t.ids select 'att1', (start_payment((select v from t.ids where k = 'e1'), 'cle-e1-0001')->>'id')::uuid;
-select t.check((select status = 'PENDING' and provider = 'SIMULATED' and amount_minor = 100000 and provider_ref like 'SIM-%'
+select t.check((select status = 'INITIATED' and provider = 'SIMULATED' and amount_minor = 100000 and provider_ref like 'SIM-%'
                 from payment_attempts where id = (select v from t.ids where k = 'att1'))
            and (select status from tranches where id = (select v from t.ids where k = 'e1')) = 'ACCEPTED',
-  'start_payment : tentative en cours, montant de la demande, demande acceptée (ACCEPTED)');
+  'start_payment : tentative créée (INITIATED, X5 v2), montant de la demande, demande acceptée (ACCEPTED)');
 insert into t.res values ('att1b', start_payment((select v from t.ids where k = 'e1'), 'cle-e1-0001'));
 select t.check((select (v->>'id')::uuid from t.res where k = 'att1b') = (select v from t.ids where k = 'att1')
            and (select count(*) from payment_attempts where tranche_id = (select v from t.ids where k = 'e1')) = 1,
@@ -291,17 +291,17 @@ select t.fails($$insert into payment_attempts(tx_id, tranche_id, idempotency_key
 -- ---------- X5.3 Événements du partenaire ----------
 insert into t.res values ('evt1', apply_payment_event('SIMULATED', 'evt-e1-1', false, t.evt('PAYMENT_SUCCEEDED', 'cle-e1-0001', 100000)));
 select t.check((select v->>'result' from t.res where k = 'evt1') = 'INVALID_SIGNATURE'
-           and (select status from payment_attempts where id = (select v from t.ids where k = 'att1')) = 'PENDING'
+           and (select status from payment_attempts where id = (select v from t.ids where k = 'att1')) = 'INITIATED'
            and (select processed_at is not null and result = 'INVALID_SIGNATURE' from webhook_events where event_id = 'evt-e1-1'),
   'signature invalide : événement enregistré, jamais appliqué');
 select t.check((apply_payment_event('SIMULATED', 'evt-e1-2', true, t.evt('PAYMENT_SUCCEEDED', 'cle-e1-0001', 999))->>'error') = 'AMOUNT_MISMATCH'
-           and (select status from payment_attempts where id = (select v from t.ids where k = 'att1')) = 'PENDING',
+           and (select status from payment_attempts where id = (select v from t.ids where k = 'att1')) = 'INITIATED',
   'montant différent : événement rejeté');
 select t.check((apply_payment_event('SIMULATED', 'evt-e1-x', true, t.evt('PAYMENT_SUCCEEDED', 'cle-inconnue-9', 100000))->>'error') = 'UNKNOWN_ATTEMPT',
   'tentative inconnue : événement rejeté');
 insert into t.res values ('evt3', apply_payment_event('SIMULATED', 'evt-e1-3', true, t.evt('PAYMENT_SUCCEEDED', 'cle-e1-0001', 100000)));
 select t.check((select v->>'result' from t.res where k = 'evt3') = 'APPLIED'
-           and (select status from payment_attempts where id = (select v from t.ids where k = 'att1')) = 'SUCCEEDED'
+           and (select status from payment_attempts where id = (select v from t.ids where k = 'att1')) = 'CONFIRMED'
            and (select status = 'PAID' and funds_state = 'NONE' and paid_at is not null from tranches where id = (select v from t.ids where k = 'e1'))
            and (select count(*) from payments where tranche_id = (select v from t.ids where k = 'e1') and status = 'SUCCEEDED' and provider = 'SIMULATED') = 1,
   'paiement réussi : tentative réussie, demande payée (PAID, règlement direct : aucun fonds bloqué), paiement enregistré');
@@ -325,10 +325,10 @@ insert into t.res values ('evt0', apply_payment_event('SIMULATED', 'evt-e1-0', t
 insert into t.res values ('evt5', apply_payment_event('SIMULATED', 'evt-e1-5', true, t.evt('PAYMENT_FAILED', 'cle-e1-0001', 100000)));
 select t.check((select v->>'result' from t.res where k = 'evt0') = 'IGNORED'
            and (select v->>'error' from t.res where k = 'evt5') = 'CONTRADICTS_FINAL_STATE'
-           and (select status from payment_attempts where id = (select v from t.ids where k = 'att1')) = 'SUCCEEDED',
+           and (select status from payment_attempts where id = (select v from t.ids where k = 'att1')) = 'CONFIRMED',
   'hors d’ordre : « en cours » reçu après la réussite ignoré, échec contradictoire rejeté ; la réussite reste');
 select t.login('fa000000-0000-4000-8000-000000000001');
-select t.check((start_payment((select v from t.ids where k = 'e1'), 'cle-e1-0001')->>'status') = 'SUCCEEDED', 'même clé après la réussite : même résultat');
+select t.check((start_payment((select v from t.ids where k = 'e1'), 'cle-e1-0001')->>'status') = 'CONFIRMED', 'même clé après la réussite : même résultat');
 select t.hint($$select start_payment((select v from t.ids where k = 'e1'), 'cle-e1-0003')$$, 'NOT_PAYABLE', 'nouvelle clé sur une demande payée');
 select t.check((select count(*) from ledger_entries) = 0 and (select count(*) from webhook_events) = 0, 'payeur : journal financier et événements illisibles (personnel seulement)');
 select t.admin();
@@ -453,7 +453,7 @@ select t.login('fa000000-0000-4000-8000-000000000001');
 insert into t.ids select 'attg', (start_payment((select v from t.ids where k = 'g1'), 'cle-g1-0001')->>'id')::uuid;
 select t.admin();
 -- Écart volontaire : tentative marquée réussie en base, sans événement du partenaire ni écriture.
-update payment_attempts set status = 'SUCCEEDED' where id = (select v from t.ids where k = 'attg');
+update payment_attempts set status = 'CONFIRMED' where id = (select v from t.ids where k = 'attg');
 select t.login('fa000000-0000-4000-8000-000000000004');
 select t.check((select issues from v_reconciliation where attempt_id = (select v from t.ids where k = 'attg'))
                = array['SUCCEEDED_WITHOUT_EVENT','SUCCEEDED_WITHOUT_LEDGER','TRANCHE_NOT_PAID'],

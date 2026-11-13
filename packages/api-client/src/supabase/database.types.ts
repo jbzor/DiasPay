@@ -88,6 +88,56 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"contributions": {
+                  Row: {
+                    "amount_minor": number,"confirmed_at": string | null,"created_at": string,"currency": Database["public"]['Enums']["currency"],"id": string,"invited_phone": string | null,"payer_id": string | null,"status": string,"tranche_id": string,"tx_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "amount_minor": number,"confirmed_at"?: string | null,"created_at"?: string,"currency": Database["public"]['Enums']["currency"],"id"?: string,"invited_phone"?: string | null,"payer_id"?: string | null,"status"?: string,"tranche_id": string,"tx_id": string
+                  }
+                  Update: {
+                    "amount_minor"?: number,"confirmed_at"?: string | null,"created_at"?: string,"currency"?: Database["public"]['Enums']["currency"],"id"?: string,"invited_phone"?: string | null,"payer_id"?: string | null,"status"?: string,"tranche_id"?: string,"tx_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "contributions_payer_id_fkey"
+      columns: ["payer_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "contributions_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "bo_evidence_queue"
+      referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "contributions_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "payment_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "contributions_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "tranches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "contributions_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "contributions_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "transactions"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"dispute_messages": {
                   Row: {
                     "author_id": string | null,"body": string,"created_at": string,"dispute_id": string,"id": string,"kind": string,"tx_id": string
@@ -368,6 +418,68 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"fx_quotes": {
+                  Row: {
+                    "attempt_id": string | null,"debit_amount_minor": number,"debit_currency": Database["public"]['Enums']["currency"],"expires_at": string,"fee_fx_minor": number,"fee_method_minor": number,"fee_service_minor": number,"id": string,"method": string,"payer_id": string,"quoted_at": string,"rate": number,"request_amount_minor": number,"request_currency": Database["public"]['Enums']["currency"],"simulated": boolean,"source": string,"total_debit_minor": number,"tranche_id": string,"tx_id": string,"used_at": string | null,"_quote_json": Json | null
+                  }
+                  ComputedFields: "_quote_json"
+                  Insert: {
+                    "attempt_id"?: string | null,"debit_amount_minor": number,"debit_currency": Database["public"]['Enums']["currency"],"expires_at": string,"fee_fx_minor"?: number,"fee_method_minor"?: number,"fee_service_minor"?: number,"id"?: string,"method": string,"payer_id": string,"quoted_at"?: string,"rate": number,"request_amount_minor": number,"request_currency": Database["public"]['Enums']["currency"],"simulated": boolean,"source": string,"total_debit_minor": number,"tranche_id": string,"tx_id": string,"used_at"?: string | null
+                  }
+                  Update: {
+                    "attempt_id"?: string | null,"debit_amount_minor"?: number,"debit_currency"?: Database["public"]['Enums']["currency"],"expires_at"?: string,"fee_fx_minor"?: number,"fee_method_minor"?: number,"fee_service_minor"?: number,"id"?: string,"method"?: string,"payer_id"?: string,"quoted_at"?: string,"rate"?: number,"request_amount_minor"?: number,"request_currency"?: Database["public"]['Enums']["currency"],"simulated"?: boolean,"source"?: string,"total_debit_minor"?: number,"tranche_id"?: string,"tx_id"?: string,"used_at"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "fx_quotes_attempt_id_fkey"
+      columns: ["attempt_id"]
+isOneToOne: false
+      referencedRelation: "payment_attempts"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "fx_quotes_attempt_id_fkey"
+      columns: ["attempt_id"]
+isOneToOne: false
+      referencedRelation: "v_reconciliation"
+      referencedColumns: ["attempt_id"]
+    },{
+      foreignKeyName: "fx_quotes_payer_id_fkey"
+      columns: ["payer_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "fx_quotes_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "bo_evidence_queue"
+      referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "fx_quotes_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "payment_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "fx_quotes_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "tranches"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "fx_quotes_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "fx_quotes_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "transactions"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"ledger_accounts": {
                   Row: {
                     "code": string,"kind": string,"label_en": string,"label_fr": string
@@ -510,21 +622,33 @@ isOneToOne: false
                   ]
                 },"payment_attempts": {
                   Row: {
-                    "amount_minor": number,"completed_at": string | null,"created_at": string,"created_by": string | null,"currency": Database["public"]['Enums']["currency"],"error_code": string | null,"id": string,"idempotency_key": string,"method": string,"provider": string,"provider_ref": string | null,"status": string,"tranche_id": string,"tx_id": string,"updated_at": string,"_attempt_json": Json | null
+                    "amount_minor": number,"completed_at": string | null,"contribution_id": string | null,"created_at": string,"created_by": string | null,"currency": Database["public"]['Enums']["currency"],"debit_amount_minor": number | null,"debit_currency": Database["public"]['Enums']["currency"] | null,"error_code": string | null,"fees_minor": number,"id": string,"idempotency_key": string,"method": string,"provider": string,"provider_ref": string | null,"quote_id": string | null,"status": string,"tranche_id": string,"tx_id": string,"updated_at": string,"_attempt_json": Json | null
                   }
                   ComputedFields: "_attempt_json"
                   Insert: {
-                    "amount_minor": number,"completed_at"?: string | null,"created_at"?: string,"created_by"?: string | null,"currency": Database["public"]['Enums']["currency"],"error_code"?: string | null,"id"?: string,"idempotency_key": string,"method": string,"provider": string,"provider_ref"?: string | null,"status"?: string,"tranche_id": string,"tx_id": string,"updated_at"?: string
+                    "amount_minor": number,"completed_at"?: string | null,"contribution_id"?: string | null,"created_at"?: string,"created_by"?: string | null,"currency": Database["public"]['Enums']["currency"],"debit_amount_minor"?: number | null,"debit_currency"?: Database["public"]['Enums']["currency"] | null,"error_code"?: string | null,"fees_minor"?: number,"id"?: string,"idempotency_key": string,"method": string,"provider": string,"provider_ref"?: string | null,"quote_id"?: string | null,"status"?: string,"tranche_id": string,"tx_id": string,"updated_at"?: string
                   }
                   Update: {
-                    "amount_minor"?: number,"completed_at"?: string | null,"created_at"?: string,"created_by"?: string | null,"currency"?: Database["public"]['Enums']["currency"],"error_code"?: string | null,"id"?: string,"idempotency_key"?: string,"method"?: string,"provider"?: string,"provider_ref"?: string | null,"status"?: string,"tranche_id"?: string,"tx_id"?: string,"updated_at"?: string
+                    "amount_minor"?: number,"completed_at"?: string | null,"contribution_id"?: string | null,"created_at"?: string,"created_by"?: string | null,"currency"?: Database["public"]['Enums']["currency"],"debit_amount_minor"?: number | null,"debit_currency"?: Database["public"]['Enums']["currency"] | null,"error_code"?: string | null,"fees_minor"?: number,"id"?: string,"idempotency_key"?: string,"method"?: string,"provider"?: string,"provider_ref"?: string | null,"quote_id"?: string | null,"status"?: string,"tranche_id"?: string,"tx_id"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     {
+      foreignKeyName: "payment_attempts_contribution_id_fkey"
+      columns: ["contribution_id"]
+isOneToOne: false
+      referencedRelation: "contributions"
+      referencedColumns: ["id"]
+    },{
       foreignKeyName: "payment_attempts_created_by_fkey"
       columns: ["created_by"]
 isOneToOne: false
       referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "payment_attempts_quote_id_fkey"
+      columns: ["quote_id"]
+isOneToOne: false
+      referencedRelation: "fx_quotes"
       referencedColumns: ["id"]
     },{
       foreignKeyName: "payment_attempts_tranche_id_fkey"
@@ -708,14 +832,14 @@ isOneToOne: true
                   ]
                 },"refunds": {
                   Row: {
-                    "amount_minor": number,"attempt_id": string,"completed_at": string | null,"created_at": string,"currency": Database["public"]['Enums']["currency"],"error_code": string | null,"id": string,"idempotency_key": string,"provider_ref": string | null,"reason": string,"requested_by": string | null,"status": string,"tranche_id": string,"tx_id": string
+                    "amount_minor": number,"attempt_id": string,"completed_at": string | null,"created_at": string,"currency": Database["public"]['Enums']["currency"],"error_code": string | null,"executed_by": string | null,"id": string,"idempotency_key": string,"provider_ref": string | null,"reason": string,"requested_by": string | null,"status": string,"tranche_id": string,"tx_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "amount_minor": number,"attempt_id": string,"completed_at"?: string | null,"created_at"?: string,"currency": Database["public"]['Enums']["currency"],"error_code"?: string | null,"id"?: string,"idempotency_key": string,"provider_ref"?: string | null,"reason": string,"requested_by"?: string | null,"status"?: string,"tranche_id": string,"tx_id": string
+                    "amount_minor": number,"attempt_id": string,"completed_at"?: string | null,"created_at"?: string,"currency": Database["public"]['Enums']["currency"],"error_code"?: string | null,"executed_by"?: string | null,"id"?: string,"idempotency_key": string,"provider_ref"?: string | null,"reason": string,"requested_by"?: string | null,"status"?: string,"tranche_id": string,"tx_id": string
                   }
                   Update: {
-                    "amount_minor"?: number,"attempt_id"?: string,"completed_at"?: string | null,"created_at"?: string,"currency"?: Database["public"]['Enums']["currency"],"error_code"?: string | null,"id"?: string,"idempotency_key"?: string,"provider_ref"?: string | null,"reason"?: string,"requested_by"?: string | null,"status"?: string,"tranche_id"?: string,"tx_id"?: string
+                    "amount_minor"?: number,"attempt_id"?: string,"completed_at"?: string | null,"created_at"?: string,"currency"?: Database["public"]['Enums']["currency"],"error_code"?: string | null,"executed_by"?: string | null,"id"?: string,"idempotency_key"?: string,"provider_ref"?: string | null,"reason"?: string,"requested_by"?: string | null,"status"?: string,"tranche_id"?: string,"tx_id"?: string
                   }
                   Relationships: [
                     {
@@ -730,6 +854,12 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "v_reconciliation"
       referencedColumns: ["attempt_id"]
+    },{
+      foreignKeyName: "refunds_executed_by_fkey"
+      columns: ["executed_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
     },{
       foreignKeyName: "refunds_requested_by_fkey"
       columns: ["requested_by"]
@@ -1580,6 +1710,7 @@ isOneToOne: false
 "created_at": string,
 "currency": Database["public"]['Enums']["currency"],
 "error_code": string | null,
+"executed_by": string | null,
 "id": string,
 "idempotency_key": string,
 "provider_ref": string | null,
@@ -1595,6 +1726,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"_currency_decimals":
+{ Args: { "p_currency": Database["public"]['Enums']["currency"] }; Returns: number
+                           },
 "_dispute_notified_at":
 { Args: { "p_dispute": string }; Returns: string
                            },
@@ -1676,6 +1810,12 @@ isOneToOne: false
 "_process_payment_event":
 { Args: { "p_event": number }; Returns: Json
                            },
+"_quote_fees":
+{ Args: { "p_cross": boolean,"p_debit_minor": number,"p_method": string }; Returns: Json
+                           },
+"_quote_json":
+{ Args: { "q": Omit<Database["public"]['Tables']["fx_quotes"]['Row'], Database["public"]['Tables']["fx_quotes"]['ComputedFields']> }; Returns: Json
+                           },
 "_recently_opened":
 { Args: { "p_path": string }; Returns: boolean
                            },
@@ -1688,6 +1828,30 @@ isOneToOne: false
 "_reference_guard":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
+"_refund_executed":
+{ Args: { "p_actor": string,"p_event": number,"p_partner_ref": string,"p_refund": string }; Returns: {
+              "amount_minor": number,
+"attempt_id": string,
+"completed_at": string | null,
+"created_at": string,
+"currency": Database["public"]['Enums']["currency"],
+"error_code": string | null,
+"executed_by": string | null,
+"id": string,
+"idempotency_key": string,
+"provider_ref": string | null,
+"reason": string,
+"requested_by": string | null,
+"status": string,
+"tranche_id": string,
+"tx_id": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "refunds"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "_refunded":
 { Args: { "p_attempt": string }; Returns: number
                            },
@@ -1973,6 +2137,9 @@ isOneToOne: false
                            },
 "_valid_phone":
 { Args: { "p": string }; Returns: boolean
+                           },
+"accept_and_pay":
+{ Args: { "p_idempotency_key": string,"p_quote_id": string,"p_request": string }; Returns: Json
                            },
 "accept_plan":
 { Args: { "p_operation": string }; Returns: {
@@ -2464,6 +2631,9 @@ isOneToOne: false
 "get_enrolment_document_access":
 { Args: { "p_document": string }; Returns: Json
                            },
+"get_quote":
+{ Args: { "p_debit_currency"?: string,"p_method"?: string,"p_request": string }; Returns: Json
+                           },
 "get_receipt":
 { Args: { "p_tranche": string }; Returns: Json
                            },
@@ -2551,6 +2721,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"mark_refund_executed":
+{ Args: { "p_partner_ref": string,"p_refund": string }; Returns: Json
+                           },
 "my_enrolment":
 { Args: Record<PropertyKey, never>; Returns: Json
                            },

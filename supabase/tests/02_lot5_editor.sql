@@ -387,7 +387,7 @@ select t.check((select status = 'RESOLVED' and outcome = 'REFUND_FULL' and refun
   'administrateur : remboursement intégral du payeur (REFUND_FULL, remboursement lié)');
 select t.admin();
 select t.check((select status from tranches where id = (select v from t.ids where k = 'tr1')) = 'PAID'
-           and (select status = 'PENDING' and amount_minor = 400000 from refunds where tranche_id = (select v from t.ids where k = 'tr1')),
+           and (select status = 'REQUESTED' and amount_minor = 400000 from refunds where tranche_id = (select v from t.ids where k = 'tr1')),
   'litige tranché : la demande payée reste PAID tant que le remboursement n’est pas exécuté (K7)');
 select t.login('f1000000-0000-4000-8000-000000000006');
 select demo_settle_refund((select id from refunds where tranche_id = (select v from t.ids where k = 'tr1')));

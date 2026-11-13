@@ -2,15 +2,15 @@
  * Conversion entre les lignes du serveur (snake_case, bigint, NULL) et les types du domaine.
  * Aucune valeur inattendue ne traverse : un statut ou un montant hors domaine lève UNEXPECTED.
  */
-import { DISPUTE_OUTCOMES, DISPUTE_STATUSES, ENROLMENT_LEVELS, MODULE_CODE_RE, PLATFORM_REVIEWS, TRANCHE_STATUSES, TX_STATUSES } from '@diaspay/domain';
+import { DISPUTE_OUTCOMES, DISPUTE_STATUSES, ENROLMENT_LEVELS, PAYMENT_METHODS, MODULE_CODE_RE, PLATFORM_REVIEWS, TRANCHE_STATUSES, TX_STATUSES } from '@diaspay/domain';
 import type {
   Currency, DisputeOutcome, DisputeStatus, DocumentKind, DraftDocument, FundsState, ModuleCode, ModuleDocument, SettlementMode, NeedDraft, PlanType, PlatformReview, ReleaseMode, RequestMessageKind, RequestModule, TrancheStatus,
-  TxStatus, EnrolmentCaseStatus, EnrolmentLevel, KycResult,
+  TxStatus, EnrolmentCaseStatus, EnrolmentLevel, KycResult, PaymentMethod,
 } from '@diaspay/domain';
 import { ApiError } from '../need';
 import type { ProviderSummary } from '../need';
 import type {
-  AppNotification, AuditEntry, DisputeView, EnrolmentCaseView, EnrolmentView, NotificationEvent, Receipt, ReferenceInfo, RequestMessage, Tranche, TrancheToken, Transaction,
+  AppNotification, AuditEntry, DisputeView, EnrolmentCaseView, EnrolmentView, NotificationEvent, PaymentQuote, Receipt, ReferenceInfo, RequestMessage, Tranche, TrancheToken, Transaction,
 } from '../types';
 import type { Database, Json } from './database.types';
 
@@ -299,4 +299,19 @@ export function toEnrolment(v: Json): EnrolmentView {
   const o = asObject(v, 'enrôlement');
   const c = o.case === undefined || o.case === null ? undefined : toEnrolmentCase(o.case as Json);
   return { level: oneOf<EnrolmentLevel>(o.level, ENROLMENT_LEVELS, 'niveau d’enrôlement'), ...(c ? { case: c } : {}) };
+}
+
+// ——— Lot X v2 (X5) : devis ———
+
+export function toQuote(v: Json): PaymentQuote {
+  const o = asObject(v, 'devis');
+  const fees = asObject((o.fees ?? {}) as Json, 'frais du devis');
+  return {
+    id: String(o.id), trancheId: String(o.trancheId),
+    requestCurrency: oneOf<Currency>(o.requestCurrency, CURRENCIES, 'devise'), requestAmountMinor: toMinor(o.requestAmountMinor),
+    debitCurrency: oneOf<Currency>(o.debitCurrency, CURRENCIES, 'devise'), rate: String(o.rate), source: String(o.source), simulated: o.simulated === true,
+    method: oneOf<PaymentMethod>(o.method, PAYMENT_METHODS, 'moyen de paiement'), debitAmountMinor: toMinor(o.debitAmountMinor),
+    fees: { serviceMinor: toMinor(fees.serviceMinor ?? 0), fxMinor: toMinor(fees.fxMinor ?? 0), methodMinor: toMinor(fees.methodMinor ?? 0) },
+    totalDebitMinor: toMinor(o.totalDebitMinor), quotedAt: toIso(String(o.quotedAt)), expiresAt: toIso(String(o.expiresAt)),
+  };
 }

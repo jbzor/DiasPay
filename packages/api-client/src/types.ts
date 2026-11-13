@@ -1,7 +1,7 @@
 import type {
   CreatorRole, Currency, DisputeOutcome, DisputeStatus, DraftDocument, DraftDocumentInput, FundsState, ModuleCode, Money, NeedDraft, PlanType, ReleaseMode,
   RequestMessageKind, RequestModule, SettlementMode, TrancheStatus, TxStatus,
-  EnrolmentCaseStatus, EnrolmentDocumentInput, EnrolmentLevel, KycResult,
+  EnrolmentCaseStatus, EnrolmentDocumentInput, EnrolmentLevel, KycResult, FxQuote, PaymentMethod,
 } from '@diaspay/domain';
 import type { ProviderSummary } from './need';
 
@@ -178,6 +178,13 @@ export interface TransactionApi {
    * rejouée renvoie le même résultat sans nouveau paiement (absente : une clé neuve à chaque appel).
    */
   payTranche(trancheId: string, idempotencyKey?: string): Promise<Transaction>;
+  /**
+   * Lot X v2 (X5, K10) : devis avant l’autorisation (devise débitée, taux, source, frais par poste, total débité), figé jusqu’à
+   * son expiration. payTranche en demande un dans la devise de la demande, puis accepte et paie.
+   */
+  getQuote(trancheId: string, debitCurrency?: Currency, method?: PaymentMethod): Promise<PaymentQuote>;
+  /** Payeur : accepte la demande et la paie avec ce devis (plafond du niveau contrôlé). Même clé : même tentative. */
+  acceptAndPay(trancheId: string, quoteId: string, idempotencyKey?: string): Promise<Transaction>;
   getTranche(trancheId: string): Promise<{ tx: Transaction; tranche: Tranche }>;
   getToken(trancheId: string): Promise<TrancheToken>;                     // jeton d’une demande soumise (CONDITIONAL seulement)
   resolveReference(reference: string): Promise<ReferenceInfo>;            // miroir de resolve_tranche_reference
@@ -250,3 +257,6 @@ export interface EnrolmentCaseView {
   kycResult?: KycResult; rejectionReason?: string; submittedAt: string; reviewedAt?: string;
 }
 export interface EnrolmentView { level: EnrolmentLevel; case?: EnrolmentCaseView }
+
+/** Lot X version 2 (X5) : devis vu par le payeur (montants en unités mineures ; frais dans la devise débitée). */
+export type PaymentQuote = Omit<FxQuote, 'payerId' | 'usedAt' | 'attemptId'>;

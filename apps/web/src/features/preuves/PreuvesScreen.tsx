@@ -22,7 +22,7 @@ import { formatAmount, formatTime, relativeTime } from '@/lib/format';
 import { dossierTitle } from '@/lib/labels';
 
 /**
- * Preuves de jalons (BO6) : tranches dont le prestataire a déposé une preuve (EVIDENCE_SUBMITTED), double
+ * Preuves de jalons (BO6) : demandes CONDITIONAL payées, fonds bloqués (HELD), preuve déposée par le prestataire (lot X v2), double
  * validation (RG-04), motif obligatoire au rejet. La pièce est affichée dans le volet (consultation journalisée).
  */
 export function PreuvesScreen() {
@@ -101,9 +101,9 @@ function EvidencePanel({ row, staffName, onClose, onDone, onStale }: {
     setActionError(null);
     try {
       const approved = confirm === 'approve';
-      const status = await decideEvidence(row.trancheId, { approved, reason: approved ? undefined : reason });
+      const funds = await decideEvidence(row.trancheId, { approved, reason: approved ? undefined : reason });
       setConfirm(null);
-      onDone(!approved ? t('preuves.doneRejected', { title: row.label }) : status === 'EVIDENCE_SUBMITTED' ? t('preuves.donePartial', { title: row.label }) : t('preuves.doneApproved', { title: row.label }));
+      onDone(!approved ? t('preuves.doneRejected', { title: row.label }) : funds === 'HELD' ? t('preuves.donePartial', { title: row.label }) : t('preuves.doneApproved', { title: row.label }));
     } catch (e) {
       setConfirm(null);
       setActionError(errorMessage(e));

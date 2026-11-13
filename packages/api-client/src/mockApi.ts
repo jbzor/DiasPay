@@ -1,13 +1,14 @@
 import {
   DEFAULT_MODULES, DomainError, PaymentEngine, RELEASE_RULES, SimulatedPaymentAdapter, answerInfoDecision, findModule, maxFilesFor, platformReviewDecision,
-  requiredValidationsFor, sortModules, appendEntry, canOpenDispute, checkContentHash, checkFile, checkFileCount, effectiveCreatorRole, emptyDraft,
+  requiredValidationsFor, sortModules, appendEntry, checkApproveRelease, checkContentHash, checkFile, checkFileCount, confirmService as confirmServiceRule,
+  disputeOpening, effectiveCreatorRole, emptyDraft,
   otherDossiersWithHash,
   formatReference, isAutoReleasable, messageError, normalizeReference, paymentOutcome, rejectRequestDecision, requestInfoDecision,
-  resolveDisputeTransition, shouldActivateTranche, shouldCloseTransaction, toIsoDate, tokenRevocationError, tooManyAttempts, transitionTranche,
-  transitionTx, validateNeed, verifyChain, validatorDecisionError,
+  resolveDisputeDecision, shouldActivateTranche, shouldCloseOperation, toIsoDate, tokenRevocationError, tooManyAttempts, transitionOperation,
+  transitionPaymentRequest, validateNeed, verifyChain, validatorDecisionError,
 } from '@diaspay/domain';
 import type {
-  Actor, ChainedAuditEntry, CreatorRole, DisputeOutcome, DraftDocument, DraftDocumentInput, IncomingWebhook, LedgerState, ModuleCode, NeedDraft,
+  Actor, ChainedAuditEntry, CreatorRole, DisputeOutcome, DraftDocument, FundsState, DraftDocumentInput, IncomingWebhook, LedgerState, ModuleCode, NeedDraft,
   RequestModule, RequestMessageKind, TrancheStatus, TxRole,
 } from '@diaspay/domain';
 import type {
@@ -118,62 +119,60 @@ function mkTranche(seq: number, label: string, amountMinor: number, over: Partia
   const rule = RELEASE_RULES[over.vertical as keyof typeof RELEASE_RULES] ?? { releaseMode: 'PROVIDER_CONFIRM', contestHours: 0 };
   const { vertical: _v, ...rest } = over;
   return {
-    id: uid('tr'), seq, label, amountMinor, status: 'PLANNED',
-    releaseMode: rule.releaseMode, contestHours: rule.contestHours, evidenceCount: 0, ...rest,
+    id: uid('tr'), seq, label, amountMinor, status: 'DRAFT',
+    releaseMode: rule.releaseMode, contestHours: rule.contestHours, evidenceCount: 0, fundsState: 'NONE', onHold: false, refundedMinor: 0, ...rest,
   };
 }
 
-/** Jeu de données de démonstration aligné sur les maquettes validées. */
+/**
+ * Jeu de données de démonstration (lot X version 2) : règlement direct par défaut (Scolarité, Santé, Loyer), libération
+ * conditionnelle pour Terrain et Agro (vague 2).
+ */
 export function seedTransactions(now: Date): Transaction[] {
   const iso = (ms: number) => new Date(now.getTime() + ms).toISOString();
   const school: Transaction = {
-    id: 'tx-school', vertical: 'EDUCATION', purpose: 'Scolarité 2026-2027',
-    amount: { amountMinor: 900_000, currency: 'XAF' }, status: 'IN_PROGRESS',
+    id: 'tx-school', vertical: 'EDUCATION', settlementMode: 'DIRECT', purpose: 'Scolarité 2026-2027',
+    amount: { amountMinor: 900_000, currency: 'XAF' }, status: 'ACTIVE',
     payerName: 'Marie N.', providerName: 'École Les Palmiers', beneficiaryName: 'Aïcha N.', createdAt: iso(-30 * 24 * HOUR),
     tranches: [
-      mkTranche(1, 'Inscription', 300_000, { vertical: 'EDUCATION', status: 'CONFIRMED', dueDate: '2026-10-15', contestEndsAt: iso(48 * HOUR), reference: '4f9a2c71b8e01d3ca9' }),
-      mkTranche(2, 'Scolarité T1', 300_000, { vertical: 'EDUCATION', status: 'AWAITING_PAYMENT', dueDate: '2026-11-15', reference: '7b31d0a9c5e24f8a61' }),
-      mkTranche(3, 'Scolarité T2', 300_000, { vertical: 'EDUCATION', status: 'PLANNED', dueDate: '2027-01-15' }),
+      mkTranche(1, 'Inscription', 300_000, { vertical: 'EDUCATION', status: 'PAID', dueDate: '2026-10-15', paidAt: iso(-2 * HOUR) }),
+      mkTranche(2, 'Scolarité T1', 300_000, { vertical: 'EDUCATION', status: 'SUBMITTED', dueDate: '2026-11-15' }),
+      mkTranche(3, 'Scolarité T2', 300_000, { vertical: 'EDUCATION', status: 'DRAFT', dueDate: '2027-01-15' }),
     ],
   };
   const health: Transaction = {
-    id: 'tx-health', vertical: 'HEALTH', purpose: 'Opération du genou',
-    amount: { amountMinor: 180_000, currency: 'XAF' }, status: 'IN_REVIEW',
-    payerName: 'Marie N.', providerName: 'Hôpital Central', beneficiaryName: 'Rose M.', createdAt: iso(-1 * 24 * HOUR),
-    tranches: [mkTranche(1, 'Soins', 180_000, { vertical: 'HEALTH', dueDate: '2026-11-20' })],
+    id: 'tx-health', vertical: 'HEALTH', settlementMode: 'DIRECT', purpose: 'Opération du genou',
+    amount: { amountMinor: 180_000, currency: 'XAF' }, status: 'ACTIVE',
+    payerName: 'Marie N.', providerName: 'Hôpital Central', beneficiaryName: 'R. M.', createdAt: iso(-1 * 24 * HOUR),
+    tranches: [mkTranche(1, 'Soins', 180_000, { vertical: 'HEALTH', status: 'SUBMITTED', dueDate: '2026-11-20' })],
   };
   const rent: Transaction = {
-    id: 'tx-rent', vertical: 'RENT', purpose: 'Loyer studio',
-    amount: { amountMinor: 1_800_000, currency: 'XAF' }, status: 'IN_PROGRESS',
+    id: 'tx-rent', vertical: 'RENT', settlementMode: 'DIRECT', purpose: 'Loyer studio',
+    amount: { amountMinor: 1_800_000, currency: 'XAF' }, status: 'ACTIVE',
     payerName: 'Marie N.', providerName: 'Studio Bastos', beneficiaryName: 'Marie N.', createdAt: iso(-100 * 24 * HOUR),
-    tranches: Array.from({ length: 12 }, (_, i) =>
-      mkTranche(i + 1, `Loyer ${i + 1}`, 150_000, {
-        vertical: 'RENT', dueDate: `${2026 + Math.floor((8 + i) / 12)}-${String(((8 + i) % 12) + 1).padStart(2, '0')}-05`,
-        status: i < 3 ? 'RELEASED' : i === 3 ? 'AWAITING_PAYMENT' : 'PLANNED',
-        reference: i === 3 ? 'a1c4e8f20b937d52e6' : undefined,
-      })),
+    tranches: Array.from({ length: 12 }, (_, i) => {
+      const dueDate = `${2026 + Math.floor((8 + i) / 12)}-${String(((8 + i) % 12) + 1).padStart(2, '0')}-05`;
+      return mkTranche(i + 1, `Loyer ${i + 1}`, 150_000, {
+        vertical: 'RENT', dueDate, status: i < 3 ? 'PAID' : i === 3 ? 'SUBMITTED' : 'DRAFT',
+        paidAt: i < 3 ? `${dueDate}T14:00:00.000Z` : undefined,
+      });
+    }),
   };
   const land: Transaction = {
-    id: 'tx-land', vertical: 'LAND', purpose: 'Parcelle Nkolbisson',
-    amount: { amountMinor: 12_500_000, currency: 'XAF' }, status: 'IN_PROGRESS',
+    id: 'tx-land', vertical: 'LAND', settlementMode: 'CONDITIONAL', purpose: 'Parcelle Nkolbisson',
+    amount: { amountMinor: 12_500_000, currency: 'XAF' }, status: 'ACTIVE',
     payerName: 'Marie N.', providerName: 'Étude notariale Mbarga', beneficiaryName: 'Jean K.', createdAt: iso(-60 * 24 * HOUR),
     tranches: [
-      mkTranche(1, 'Promesse de vente', 2_500_000, { vertical: 'LAND', status: 'RELEASED' }),
-      mkTranche(2, 'Signature de l’acte notarié', 4_000_000, { vertical: 'LAND', status: 'EVIDENCE_SUBMITTED', evidenceCount: 1 }),
+      mkTranche(1, 'Promesse de vente', 2_500_000, { vertical: 'LAND', status: 'PAID', fundsState: 'RELEASED', paidAt: iso(-40 * 24 * HOUR), releasedAt: iso(-20 * 24 * HOUR) }),
+      mkTranche(2, 'Signature de l’acte notarié', 4_000_000, { vertical: 'LAND', status: 'PAID', fundsState: 'HELD', evidenceCount: 1, paidAt: iso(-5 * 24 * HOUR) }),
       mkTranche(3, 'Remise du titre foncier', 6_000_000, { vertical: 'LAND' }),
     ],
   };
   const agro: Transaction = {
-    id: 'tx-agro', vertical: 'AGRO', purpose: 'Semences', amount: { amountMinor: 450_000, currency: 'XAF' },
+    id: 'tx-agro', vertical: 'AGRO', settlementMode: 'CONDITIONAL', purpose: 'Semences', amount: { amountMinor: 450_000, currency: 'XAF' },
     status: 'DRAFT', payerName: 'Marie N.', providerName: 'Coopérative Agri-Plus', beneficiaryName: 'Paul T.', createdAt: iso(-2 * HOUR),
     tranches: [mkTranche(1, 'Livraison', 450_000, { vertical: 'AGRO' })],
   };
-  // Une tranche débloquée du jeu de démonstration a sa date de déblocage (nécessaire au reçu).
-  for (const tx of [school, health, rent, land, agro]) {
-    for (const tr of tx.tranches) {
-      if (tr.status === 'RELEASED' && !tr.releasedAt) tr.releasedAt = tr.dueDate ? `${tr.dueDate}T14:00:00.000Z` : iso(-20 * 24 * HOUR);
-    }
-  }
   return [school, health, rent, land, agro];
 }
 
@@ -227,7 +226,7 @@ export class MockApi implements TransactionApi {
     this.stateStore = options.state;
     this.stateSaveDelayMs = options.stateSaveDelayMs ?? 500;
     this.seedNotifs = options.seedNotifications ?? true;
-    this.eqrImage = options.eqrImageEnabled ?? true;
+    this.eqrImage = options.eqrImageEnabled ?? false;   // 0015 : image du QR retirée du parcours par défaut
     this.hashFile = options.hashFile ?? uriHasher;
     this.modules = options.modules ?? DEFAULT_MODULES;
     this.payments = new PaymentEngine(clock);
@@ -242,7 +241,7 @@ export class MockApi implements TransactionApi {
     for (const tx of this.txs) {
       this.record(tx.id, 'DEMO_SEED', undefined, tx.status);
       for (const tr of tx.tranches) {
-        if (tr.status !== 'PLANNED') { this.ensureToken(tr); this.record(tx.id, 'DEMO_SEED', tr.id, tr.status); }
+        if (tr.status !== 'DRAFT') { if (tx.settlementMode === 'CONDITIONAL') this.ensureToken(tr); this.record(tx.id, 'DEMO_SEED', tr.id, tr.status); }
       }
     }
     if (!withNotifications || !this.seedNotifs) return;
@@ -250,11 +249,11 @@ export class MockApi implements TransactionApi {
     const school = this.txs.find((t) => t.id === 'tx-school');
     const rent = this.txs.find((t) => t.id === 'tx-rent');
     if (school?.tranches[0] && school.tranches[1]) {
-      this.pushNotification({ type: 'TRANCHE_CONFIRMED', txId: school.id, trancheId: school.tranches[0].id, releaseAt: school.tranches[0].contestEndsAt }, at(1), false);
+      this.pushNotification({ type: 'REQUEST_PAID', txId: school.id, trancheId: school.tranches[0].id }, at(1), false);
       this.pushNotification({ type: 'PAYMENT_READY', txId: school.id, trancheId: school.tranches[1].id }, at(3), false);
     }
-    const released = rent?.tranches.filter((t) => t.status === 'RELEASED').at(-1);
-    if (rent && released) this.pushNotification({ type: 'TRANCHE_RELEASED', txId: rent.id, trancheId: released.id }, at(26), false);
+    const paid = rent?.tranches.filter((t) => t.status === 'PAID').at(-1);
+    if (rent && paid) this.pushNotification({ type: 'REQUEST_PAID', txId: rent.id, trancheId: paid.id }, at(26), false);
   }
 
   /**
@@ -273,7 +272,7 @@ export class MockApi implements TransactionApi {
     const token: TrancheToken = {
       trancheId: tr.id, reference, kid: SIMULATED_KID, signature: `SIMULATED.${hexDigest(`sig:${reference}`, 32)}`, simulated: true,
       expiresAt: new Date(now.getTime() + this.validityMs).toISOString(),
-      usedAt: tr.status === 'CONFIRMED' || tr.status === 'RELEASED' ? now.toISOString() : undefined,
+      usedAt: tr.confirmedAt || tr.fundsState === 'RELEASED' ? now.toISOString() : undefined,
     };
     this.tokens.set(tr.id, token);
     return token;
@@ -297,7 +296,7 @@ export class MockApi implements TransactionApi {
     try { ref = normalizeReference(reference); } catch { return null; }
     for (const tx of this.txs) {
       for (const tr of tx.tranches) {
-        if (tr.status === 'PLANNED') continue;
+        if (tr.status === 'DRAFT' || tx.settlementMode !== 'CONDITIONAL') continue;
         const token = this.ensureToken(tr);
         if (token?.reference === ref) return { tx, tr, token, revoked: false };
         const old = this.revoked.find((k) => k.trancheId === tr.id && k.reference === ref);
@@ -431,31 +430,58 @@ export class MockApi implements TransactionApi {
     throw new DomainError('TRANCHE_NOT_FOUND', 'Tranche introuvable');
   }
 
+  /** Transition d’une demande (machine du modèle cible) ; journal, alertes, clôture. L’opération doit être active. */
   private apply(trancheId: string, to: TrancheStatus, actor: Actor, event: string): Transaction {
     const { tx, tr } = this.find(trancheId);
-    if (tx.status !== 'IN_PROGRESS') throw new DomainError('TX_NOT_ACTIVE', 'La transaction n’est pas active');
-    const now = this.clock();
-    const res = transitionTranche({
-      status: tr.status, releaseMode: tr.releaseMode, contestHours: tr.contestHours,
-      contestEndsAt: tr.contestEndsAt ? new Date(tr.contestEndsAt) : undefined,
-      hasEvidence: tr.evidenceCount > 0,
-    }, to, actor, now);
-    tr.status = res.status;
-    tr.contestEndsAt = res.contestEndsAt?.toISOString();
-    if (to === 'RELEASED') { tr.releasedAt = now.toISOString(); this.payments.release(tr.id); }   // X5 : versement au journal
+    // Un remboursement versé (PAID → REFUNDED) s’applique aussi à une opération close ou suspendue (événement du partenaire).
+    if (tx.status !== 'ACTIVE' && !(to === 'REFUNDED' && actor.kind === 'SYSTEM')) throw new DomainError('TX_NOT_ACTIVE', 'L’opération n’est pas active');
+    tr.status = transitionPaymentRequest(tr.status, to, actor, { onHold: tr.onHold });
+    if (to === 'PAID') tr.paidAt = this.clock().toISOString();
     this.record(tx.id, event, tr.id, `${tr.label} → ${to}`, actor.kind === 'SYSTEM' ? 'system' : actor.roles.join('+').toLowerCase());
-    if (to === 'CONFIRMED') this.notify({ type: 'TRANCHE_CONFIRMED', txId: tx.id, trancheId: tr.id, releaseAt: tr.contestEndsAt });
-    if (to === 'RELEASED') this.notify({ type: 'TRANCHE_RELEASED', txId: tx.id, trancheId: tr.id });
+    // Alerte sans seconde ligne au journal : la transition vient d’être journalisée (comme le serveur).
+    if (to === 'PAID') this.pushNotification({ type: 'REQUEST_PAID', txId: tx.id, trancheId: tr.id }, this.clock().toISOString(), false);
     this.closeIfDone(tx);
     this.emit();
     return tx;
   }
 
+  /** État des fonds (CONDITIONAL seulement) : libération (versement au journal, alerte) ou retour au payeur. */
+  private setFunds(tx: Transaction, tr: Tranche, state: FundsState, event: string): void {
+    tr.fundsState = state;
+    if (state === 'RELEASED') { tr.releasedAt = this.clock().toISOString(); this.payments.release(tr.id); }
+    this.record(tx.id, event, tr.id, `${tr.label} : fonds ${state}`, 'system');
+    if (state === 'RELEASED') this.notify({ type: 'TRANCHE_RELEASED', txId: tx.id, trancheId: tr.id });
+    this.closeIfDone(tx);
+    this.emit();
+  }
+
   private closeIfDone(tx: Transaction): void {
-    if (tx.status === 'IN_PROGRESS' && shouldCloseTransaction(tx.tranches.map((t) => t.status))) {
-      tx.status = transitionTx(tx.status, 'CLOSED', SYSTEM);
+    if (tx.status === 'ACTIVE' && shouldCloseOperation(tx.tranches.map((t) => ({ status: t.status, fundsState: t.fundsState })))) {
+      tx.status = transitionOperation(tx.status, 'CLOSED', SYSTEM);
       this.record(tx.id, 'TX_CLOSED');
     }
+  }
+
+  /** Soumission d’une demande au payeur (DRAFT → SUBMITTED) : jeton en CONDITIONAL ; alerte au payeur. */
+  private submitRequest(tx: Transaction, tr: Tranche): void {
+    tr.status = transitionPaymentRequest(tr.status, 'SUBMITTED', SYSTEM);
+    if (tx.settlementMode === 'CONDITIONAL') this.ensureToken(tr);
+    this.record(tx.id, 'REQUEST_SUBMITTED', tr.id);
+    const payerIsInitiator = (this.creators[tx.id] ?? 'PAYER') === 'PAYER';
+    this.notify(payerIsInitiator ? { type: 'PAYMENT_READY', txId: tx.id, trancheId: tr.id } : { type: 'PAYMENT_REQUEST_RECEIVED', txId: tx.id });
+  }
+
+  /** Activation (miroir de _activate_operation) : ACTIVE, puis soumission des demandes dues (RG-12). */
+  private activate(tx: Transaction, event: string, actor: string, byReview: boolean): void {
+    tx.status = 'ACTIVE';
+    this.record(tx.id, event, undefined, undefined, actor);
+    if (byReview) this.notify({ type: 'TX_VALIDATED', txId: tx.id });
+    tx.tranches.forEach((tr, i) => {
+      if (tr.status !== 'DRAFT') return;
+      const previousOpen = tx.tranches.slice(0, i).some((p) => !shouldCloseOperation([{ status: p.status, fundsState: p.fundsState }]));
+      if ((tr.dueDate && shouldActivateTranche(tr.dueDate, this.today())) || (!tr.dueDate && !previousOpen)) this.submitRequest(tx, tr);
+    });
+    this.emit();
   }
 
   async listTransactions() { return this.visible; }
@@ -473,12 +499,19 @@ export class MockApi implements TransactionApi {
     const { tx, tr } = this.find(trancheId);
     if (!this.isParty(tx) && !this.isCreatorOf(tx)) throw new DomainError('TRANCHE_NOT_FOUND', 'Tranche introuvable');
     if (!this.rolesFor(tx).includes('PAYER')) throw new DomainError('PAYER_ONLY', 'Réservé au payeur');
-    if (tx.status !== 'IN_PROGRESS') throw new DomainError('TX_NOT_ACTIVE', 'La transaction n’est pas active');
+    // Même clé rejouée : même résultat, quel que soit l’état actuel (comme start_payment).
+    const replay = idempotencyKey ? this.payments.attemptsOf(trancheId).find((a) => a.idempotencyKey === idempotencyKey.trim()) : undefined;
+    if (replay && replay.createdBy === (this.user?.id ?? `persona:${this.persona}`)) return tx;
+    // Comme 0018 : la suspension par un litige est annoncée avant l’état de l’opération (qu’elle suspend).
+    if (tr.onHold) throw new DomainError('REQUEST_ON_HOLD', 'Demande suspendue par un litige');
+    if (tx.status !== 'ACTIVE') throw new DomainError('TX_NOT_ACTIVE', 'L’opération n’est pas active');
     const { attempt, created } = this.payments.startPayment({
       txId: tx.id, trancheId, idempotencyKey: idempotencyKey ?? newId('pay'), amountMinor: tr.amountMinor, currency: tx.amount.currency,
       trancheStatus: tr.status, createdBy: this.user?.id ?? `persona:${this.persona}`,
     });
     if (created) {
+      // SUBMITTED → ACCEPTED (le payeur accepte et paie), puis l’événement du partenaire décide.
+      this.apply(trancheId, 'ACCEPTED', { kind: 'USER', roles: ['PAYER'], isValidator: false }, 'REQUEST_ACCEPTED');
       this.record(tx.id, 'PAYMENT_STARTED', tr.id, undefined, 'payer');
       const res = await this.paymentPort.createPayment({
         idempotencyKey: attempt.idempotencyKey, trancheId, amount: { amountMinor: tr.amountMinor, currency: tx.amount.currency },
@@ -495,12 +528,20 @@ export class MockApi implements TransactionApi {
     const signatureValid = this.paymentPort.verifyWebhook(w.headers, w.rawBody);
     const ev = this.paymentPort.parseWebhook(w.rawBody);
     this.payments.applyEvent({ provider: ev.provider, eventId: ev.eventId, signatureValid, payload: ev.payload }, {
-      tranche: (id) => { const { tx, tr } = this.find(id); return { status: tr.status, active: tx.status === 'IN_PROGRESS' }; },
+      tranche: (id) => { const { tx, tr } = this.find(id); return { status: tr.status, active: tx.status === 'ACTIVE' }; },
       onPaid: (a) => {
-        // Lot X : en mode IMMEDIATE, le paiement débloque directement (DIRECT_PAYMENT), sans verrouillage ni contestation.
-        const { tr } = this.find(a.trancheId);
-        if (paymentOutcome(tr.releaseMode) === 'RELEASED') this.apply(a.trancheId, 'RELEASED', SYSTEM, 'DIRECT_PAYMENT');
-        else this.apply(a.trancheId, 'PAID_LOCKED', SYSTEM, 'PAYMENT_SIMULATED');
+        // Règlement direct : payée, versée au prestataire (journal) ; CONDITIONAL : fonds bloqués jusqu’à la libération.
+        const { tx, tr } = this.find(a.trancheId);
+        const outcome = paymentOutcome(tx.settlementMode);
+        tr.fundsState = outcome.fundsState;
+        this.apply(a.trancheId, 'PAID', SYSTEM, 'REQUEST_PAID');
+        if (tx.settlementMode === 'DIRECT') this.payments.release(tr.id);
+      },
+      onRetryAllowed: (a) => { this.apply(a.trancheId, 'SUBMITTED', SYSTEM, 'PAYMENT_RETRY_ALLOWED'); },
+      onRefunded: (r) => {
+        const { tr } = this.find(r.trancheId);
+        tr.refundedMinor += r.amountMinor;
+        if (tr.status === 'PAID') this.apply(r.trancheId, 'REFUNDED', SYSTEM, 'REQUEST_REFUNDED'); else this.emit();
       },
     });
   }
@@ -514,7 +555,9 @@ export class MockApi implements TransactionApi {
   /** Lot X : jeton actif, lisible par le payeur seulement (miroir de la RLS de tranche_tokens). */
   async getToken(trancheId: string): Promise<TrancheToken> {
     const { tx, tr } = this.find(trancheId);
-    if (tr.status === 'PLANNED' || !this.rolesFor(tx).includes('PAYER')) throw new DomainError('NO_TOKEN', 'Aucun jeton : la tranche n’est pas encore active');
+    if (tr.status === 'DRAFT' || tx.settlementMode !== 'CONDITIONAL' || !this.rolesFor(tx).includes('PAYER')) {
+      throw new DomainError('NO_TOKEN', 'Aucun jeton : demande non soumise, ou règlement direct (aucun QR)');
+    }
     const token = this.ensureToken(tr);
     if (!token) throw new DomainError('NO_TOKEN', 'Aucun jeton actif');
     return { ...token };
@@ -530,7 +573,7 @@ export class MockApi implements TransactionApi {
   /** Miroir de confirm_by_reference(). */
   async confirmByReference(reference: string, deviceTime?: string) {
     // Comme le serveur : l’échec n’est pas enregistré à la confirmation (l’erreur annule la transaction), la limite s’applique.
-    const { tr, token } = this.partyReference(reference, false);
+    const { tx, tr, token } = this.partyReference(reference, false);
     if (this.persona !== 'PROVIDER') throw new DomainError('PROVIDER_ONLY', 'Réservé au prestataire');
     if (token.usedAt) throw new DomainError('TOKEN_USED', 'Ce jeton a déjà été utilisé');
     const now = this.clock();
@@ -539,30 +582,60 @@ export class MockApi implements TransactionApi {
       throw new DomainError('DEVICE_TIME_INVALID', 'L’heure de l’appareil est incorrecte');
     }
     if (device.getTime() > new Date(token.expiresAt).getTime()) throw new DomainError('TOKEN_EXPIRED', 'Ce jeton a expiré');
-    if (tr.status !== 'PAID_LOCKED') throw new DomainError('NOT_PAID', `Tranche non payée ou déjà traitée (${tr.status})`);
-    if (tr.releaseMode !== 'PROVIDER_CONFIRM') throw new DomainError('WRONG_MODE', 'Cette tranche ne se confirme pas par scan');
-    const res = this.apply(tr.id, 'CONFIRMED', actorFor('PROVIDER'), 'PROVIDER_SCAN');
+    // Lot X v2 : confirmation par scan en CONDITIONAL seulement (miroir de confirm_by_reference, 0014).
+    const ends = confirmServiceRule(this.conditionalState(tx, tr), { roles: ['PROVIDER'], via: 'SCAN' }, now);
+    tr.confirmedAt = now.toISOString();
+    tr.contestEndsAt = ends.toISOString();
     token.usedAt = now.toISOString();
-    return res;
+    this.record(tx.id, 'PROVIDER_SCAN', tr.id, undefined, 'provider');
+    this.notify({ type: 'TRANCHE_CONFIRMED', txId: tx.id, trancheId: tr.id, releaseAt: tr.contestEndsAt });
+    this.emit();
+    return tx;
   }
+  private conditionalState(tx: Transaction, tr: Tranche) {
+    const d = this.disputes[tr.id];
+    return {
+      settlementMode: tx.settlementMode, status: tr.status, fundsState: tr.fundsState, releaseMode: tr.releaseMode, contestHours: tr.contestHours,
+      confirmedAt: tr.confirmedAt ? new Date(tr.confirmedAt) : undefined, contestEndsAt: tr.contestEndsAt ? new Date(tr.contestEndsAt) : undefined,
+      hasEvidence: tr.evidenceCount > 0, disputeOpen: !!d && d.status !== 'RESOLVED',
+    };
+  }
+  /** Payeur, mode PAYER_CONFIRM (CONDITIONAL) : confirme la prestation ; le délai de contestation démarre. */
+  async confirmService(trancheId: string) {
+    const { tx, tr } = this.find(trancheId);
+    const now = this.clock();
+    const ends = confirmServiceRule(this.conditionalState(tx, tr), { roles: this.rolesFor(tx), via: 'PAYER' }, now);
+    tr.confirmedAt = now.toISOString();
+    tr.contestEndsAt = ends.toISOString();
+    this.record(tx.id, 'SERVICE_CONFIRMED', tr.id, undefined, 'payer');
+    this.notify({ type: 'TRANCHE_CONFIRMED', txId: tx.id, trancheId: tr.id, releaseAt: tr.contestEndsAt });
+    this.emit();
+    return tx;
+  }
+  /** Payeur : libération anticipée (CONDITIONAL, après confirmation). */
   async approveRelease(trancheId: string) {
-    return this.apply(trancheId, 'RELEASED', actorFor(this.persona), 'PAYER_APPROVAL');
+    const { tx, tr } = this.find(trancheId);
+    checkApproveRelease(this.conditionalState(tx, tr), this.rolesFor(tx));
+    this.setFunds(tx, tr, 'RELEASED', 'FUNDS_RELEASED');
+    return tx;
   }
   async openDispute(trancheId: string, reason: string, description?: string) {
     const { tx, tr } = this.find(trancheId);
     const text = (description ?? reason).trim();
     if (text.length < 10) throw new DomainError('REASON_TOO_SHORT', 'Décrivez le problème (10 caractères minimum)');
-    const ok = canOpenDispute({
-      status: tr.status, releaseMode: tr.releaseMode, contestHours: tr.contestHours,
-      contestEndsAt: tr.contestEndsAt ? new Date(tr.contestEndsAt) : undefined,
-    }, actorFor(this.persona).kind === 'USER' ? (this.persona === 'PAYER' ? ['PAYER'] : ['PROVIDER']) : [], this.clock());
-    if (!ok) throw new DomainError('DISPUTE_NOT_ALLOWED', 'Litige impossible (état ou délai de contestation écoulé)');
-    tr.status = 'DISPUTED';
+    // Lot X v2 : dossier distinct. Avant paiement : demande suspendue, opération SUSPENDED ; après : statut inchangé (K7).
+    const existing = this.disputes[tr.id];
+    if (existing && existing.status !== 'RESOLVED') throw new DomainError('DISPUTE_NOT_ALLOWED', 'Un litige est déjà en cours');
+    const { beforePayment } = disputeOpening(tr.status, this.persona === 'PAYER' ? ['PAYER'] : ['PROVIDER']);
     const openedBy = this.persona === 'PROVIDER' ? 'PROVIDER' : 'PAYER';
     this.disputes[tr.id] = {
       id: newId('dp'), txId: tx.id, trancheId: tr.id, reason: description === undefined ? 'OTHER' : reason, description: text,
-      openedBy, openedAt: this.clock().toISOString(), status: 'OPEN',
+      openedBy, openedAt: this.clock().toISOString(), status: 'OPEN', beforePayment,
     };
+    if (beforePayment) {
+      tr.onHold = true;
+      if (tx.status === 'ACTIVE') { tx.status = transitionOperation(tx.status, 'SUSPENDED', SYSTEM); this.record(tx.id, 'OPERATION_SUSPENDED'); }
+    }
     this.notify({ type: 'DISPUTE_OPENED', txId: tx.id, trancheId: tr.id });
     this.emit();
     return tx;
@@ -598,22 +671,34 @@ export class MockApi implements TransactionApi {
   }
 
   /**
-   * Mode démonstration : décision d’un administrateur sur un litige, par la machine d’états de la tranche.
-   * Libération → RELEASED (fonds remis au prestataire) ; remboursement → CANCELLED (paiement simulé remboursé).
+   * Mode démonstration : décision d’un administrateur non partie sur un litige (miroir de _resolve_dispute_v2). Un
+   * remboursement passe par le partenaire simulé (événement) ; le statut d’une demande payée ne change que par lui.
    */
-  async simulateDisputeResolution(trancheId: string, decision: { outcome: DisputeOutcome; note: string }): Promise<Transaction> {
+  async simulateDisputeResolution(trancheId: string, decision: { outcome: DisputeOutcome; note: string; amountMinor?: number }): Promise<Transaction> {
     const { tx, tr } = this.find(trancheId);
     const dispute = this.disputes[trancheId];
-    if (!dispute || dispute.status !== 'OPEN') throw new ApiError('NO_OPEN_DISPUTE', 'Aucun litige en cours sur cette tranche');
+    if (!dispute || dispute.status === 'RESOLVED') throw new ApiError('NO_OPEN_DISPUTE', 'Aucun litige en cours sur cette tranche');
     if (decision.note.trim().length < 3) throw new ApiError('REASON_REQUIRED', 'Note de décision obligatoire');
+    const attempt = this.payments.attemptsOf(tr.id).find((a) => a.status === 'SUCCEEDED');
+    const refunded = this.payments.refunds.filter((r) => r.trancheId === tr.id && r.status !== 'FAILED').reduce((n, r) => n + r.amountMinor, 0);
+    const res = resolveDisputeDecision({ status: tr.status, fundsState: tr.fundsState, paidMinor: attempt?.amountMinor ?? 0, refundedMinor: refunded },
+      decision.outcome, ADMIN, decision.amountMinor);
     const now = this.clock().toISOString();
-    tr.status = resolveDisputeTransition(tr, decision.outcome, ADMIN);
-    if (tr.status === 'RELEASED') tr.releasedAt = now;
-    dispute.status = decision.outcome === 'RELEASED' ? 'RELEASED_TO_PROVIDER' : 'REFUNDED_TO_PAYER';
-    dispute.resolvedAt = now;
-    dispute.resolutionNote = decision.note.trim();
-    this.record(tx.id, decision.outcome === 'RELEASED' ? 'DISPUTE_RELEASED' : 'PAYMENT_REFUNDED', tr.id, dispute.resolutionNote, 'validator');
-    this.notify({ type: 'DISPUTE_RESOLVED', txId: tx.id, trancheId: tr.id, outcome: decision.outcome });
+    if (res.refundMinor > 0 && attempt) {
+      const key = newId('litige');
+      this.payments.requestRefund({ trancheId: tr.id, amountMinor: res.refundMinor, idempotencyKey: key, reason: decision.note, fundsState: tr.fundsState });
+      await this.paymentPort.refund({ paymentId: attempt.providerRef ?? '', amountMinor: res.refundMinor, idempotencyKey: key });
+    }
+    if (res.fundsState) this.setFunds(tx, tr, res.fundsState, res.fundsState === 'RELEASED' ? 'FUNDS_RELEASED' : 'FUNDS_RETURNED');
+    Object.assign(dispute, { status: 'RESOLVED', outcome: decision.outcome, resolvedAt: now, resolutionNote: decision.note.trim(),
+      refundAmountMinor: res.refundMinor || undefined });
+    this.record(tx.id, 'DISPUTE_RESOLVED', tr.id, `${decision.outcome} : ${dispute.resolutionNote}`, 'admin');
+    this.notify({ type: 'DISPUTE_RESOLVED', txId: tx.id, trancheId: tr.id,
+      outcome: decision.outcome === 'NO_ACTION' ? 'NO_ACTION' : decision.outcome === 'FUNDS_RELEASED' ? 'RELEASED' : 'REFUNDED' });
+    if (dispute.beforePayment) {
+      tr.onHold = false;
+      if (tx.status === 'SUSPENDED' && !tx.tranches.some((t) => t.onHold)) { tx.status = 'ACTIVE'; this.record(tx.id, 'OPERATION_RESUMED'); }
+    }
     this.closeIfDone(tx);
     this.emit();
     return tx;
@@ -622,25 +707,34 @@ export class MockApi implements TransactionApi {
   /** Reçu d’une tranche débloquée ; `chainValid` vient de la vérification du journal chaîné (avec l’ancre). */
   async getReceipt(trancheId: string): Promise<Receipt> {
     const { tx, tr } = this.find(trancheId);
-    if (tr.status !== 'RELEASED' || !tr.releasedAt) throw new ApiError('NOT_RELEASED', 'Le reçu n’existe que pour une tranche débloquée');
+    // Lot X v2 : reçu dès PAID en règlement direct ; en CONDITIONAL, à la libération des fonds.
+    const at = tx.settlementMode === 'CONDITIONAL' ? (tr.fundsState === 'RELEASED' ? tr.releasedAt : undefined) : tr.paidAt;
+    if ((tr.status !== 'PAID' && tr.status !== 'REFUNDED') || !at) throw new ApiError('NOT_RELEASED', 'Le reçu n’existe que pour une demande payée');
     const chain = this.chains[tx.id] ?? [];
     const check = verifyChain(chain, this.anchors[tx.id]);
-    const token = this.ensureToken(tr) ?? [...this.revoked].reverse().find((k) => k.trancheId === tr.id);
+    // Référence du QR : seulement en CONDITIONAL (aucun jeton de demande en règlement direct).
+    const token = tx.settlementMode !== 'CONDITIONAL' ? undefined
+      : this.ensureToken(tr) ?? [...this.revoked].reverse().find((k) => k.trancheId === tr.id);
     return {
       trancheId: tr.id, txId: tx.id, label: tr.label, amountMinor: tr.amountMinor, currency: tx.amount.currency,
-      releasedAt: tr.releasedAt, payerName: tx.payerName ?? '', providerName: tx.providerName, purpose: tx.purpose,
+      releasedAt: at, payerName: tx.payerName ?? '', providerName: tx.providerName, purpose: tx.purpose,
       reference: token ? formatReference(token.reference) : '', lastHash: check.lastHash, chainValid: check.valid, entryCount: check.count,
     };
   }
 
-  /** Décision D4 : un dossier rejeté est abandonné (REJECTED → CANCELLED) ; sa trace et son journal sont conservés. */
-  async abandonRejected(txId: string): Promise<Transaction> {
+  /**
+   * Initiateur : annule l’opération (miroir de transition_tx → CANCELLED). En ACTIVE, les demandes non payées sont annulées ;
+   * l’opération est annulée si aucune n’est payée, close sinon.
+   */
+  async cancelOperation(txId: string, reason?: string): Promise<Transaction> {
     const user = this.requireUser();
     const tx = await this.getTransaction(txId);
     if (tx.ownerId && tx.ownerId !== user.id) throw new ApiError('TX_NOT_FOUND', 'Transaction introuvable');
-    if (tx.status !== 'REJECTED') throw new ApiError('NOT_REJECTED', 'Seul un dossier rejeté peut être abandonné');
-    tx.status = transitionTx(tx.status, 'CANCELLED', this.creatorActor(this.creators[tx.id]));
-    this.record(tx.id, 'TX_ABANDONED', undefined, undefined, user.role.toLowerCase());
+    transitionOperation(tx.status, 'CANCELLED', { kind: 'USER', roles: this.rolesFor(tx), isValidator: false, isCreator: this.isCreatorOf(tx) });
+    for (const tr of tx.tranches) if (tr.status === 'DRAFT' || tr.status === 'SUBMITTED' || tr.status === 'INFO_REQUESTED') tr.status = 'CANCELLED';
+    if (tx.tranches.some((t) => t.status === 'ACCEPTED' || t.status === 'PAID' || t.status === 'REFUNDED')) this.closeIfDone(tx);
+    else tx.status = 'CANCELLED';
+    this.record(tx.id, 'TX_CANCELLED', undefined, reason?.trim(), user.role.toLowerCase());
     this.emit();
     return tx;
   }
@@ -761,16 +855,16 @@ export class MockApi implements TransactionApi {
     // Contexte de soumission réel : plan et pièces (le domaine lève PLAN_SUM_MISMATCH ou TX_NO_DOCUMENT).
     const creatorRole = this.creatorRoleOf(draft);
     if (creatorRole === 'PROVIDER' && !draft.counterpartyPhone?.trim()) throw new ApiError('VALIDATION', 'Téléphone du payeur requis');
-    let status = transitionTx(previous?.status ?? 'DRAFT', 'SUBMITTED', this.creatorActor(creatorRole), {
+    // Contrôles de la soumission (plan, pièces) : DRAFT → ACTIVE ou PENDING_REVIEW, décidé ci-dessous par le module.
+    transitionOperation('DRAFT', 'ACTIVE', { ...this.creatorActor(creatorRole), isCreator: true } as Actor, {
       totalMinor, tranches, hasSupportingDocument: uploaded.length > 0,
     });
-    status = transitionTx(status, 'IN_REVIEW', VALIDATOR);
 
     const now = this.clock().toISOString();
     const tx: Transaction = previous ?? ({ id: newId('tx') } as Transaction);
     Object.assign(tx, {
-      vertical, purpose: (draft.purpose ?? '').trim(), amount: { amountMinor: totalMinor, currency: draft.currency ?? 'XAF' },
-      status, providerName: draft.provider?.name ?? (creatorRole === 'PROVIDER' ? user.name ?? '' : ''), beneficiaryName: (draft.beneficiaryName ?? '').trim(),
+      vertical, settlementMode: module.settlementMode, purpose: (draft.purpose ?? '').trim(),
+      amount: { amountMinor: totalMinor, currency: draft.currency ?? 'XAF' }, status: 'DRAFT', providerName: draft.provider?.name ?? (creatorRole === 'PROVIDER' ? user.name ?? '' : ''), beneficiaryName: (draft.beneficiaryName ?? '').trim(),
       tranches: tranches.map((t, i) => mkTranche(i + 1, t.label.trim(), t.amountMinor,
         { vertical, dueDate: t.dueDate, releaseMode: module.releaseMode, contestHours: module.contestHours })),
       createdAt: previous?.createdAt ?? now, submittedAt: now, planType: draft.planType, documentCount: uploaded.length,
@@ -781,22 +875,20 @@ export class MockApi implements TransactionApi {
     await this.drafts.remove(draft.id);
     this.creators[tx.id] = creatorRole;
     this.record(tx.id, previous ? 'NEED_RESUBMITTED' : 'NEED_SUBMITTED');
-    // Lot X : demande initiée par un prestataire → alerte au payeur (sans texte ni montant).
-    if (creatorRole === 'PROVIDER') this.notify({ type: 'PAYMENT_REQUEST_RECEIVED', txId: tx.id });
     // Lot X (X6) : le module décide de la revue (miroir de _platform_review). Sans revue : validation automatique.
     const decision = platformReviewDecision(module, {
       requiredValidations: requiredValidationsFor(module, tx.amount.currency, tx.amount.amountMinor),
-      firstRequest: !this.txs.some((o) => o.id !== tx.id && o.ownerId === user.id && ['VALIDATED', 'TOKEN_ISSUED', 'IN_PROGRESS', 'CLOSED', 'DISPUTED'].includes(o.status)),
-      duplicate: this.txs.some((o) => o.id !== tx.id && o.ownerId === user.id && !['DRAFT', 'CANCELLED', 'REJECTED'].includes(o.status)
+      firstRequest: !this.txs.some((o) => o.id !== tx.id && o.ownerId === user.id && ['ACTIVE', 'SUSPENDED', 'CLOSED'].includes(o.status)),
+      duplicate: this.txs.some((o) => o.id !== tx.id && o.ownerId === user.id && !['DRAFT', 'CANCELLED'].includes(o.status)
         && o.amount.amountMinor === tx.amount.amountMinor && o.amount.currency === tx.amount.currency
         && o.providerName.trim().toLowerCase() === tx.providerName.trim().toLowerCase()
         && Math.abs(Date.parse(o.createdAt) - Date.parse(tx.createdAt)) <= 30 * 24 * HOUR),
     });
     if (!decision.review) {
-      tx.status = 'SUBMITTED';
-      this.approve(tx, 'AUTO_VALIDATED', 'system');
+      this.activate(tx, 'AUTO_ACTIVATED', 'system', false);
       return tx;
     }
+    tx.status = 'PENDING_REVIEW';
     this.record(tx.id, 'REVIEW_STARTED');
     this.emit();
     return tx;
@@ -805,70 +897,28 @@ export class MockApi implements TransactionApi {
   /** Lot X (X6) : types de besoin, dans l’ordre d’affichage. */
   async listModules(): Promise<RequestModule[]> { return sortModules(this.modules).map((m) => structuredClone(m)); }
 
-  /** Dossier rejeté → brouillon de correction (REJECTED → DRAFT par le domaine). */
-  async reopenForCorrection(txId: string): Promise<NeedDraft> {
-    const user = this.requireUser();
-    const tx = await this.getTransaction(txId);
-    if (tx.ownerId && tx.ownerId !== user.id) throw new ApiError('TX_NOT_FOUND', 'Transaction introuvable');
-    if (tx.status !== 'REJECTED') throw new ApiError('NOT_REJECTED', 'Seul un dossier rejeté se corrige');
-    const reason = tx.rejectionReason;
-    tx.status = transitionTx(tx.status, 'DRAFT', this.creatorActor(this.creators[tx.id]));
-    const snap = this.submitted.get(txId);
-    const draft: NeedDraft = {
-      ...(snap ?? {
-        vertical: tx.vertical, amountMinor: tx.amount.amountMinor, currency: tx.amount.currency, purpose: tx.purpose,
-        beneficiaryName: tx.beneficiaryName, provider: { name: tx.providerName }, planType: tx.planType,
-        tranches: tx.tranches.map((t) => ({ label: t.label, amountMinor: t.amountMinor, dueDate: t.dueDate })), documents: [],
-      }),
-      id: newId('need'), ownerId: user.id, updatedAt: this.clock().toISOString(), step: 'recap', correctionOf: tx.id, rejectionReason: reason,
-    };
-    await this.drafts.put(draft);
-    this.record(tx.id, 'REOPENED_FOR_CORRECTION');
-    this.emit();
-    return draft;
-  }
-
   /**
-   * Mode démonstration : le bureau de contrôle simulé décide.
-   * Approbation : VALIDATED → TOKEN_ISSUED → IN_PROGRESS, première tranche activée selon RG-12. Rejet : REJECTED avec motif.
+   * Mode démonstration : le bureau de contrôle simulé décide d’une opération en revue (PENDING_REVIEW ou IN_REVIEW).
+   * Approbation : ACTIVE, demandes dues soumises (TX_VALIDATED). Rejet : CANCELLED avec motif (TX_REJECTED).
    */
   async simulateReview(txId: string, decision: { approved: boolean; reason?: string }): Promise<Transaction> {
     const tx = await this.getTransaction(txId);
-    // Même règle que decide_tx (lot 5) ; le validateur simulé coche la case « montant vérifié » (comme demo_review).
     const invalid = validatorDecisionError({ approved: decision.approved, amountChecked: true, reason: decision.reason });
     if (invalid) throw new ApiError(invalid, 'Décision incomplète');
+    if (tx.status !== 'PENDING_REVIEW' && tx.status !== 'IN_REVIEW') throw new ApiError('NOT_IN_REVIEW', 'Le dossier n’est pas en validation');
     if (!decision.approved) {
       const reason = decision.reason?.trim() ?? '';
-      tx.status = transitionTx(tx.status, 'REJECTED', VALIDATOR);
+      tx.status = transitionOperation(tx.status, 'CANCELLED', VALIDATOR);
       tx.rejectionReason = reason;
+      for (const tr of tx.tranches) if (tr.status === 'DRAFT') tr.status = 'CANCELLED';
       this.record(tx.id, 'NEED_REJECTED', undefined, reason, 'validator');
       this.notify({ type: 'TX_REJECTED', txId, reason });
       this.emit();
       return tx;
     }
-    this.approve(tx, 'NEED_VALIDATED', 'validator');
+    transitionOperation(tx.status, 'ACTIVE', VALIDATOR);
+    this.activate(tx, 'NEED_VALIDATED', 'validator', true);
     return tx;
-  }
-
-  /**
-   * Validation (bureau simulé, ou automatique : lot X, X6) puis étapes système : jeton, en cours, première tranche (RG-12).
-   * Depuis SUBMITTED, seule la validation automatique (système) est possible.
-   */
-  private approve(tx: Transaction, event: 'NEED_VALIDATED' | 'AUTO_VALIDATED', actor: 'validator' | 'system'): void {
-    const txId = tx.id;
-    tx.status = transitionTx(tx.status, 'VALIDATED', tx.status === 'SUBMITTED' ? SYSTEM : VALIDATOR);
-    tx.status = transitionTx(tx.status, 'TOKEN_ISSUED', SYSTEM);
-    tx.status = transitionTx(tx.status, 'IN_PROGRESS', SYSTEM);
-    const first = tx.tranches[0];
-    if (first && first.status === 'PLANNED' && shouldActivateTranche(first.dueDate, this.today())) {
-      first.status = transitionTranche({ status: first.status, releaseMode: first.releaseMode, contestHours: first.contestHours }, 'AWAITING_PAYMENT', SYSTEM, this.clock()).status;
-      this.ensureToken(first);
-      this.record(tx.id, 'TRANCHE_ACTIVATED', first.id);
-    }
-    this.record(tx.id, event, undefined, undefined, actor);
-    this.notify({ type: 'TX_VALIDATED', txId });
-    if (first?.status === 'AWAITING_PAYMENT') this.notify({ type: 'PAYMENT_READY', txId, trancheId: first.id });
-    this.emit();
   }
 
 
@@ -884,7 +934,8 @@ export class MockApi implements TransactionApi {
   }
   /** Retire le jeton actif (conservé comme révoqué) ; false s’il n’y en avait pas. */
   private withdrawToken(tx: Transaction, tr: Tranche, reason: string): boolean {
-    const active = tr.status === 'PLANNED' ? null : this.ensureToken(tr);
+    // Jetons en CONDITIONAL seulement : en règlement direct, rien à retirer (NO_TOKEN), comme le serveur.
+    const active = tr.status === 'DRAFT' || tx.settlementMode !== 'CONDITIONAL' ? null : this.ensureToken(tr);
     if (!active) return false;
     this.revoked.push({ ...active, revokedAt: this.clock().toISOString(), reason: reason.trim() });
     this.tokens.delete(tr.id);
@@ -901,7 +952,8 @@ export class MockApi implements TransactionApi {
   }
   async reissueToken(trancheId: string, reason = 'Réémission du jeton'): Promise<void> {
     const { tx, tr } = this.manageToken(trancheId);
-    if (tr.status === 'PLANNED') throw new DomainError('NO_TOKEN', 'Tranche pas encore ouverte : aucun jeton');
+    if (tr.status === 'DRAFT') throw new DomainError('NO_TOKEN', 'Demande pas encore soumise : aucun jeton');
+    if (tx.settlementMode !== 'CONDITIONAL') throw new DomainError('NO_TOKEN', 'Règlement direct : aucun jeton de demande');   // 0018
     if (messageError(reason) === 'REASON_REQUIRED') throw new DomainError('REASON_REQUIRED', 'Motif de réémission obligatoire');
     this.withdrawToken(tx, tr, reason);
     this.withdrawn.delete(tr.id);
@@ -920,12 +972,13 @@ export class MockApi implements TransactionApi {
   // ——— Lot X (X2) : décisions du payeur ———
 
   /** Tranche d’une demande en cours pour une partie (miroir de _request_tranche). */
-  private requestTranche(trancheId: string): { tx: Transaction; tr: Tranche; who: { isPayer: boolean; isCreator: boolean } } {
+  private requestTranche(trancheId: string): { tx: Transaction; tr: Tranche; who: { isPayer: boolean; isCreator: boolean; onHold: boolean } } {
     this.requireUser();
     const { tx, tr } = this.find(trancheId);
     if (!this.isParty(tx) && !this.isCreatorOf(tx)) throw new DomainError('TRANCHE_NOT_FOUND', 'Tranche introuvable');
-    if (tx.status !== 'IN_PROGRESS') throw new DomainError('TX_NOT_ACTIVE', 'La transaction n’est pas active');
-    return { tx, tr, who: { isPayer: this.rolesFor(tx).includes('PAYER'), isCreator: this.isCreatorOf(tx) } };
+    if (tr.onHold) throw new DomainError('REQUEST_ON_HOLD', 'Demande suspendue par un litige');   // comme 0018
+    if (tx.status !== 'ACTIVE') throw new DomainError('TX_NOT_ACTIVE', 'L’opération n’est pas active');
+    return { tx, tr, who: { isPayer: this.rolesFor(tx).includes('PAYER'), isCreator: this.isCreatorOf(tx), onHold: tr.onHold } };
   }
   private addMessage(tx: Transaction, tr: Tranche, kind: RequestMessageKind, body: string): void {
     this.messages.push({ id: newId('msg'), txId: tx.id, trancheId: tr.id, kind, body: body.trim(), at: this.clock().toISOString(), authorId: this.user?.id ?? '' });
@@ -978,6 +1031,21 @@ export class MockApi implements TransactionApi {
   }
 
   // ——— Lot X (X3) ———
+
+  /** Payeur : accepte le principe du plan, une fois (idempotent) ; n’autorise aucun paiement à l’avance (K6). */
+  async acceptPlan(txId: string): Promise<Transaction> {
+    this.requireUser();
+    const tx = await this.getTransaction(txId);
+    if (!this.isParty(tx) && !this.isCreatorOf(tx)) throw new DomainError('TX_NOT_FOUND', 'Transaction introuvable');
+    if (!this.rolesFor(tx).includes('PAYER')) throw new DomainError('PAYER_ONLY', 'Réservé au payeur');
+    if (tx.status !== 'ACTIVE' && tx.status !== 'SUSPENDED') throw new DomainError('TX_NOT_ACTIVE', 'L’opération n’est pas active');
+    if (tx.acceptedAt) return tx;
+    tx.acceptedAt = this.clock().toISOString();
+    this.record(tx.id, 'PLAN_ACCEPTED', undefined, undefined, 'payer');
+    this.notify({ type: 'PLAN_ACCEPTED', txId: tx.id });
+    this.emit();
+    return tx;
+  }
 
   // ——— Lot X (X4) : TrustVault ———
 
@@ -1034,9 +1102,7 @@ export class MockApi implements TransactionApi {
     let n = 0;
     for (const tx of this.txs) {
       for (const tr of tx.tranches) {
-        const st = { status: tr.status, releaseMode: tr.releaseMode, contestHours: tr.contestHours,
-          contestEndsAt: tr.contestEndsAt ? new Date(tr.contestEndsAt) : undefined };
-        if (isAutoReleasable(st, now)) { this.apply(tr.id, 'RELEASED', SYSTEM, 'AUTO_RELEASE'); n++; }
+        if (isAutoReleasable(this.conditionalState(tx, tr), now)) { this.setFunds(tx, tr, 'RELEASED', 'FUNDS_RELEASED'); n++; }
       }
     }
     return n;

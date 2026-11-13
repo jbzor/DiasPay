@@ -195,3 +195,59 @@ Principe : tant que le client n’a pas tranché, le comportement par défaut ne
   - Suite (contributions, cible, clôture, surplus, anonymat) : brouillon `docs/specs/multi-payers.md`.
 - **Reste à décider** : tout ce que liste `docs/specs/multi-payers.md` (types concernés, parts, échéance non atteinte, anonymat, litiges).
 
+---
+
+# Lot X version 2 — refonte du noyau après le kickoff
+
+Le prompt « Lot X (version 2) » remplace le premier lot X. Modèle cible : `docs/specs/modele-cible-v2.md` (décisions K1 à K14). Le document `ALIGNEMENT-CAHIER-EXTENSION.md` n’a pas été fourni : `docs/alignement-cahier-extension.md` n’existe pas.
+
+## X0-v2 — Reprise de l’ancien lot X, migrations
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - L’ancien lot X (0007 à 0012) est appliqué et conservé : jamais modifié. La version 2 continue la numérotation : `0013_lotx2_enums.sql` (valeurs d’enum seulement, fichier séparé), `0014_lotx2_core.sql` (X2), `0015_lotx2_x1.sql` (compléments X1, qui dépendent du mode de règlement), `0016_lotx2_x3.sql` (X3), puis `0017_lotx2_fixes.sql`, `0018_lotx2_fixes2.sql` et `0019_lotx2_fixes3.sql` (défauts de 0014 trouvés en mettant les tests et les écrans à jour ; 0014 étant appliquée, elle n’est pas retouchée). 0019 : un remboursement intégral décidé par un litige sur des fonds encore bloqués (CONDITIONAL) les marque rendus (RETURNED), pour qu’ils ne puissent plus être libérés au prestataire. Commits par tâche : X2, puis X1, puis X3 (X1 dépend du mode de règlement de X2).
+  - Ancien X1 : conservé ; ancien X2 (`INFO_REQUESTED`, `REJECTED`) : conservé avec la table 3.2 ; `IMMEDIATE` → `settlement_mode = DIRECT` (voir X2-v2) ; `platform_review` : défaut `NEVER` ; `can_initiate_requests` : conservé jusqu’à X4 (enrôlement).
+  - Écrans : adaptations minimales listées dans `docs/lotx2-adaptations-ecrans.md`.
+  - Tests : 00 à 04 mis à jour volontairement, avec un nouveau test `05_lotx2_p1.sql` (et sa variante éditeur) pour la passe 1. Chaque contrôle modifié, remplacé ou ajouté est listé avec sa raison dans `docs/lotx2-controles-sql.md`.
+
+## X2-v2 — Le noyau : opérations, demandes, états, règlement direct (K1, K2, K5, K6, K7)
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - **Statuts** exactement ceux des sections 3.1 et 3.2. PostgreSQL ne retire pas une valeur d’enum : les anciennes valeurs (SUBMITTED, VALIDATED, TOKEN_ISSUED, IN_PROGRESS, DISPUTED pour l’opération ; PLANNED, AWAITING_PAYMENT, PAID_LOCKED, CONFIRMED, RELEASED, EVIDENCE_SUBMITTED, DISPUTED pour la demande ; IMMEDIATE) restent dans les types, mais des contraintes (`transactions_status_v2`, `tranches_status_v2`, `tranches_no_immediate`, `request_modules_no_immediate`) les refusent, et le TypeScript ne les connaît plus. `IN_REVIEW` est gardé comme sous-état de la revue (prise en charge D8) : la section 5 du modèle le prévoit.
+  - **Données de développement converties**, pas effacées (aucune donnée de production) : correspondance de la section 5 (PLANNED → DRAFT, AWAITING_PAYMENT → SUBMITTED, payée → PAID avec `funds_state`, opération en cours → ACTIVE, rejetée → CANCELLED, litiges → dossiers RESOLVED avec issue). Plus sûr qu’un `demo_reset()` : les comptes de démonstration gardent leurs dossiers.
+  - **Soumission** : `submit_operation` (et `transition_tx(…,'SUBMITTED')`, gardée comme alias pour les appels existants). Mêmes contrôles qu’avant, plus un payeur obligatoire pour toute opération. NEVER → ACTIVE (`AUTO_ACTIVATED`, auteur : l’initiateur qui soumet) ; sinon PENDING_REVIEW. L’activation soumet les demandes dues (RG-12 conservée). Plus de jeton d’opération ni d’étapes « système » simulées (`auto_issue_token` n’est plus lu).
+  - **Revue par le bureau** : file du lot 5 inchangée côté interface (`bo_dossiers` : PENDING_REVIEW et IN_REVIEW). Approbation → ACTIVE (alerte `TX_VALIDATED`) ; rejet → **CANCELLED** avec motif (alerte `TX_REJECTED`). **D4 remplacée** pour ce parcours : plus de correction d’une opération rejetée (l’initiateur en crée une nouvelle) ; l’abandon devient l’annulation par l’initiateur (`cancelOperation`, DRAFT ou ACTIVE → CANCELLED ; en ACTIVE avec une demande payée, seules les demandes restantes sont annulées et l’opération se clôt).
+  - **Mode de règlement** : `transactions.settlement_mode`, recopié du module à la création du brouillon. Vague 1 (Scolarité, Santé, Loyer) en DIRECT ; vague 2 (Agro, Immobilier, Terrain) en CONDITIONAL, avec leurs règles de libération en données. En DIRECT : paiement → PAID, versement au prestataire au journal (`DIRECT_PAYMENT`), reçu immédiat, ni jeton, ni scan, ni délai de contestation. En CONDITIONAL : PAID avec `funds_state = HELD`, puis confirmation (scan du prestataire, ou payeur en PAYER_CONFIRM : `confirm_service`), preuves (`submit_evidence`, décision du bureau), libération (`approve_release`, délai écoulé, ou litige) → RELEASED ; `funds_state = RETURNED` si les fonds reviennent au payeur. `confirmed_at` et `evidence_submitted_at` remplacent les anciens statuts.
+  - **Paiement** (en attendant `accept_and_pay` en X5) : `start_payment` passe la demande SUBMITTED → ACCEPTED ; l’événement du partenaire la passe à PAID, ou la rend payable (ACCEPTED → SUBMITTED) si toutes les tentatives échouent. Un remboursement versé passe PAID → REFUNDED (`refunded_minor`, partiel ou total).
+  - **Litige distinct** : statuts OPEN (ouverture), AWAITING_RESPONSE (le bureau demande une précision : `request_dispute_response`), IN_MEDIATION (la partie adverse a répondu, ou une partie a complété : `respond_dispute`, `add_dispute_message`), RESOLVED (avec une issue). Le modèle ne fixe pas les transitions entre ces statuts : celles-ci sont un choix à valider. Avant paiement (SUBMITTED, INFO_REQUESTED, ACCEPTED) : `on_hold`, opération SUSPENDED (le paiement et la demande d’informations répondent `REQUEST_ON_HOLD`) ; issue NO_ACTION seulement, qui lève la suspension. Après paiement : statut inchangé ; issues de remboursement (remboursement lié, contrepassation) ou, en CONDITIONAL avec fonds bloqués, FUNDS_RELEASED / FUNDS_RETURNED. Un litige en cours bloque la libération automatique.
+  - **Suspension pour fraude** : `suspend_operation` et `lift_suspension` (personnel non partie), sans écran.
+  - **Expiration** : `expire_due_requests` (pg_cron, toutes les heures), selon `request_modules.request_expiry_days` : point ouvert, aucune valeur, donc aucune expiration aujourd’hui.
+  - **Alertes** : demande soumise → `PAYMENT_READY` si le payeur est l’initiateur, `PAYMENT_REQUEST_RECEIVED` sinon (au payeur seul) ; paiement exécuté → `REQUEST_PAID` (nouvelle) ; confirmation et libération en CONDITIONAL → `TRANCHE_CONFIRMED`, `TRANCHE_RELEASED` (sauf libération décidée par un litige : `DISPUTE_RESOLVED` seule, 0017).
+  - **Vue `payment_requests`** (lecture seule) et colonnes du modèle (`target_amount_minor`, `scheduled_for` générées depuis `amount_minor` et `due_date`, `currency` recopiée de l’opération) ; le TypeScript parle de `PaymentRequest` (`Tranche` reste un alias).
+  - **Domaine** : `operationMachine`, `paymentRequestMachine` (chaque transition permise et refusée, par acteur, testée ; parité avec les tables SQL testée), `conditionalRelease`, `disputes`.
+  - **Journal en DIRECT** : le paiement est aussitôt versé (journaux PAYMENT puis RELEASE). Un remboursement intégral laisse alors `PARTNER_CASH` à −montant et `DUE_TO_PROVIDER` à +montant pour la demande, ce qui se lit « le prestataire doit rendre la somme ». Le journal reste équilibré. Cette lecture est à valider avec le plan de comptes (`docs/specs/ledger.md`), qui sera revu en X5.
+- **Reste à décider** : transitions entre statuts de litige ; durée d’expiration par module ; seuil `RISK_BASED` ; plan de comptes en DIRECT (rétrofacturation). Voir `docs/open-parameters.md`.
+
+## X1-v2 — Compléments de sécurité du TrustLink et du QR (K4)
+
+- **Date** : 12 novembre 2026
+- **Choisi** : l’ancien X1 est conservé. `eqr_image_enabled` vaut désormais `false` (QR retiré du parcours par défaut ; code conservé pour CONDITIONAL). Résolution d’une référence : le payeur, l’initiateur, et le prestataire **en CONDITIONAL seulement** (la confirmation par scan l’exige) ; même réponse pour « inconnue » et « pas partie ». Les jetons de demande n’existent qu’en CONDITIONAL : émis à la soumission, réémission refusée en DIRECT (`NO_TOKEN`, 0018).
+- **Reste à décider** : l’image du QR en CONDITIONAL ; QR dynamique du commerçant (interface plus tard, schéma en X3).
+
+## X3-v2 — Décisions du payeur, jeton de présentation (K4, K6)
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - `request_info` (SUBMITTED → INFO_REQUESTED), `answer_info` (→ SUBMITTED), `reject_request` : fonctions du premier lot, statuts v2.
+  - **`accept_plan`** : le payeur accepte le principe du plan, une fois (idempotente), ce qui n’autorise aucun paiement à l’avance. L’action est journalisée et l’alerte `PLAN_ACCEPTED` part aux autres parties. Elle est aussi possible quand l’opération est suspendue.
+  - **Jeton de présentation** : `presentation_tokens` ne conserve que l’empreinte SHA-256 de la référence. La référence (32 caractères hexadécimaux) n’est renvoyée qu’à l’émission et jamais journalisée.
+    - Émission par l’initiateur, pour une demande soumise. Chaque émission révoque les jetons précédents non pris (rotation). `revoke_presentation_tokens` révoque explicitement.
+    - Prise en charge à usage unique. Elle lie la demande à l’utilisateur connecté : le payeur invité par téléphone, ou un payeur encore inconnu. Elle renvoie un résumé minimal (nom de l’initiateur, montant, devise) et n’autorise aucun paiement.
+    - Refus explicites : expiré (`TOKEN_EXPIRED`), révoqué (`TOKEN_REVOKED`), déjà pris (`TOKEN_USED`).
+    - Référence inconnue, demande déjà liée à un autre payeur, ou prise en charge par l’initiateur lui-même : réponse nulle, et l’échec compte pour la limitation (`TOO_MANY_ATTEMPTS`).
+    - Durée de vie : réglage `presentation_token_ttl_seconds`, point ouvert. La valeur 90 est posée en développement seulement (mock_mode) ; sans réglage, l’émission répond `NOT_CONFIGURED`.
+  - **Initiation par un prestataire** : inchangée (`can_initiate_requests`) jusqu’à X4 (niveaux d’enrôlement).
+  - Aucun écran nouveau. `acceptPlan` est exposé par l’API ; le jeton de présentation ne l’est pas encore (interface du lot Y).
+- **Reste à décider** : durée de vie et rotation du QR de présentation (avec le partenaire et en test) ; affichage obligatoire du nom du commerçant, du montant puis des frais avant toute autorisation (lot Y, X5 pour les frais).
+

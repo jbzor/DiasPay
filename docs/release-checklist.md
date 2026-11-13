@@ -70,3 +70,9 @@
 36. **Retour arrière de 0011 décidé** : tant que `supabase/rollbacks/0011_lotx_x6_down.sql` peut servir, garder l’enum `vertical` et les tables `_release_rules_0003`, `_required_documents_0005` ; ne pas ajouter de module en production avant d’y avoir renoncé (le retour arrière refuse un dossier d’un module ajouté).
 37. **Un seul payeur partout** tant que la phase 2 n’est pas livrée : `select count(*) from request_modules where multiple_payers;` est nul.
 
+## Noyau v2 (lot X version 2)
+
+38. **Paramètres ouverts résolus ou explicitement acceptés** : chaque ligne de `docs/open-parameters.md` a une valeur fournie, ou une décision écrite d’accepter le comportement prudent (refus, revue, absence d’expiration). En production, `presentation_token_ttl_seconds` n’a pas la valeur de développement sans décision.
+39. **Règlement direct par défaut vérifié** : `select code, settlement_mode, platform_review from request_modules order by display_order;` correspond aux décisions K1 et K2 ; `supabase/tests/05_lotx2_p1.sql` passe sur l’environnement de recette.
+40. **Aucun ancien statut en base** : `select count(*) from tranches where status::text in ('PLANNED','AWAITING_PAYMENT','PAID_LOCKED','CONFIRMED','RELEASED','EVIDENCE_SUBMITTED','DISPUTED');` est nul (les contraintes l’imposent).
+

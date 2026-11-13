@@ -21,7 +21,9 @@ describe('X1 : TrustLink jamais partagé', () => {
     const token = read(join(src, 'app', 'token', '[trancheId].tsx'));
     expect(token).not.toMatch(/Share\b|Clipboard|captureRef|Sharing|view-shot|buildLink|LINK_BASE|selectable/);
     expect(token).toMatch(/useNoScreenCapture/);
-    expect(token).toMatch(/persona !== 'PAYER' \|\| tranche\.status !== 'PAID_LOCKED'/);
+    // Lot X v2 : QR seulement en déblocage conditionnel, au payeur, pour une demande payée aux fonds bloqués, non confirmée.
+    expect(token).toMatch(/tx\.settlementMode !== 'CONDITIONAL'/);
+    expect(token).toMatch(/persona !== 'PAYER' \|\| tranche\.status !== 'PAID' \|\| tranche\.fundsState !== 'HELD'/);
   });
   it('aucune route ni aucun code ne traite une adresse /t/<référence>', () => {
     expect(existsSync(join(src, 'app', 't'))).toBe(false);

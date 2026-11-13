@@ -60,6 +60,12 @@ insert into providers(id, name, city, verticals, verified, phone) values
 
 -- Lot 5 : pas d’émission simulée du jeton à la validation dans ce test (étapes système jouées explicitement).
 update app_config set value = 'false' where key = 'auto_issue_token';
+-- Lot X v2 (0014) : platform_review vaut NEVER partout et EDUCATION, HEALTH, RENT sont en règlement DIRECT. Pour exercer
+-- ici la revue par le bureau (validation, rejet motivé) et la libération conditionnelle (confirmation par référence,
+-- déblocage, litige tranché par libération), EDUCATION passe en revue ALWAYS et en CONDITIONAL, HEALTH en revue ALWAYS.
+-- Le chemin par défaut (NEVER, DIRECT) est vérifié plus bas sur un dossier RENT.
+update request_modules set platform_review = 'ALWAYS', settlement_mode = 'CONDITIONAL' where code = 'EDUCATION';
+update request_modules set platform_review = 'ALWAYS' where code = 'HEALTH';
 
 -- ---------- Structure et droits ----------
 select t.check(not exists (
@@ -221,7 +227,8 @@ select t.hint($$select transition_tx('e3000000-0000-4000-8000-000000000003', 'SU
 select t.hint($$select transition_tx('e3000000-0000-4000-8000-000000000003', 'VALIDATED')$$, 'TRANSITION_UNKNOWN', 'transition inconnue');
 select t.admin();
 select t.login('e1000000-0000-4000-8000-000000000002');
-select t.check((select status from transition_tx('e3000000-0000-4000-8000-000000000001', 'SUBMITTED')) = 'SUBMITTED', 'dossier complet soumis');
+select t.check((select status from transition_tx('e3000000-0000-4000-8000-000000000001', 'SUBMITTED')) = 'PENDING_REVIEW',
+  'dossier complet soumis : en attente de revue (platform_review ALWAYS)');
 select t.hint($$select save_draft('{"id":"e3000000-0000-4000-8000-000000000001","vertical":"EDUCATION"}')$$, 'NOT_EDITABLE', 'dossier soumis non modifiable par save_draft');
 select t.hint($$select delete_draft('e3000000-0000-4000-8000-000000000001')$$, 'AUDITED_FILE', 'dossier audité non supprimable');
 select t.hint($$select transition_tx('e3000000-0000-4000-8000-000000000001', 'IN_REVIEW')$$, 'VALIDATOR_ONLY', 'mise en validation réservée aux validateurs');
@@ -230,7 +237,7 @@ select t.admin();
 -- ---------- Validation et notifications aux bonnes parties ----------
 select t.login('e1000000-0000-4000-8000-000000000004');
 select transition_tx('e3000000-0000-4000-8000-000000000001', 'IN_REVIEW');
-select t.check((select status from decide_tx('e3000000-0000-4000-8000-000000000001', true, true)) = 'VALIDATED', 'validation');
+select t.check((select status from decide_tx('e3000000-0000-4000-8000-000000000001', true, true)) = 'ACTIVE', 'validation : opération ACTIVE');
 select t.hint($$select decide_tx('e3000000-0000-4000-8000-000000000001', true, true)$$, 'NOT_IN_REVIEW', 'décision sur un dossier déjà validé');
 select t.admin();
 select t.check((select array_agg(user_id order by user_id)::text from notifications where tx_id = 'e3000000-0000-4000-8000-000000000001' and event = 'TX_VALIDATED')
@@ -239,23 +246,35 @@ select t.check((select array_agg(user_id order by user_id)::text from notificati
 select t.check((select payload->>'type' = 'TX_VALIDATED' and payload->>'txId' = 'e3000000-0000-4000-8000-000000000001'
                 from notifications where tx_id = 'e3000000-0000-4000-8000-000000000001' and event = 'TX_VALIDATED' limit 1), 'payload de notification');
 
-select t.login('e1000000-0000-4000-8000-000000000002');
-select simulate_system_transition('e3000000-0000-4000-8000-000000000001', 'TOKEN_ISSUED');
-select simulate_system_transition('e3000000-0000-4000-8000-000000000001', 'IN_PROGRESS');
+-- Lot X v2 : l’approbation active l’opération et soumet les demandes dues (RG-12) : la tranche 1 (échéance proche),
+-- pas la tranche 2 (jalon après une demande en cours). Plus d’émission de jeton ni de passage IN_PROGRESS simulés.
 insert into t.ids select 'tr1', id from tranches where tx_id = 'e3000000-0000-4000-8000-000000000001' and seq = 1;
 insert into t.ids select 'tr2', id from tranches where tx_id = 'e3000000-0000-4000-8000-000000000001' and seq = 2;
-select simulate_tranche_system((select v from t.ids where k = 'tr1'), 'AWAITING_PAYMENT');
-select t.hint($$select simulate_tranche_system((select v from t.ids where k = 'tr2'), 'PAID_LOCKED')$$, 'NOT_PAYABLE', 'tranche non activée non payable');
-select simulate_tranche_system((select v from t.ids where k = 'tr1'), 'PAID_LOCKED');
-select t.hint($$select transition_tranche((select v from t.ids where k = 'tr1'), 'CONFIRMED')$$, 'TRANSITION_FORBIDDEN', 'le demandeur ne confirme pas une tranche');
-select t.check((select count(*) from notifications where event = 'PAYMENT_READY' and tx_id = 'e3000000-0000-4000-8000-000000000001') = 1,
-  'RLS : le demandeur ne lit que ses propres notifications');
+select t.check((select status from tranches where id = (select v from t.ids where k = 'tr1')) = 'SUBMITTED'
+           and (select status from tranches where id = (select v from t.ids where k = 'tr2')) = 'DRAFT',
+  'activation : demande due soumise, jalon suivant programmé (RG-12)');
+-- Le paiement (simulé) est fait par le payeur : start_payment puis événement du partenaire.
+select t.login('e1000000-0000-4000-8000-000000000001');
+select t.hint($$select simulate_tranche_system((select v from t.ids where k = 'tr2'), 'PAID')$$, 'NOT_PAYABLE', 'tranche non activée non payable');
+select simulate_tranche_system((select v from t.ids where k = 'tr1'), 'PAID');
+select t.check((select status = 'PAID' and funds_state = 'HELD' from tranches where id = (select v from t.ids where k = 'tr1')),
+  'paiement en CONDITIONAL : PAID, fonds bloqués (HELD)');
 select t.admin();
-select t.check((select count(*) from notifications where event = 'PAYMENT_READY' and tx_id = 'e3000000-0000-4000-8000-000000000001') = 3, 'PAYMENT_READY aux trois parties');
-
--- Confirmation par référence (prestataire).
 create temp table ref1 as select reference from tranche_tokens where tranche_id = (select v from t.ids where k = 'tr1');
 grant select on ref1 to authenticated;
+select t.login('e1000000-0000-4000-8000-000000000002');
+select t.hint($$select confirm_by_reference((select reference from ref1))$$, 'PROVIDER_ONLY', 'le demandeur ne confirme pas une tranche');
+select t.check((select count(*) from notifications where event = 'TX_VALIDATED' and tx_id = 'e3000000-0000-4000-8000-000000000001') = 1,
+  'RLS : le demandeur ne lit que ses propres notifications');
+select t.admin();
+select t.check((select array_agg(user_id)::text from notifications where event = 'PAYMENT_REQUEST_RECEIVED' and tx_id = 'e3000000-0000-4000-8000-000000000001')
+               = '{e1000000-0000-4000-8000-000000000001}'
+           and not exists (select 1 from notifications where event = 'PAYMENT_READY' and tx_id = 'e3000000-0000-4000-8000-000000000001'),
+  'PAYMENT_REQUEST_RECEIVED au payeur seul (demande soumise par le demandeur)');
+select t.check((select count(*) from notifications where event = 'REQUEST_PAID' and tx_id = 'e3000000-0000-4000-8000-000000000001') = 3,
+  'REQUEST_PAID aux trois parties');
+
+-- Confirmation par référence (prestataire, CONDITIONAL, mode PROVIDER_CONFIRM).
 select t.login('e1000000-0000-4000-8000-000000000007');
 -- Lot X (X1.6) : un tiers reçoit la même réponse qu’une référence inconnue (null), au lieu de NOT_A_PARTY.
 select t.check((select resolve_reference_info((select reference from ref1))) is null, 'référence : un tiers est refusé (même réponse qu’une référence inconnue)');
@@ -267,7 +286,9 @@ select t.login('e1000000-0000-4000-8000-000000000003');
 select t.check((t.j($$select resolve_reference_info((select reference from ref1))$$)->>'label') = 'Inscription', 'resolve_reference_info');
 select t.hint($$select confirm_by_reference('ffffffffffffffffff')$$, 'UNKNOWN_REFERENCE', 'référence inconnue');
 select t.hint($$select confirm_by_reference((select reference from ref1), now() + interval '1 hour')$$, 'DEVICE_TIME_INVALID', 'heure d’appareil dans le futur');
-select t.check((select status from confirm_by_reference((select upper(reference) from ref1))) = 'CONFIRMED', 'confirmation par référence (casse indifférente)');
+select t.check((select status = 'PAID' and funds_state = 'HELD' and confirmed_at is not null and contest_ends_at > now()
+                from confirm_by_reference((select upper(reference) from ref1))),
+  'confirmation par référence (casse indifférente) : confirmée, délai de contestation ouvert, fonds encore bloqués');
 select t.hint($$select confirm_by_reference((select reference from ref1))$$, 'TOKEN_USED', 'QR déjà utilisé');
 select t.admin();
 select t.check((select count(*) from notifications where event = 'TRANCHE_CONFIRMED' and tx_id = 'e3000000-0000-4000-8000-000000000001' and payload ? 'releaseAt') = 3,
@@ -276,8 +297,11 @@ select t.login('e1000000-0000-4000-8000-000000000003');
 select t.hint($$select get_receipt((select v from t.ids where k = 'tr1'))$$, 'NOT_RELEASED', 'pas de reçu avant déblocage');
 select t.admin();
 select t.login('e1000000-0000-4000-8000-000000000001');
-select transition_tranche((select v from t.ids where k = 'tr1'), 'RELEASED');
+select approve_release((select v from t.ids where k = 'tr1'));
 select t.admin();
+select t.check((select funds_state = 'RELEASED' and status = 'PAID' from tranches where id = (select v from t.ids where k = 'tr1'))
+           and exists (select 1 from release_events where tranche_id = (select v from t.ids where k = 'tr1') and trigger = 'PAYER_APPROVAL'),
+  'libération anticipée par le payeur après confirmation : fonds RELEASED');
 select t.check((select count(*) from notifications where event = 'TRANCHE_RELEASED' and tx_id = 'e3000000-0000-4000-8000-000000000001') = 3, 'TRANCHE_RELEASED aux trois parties');
 select t.login('e1000000-0000-4000-8000-000000000003');
 select t.check((select (r->>'chainValid')::boolean and length(r->>'lastHash') = 64 and (r->>'amountMinor')::bigint = 400000 and (r->>'entryCount')::int > 5
@@ -297,8 +321,12 @@ select t.admin();
 
 -- ---------- Litige ----------
 select t.login('e1000000-0000-4000-8000-000000000002');
-select simulate_tranche_system((select v from t.ids where k = 'tr2'), 'AWAITING_PAYMENT');
-select simulate_tranche_system((select v from t.ids where k = 'tr2'), 'PAID_LOCKED');
+select simulate_tranche_system((select v from t.ids where k = 'tr2'), 'SUBMITTED');
+select t.admin();
+select t.login('e1000000-0000-4000-8000-000000000001');
+select simulate_tranche_system((select v from t.ids where k = 'tr2'), 'PAID');
+select t.admin();
+select t.login('e1000000-0000-4000-8000-000000000002');
 select t.hint($$select open_dispute((select v from t.ids where k = 'tr2'), 'Trop court')$$, 'NOT_A_PARTY', 'le demandeur n’ouvre pas de litige');
 select t.admin();
 select t.login('e1000000-0000-4000-8000-000000000001');
@@ -308,16 +336,20 @@ select t.check((select r->>'status' = 'OPEN' and r->>'reason' = 'NOT_DELIVERED' 
                 from (select get_dispute((select v from t.ids where k = 'tr2')) r) x), 'get_dispute');
 select t.check(get_dispute((select v from t.ids where k = 'tr1')) is null, 'get_dispute : aucun litige sur une autre tranche');
 select t.admin();
+select t.check((select status = 'PAID' and funds_state = 'HELD' and not on_hold from tranches where id = (select v from t.ids where k = 'tr2'))
+           and (select status from transactions where id = 'e3000000-0000-4000-8000-000000000001') = 'ACTIVE',
+  'litige après paiement : statut de la demande et de l’opération inchangés (K7)');
 select t.check((select count(*) from notifications where event = 'DISPUTE_OPENED' and tx_id = 'e3000000-0000-4000-8000-000000000001') = 3, 'DISPUTE_OPENED aux trois parties');
 create temp table disp as select id from disputes where tranche_id = (select v from t.ids where k = 'tr2');
 grant select on disp to authenticated;
 select t.login('e1000000-0000-4000-8000-000000000004');
-select t.hint($$select resolve_dispute((select id from disp), 'RELEASE_TO_PROVIDER', 'Livré')$$, 'ADMIN_ONLY', 'un validateur ne tranche pas un litige (RG-09)');
+select t.hint($$select resolve_dispute((select id from disp), 'FUNDS_RELEASED', 'Livré')$$, 'ADMIN_ONLY', 'un validateur ne tranche pas un litige (RG-09)');
 select t.admin();
 select t.login('e1000000-0000-4000-8000-000000000006');
 select t.hint($$select resolve_dispute((select id from disp), 'PARTAGE', 'Livré')$$, 'INVALID_OUTCOME', 'issue invalide');
-select t.check((select status from resolve_dispute((select id from disp), 'RELEASE_TO_PROVIDER', 'Attestation du lycée reçue')) = 'RELEASED_TO_PROVIDER', 'litige tranché par l’administrateur');
-select t.hint($$select resolve_dispute((select id from disp), 'REFUND_PAYER', 'Nouvelle décision')$$, 'NO_OPEN_DISPUTE', 'litige déjà clos');
+select t.check((select status = 'RESOLVED' and outcome = 'FUNDS_RELEASED' from resolve_dispute((select id from disp), 'FUNDS_RELEASED', 'Attestation du lycée reçue')),
+  'litige tranché par l’administrateur (RESOLVED, FUNDS_RELEASED)');
+select t.hint($$select resolve_dispute((select id from disp), 'REFUND_FULL', 'Nouvelle décision')$$, 'NO_OPEN_DISPUTE', 'litige déjà clos');
 select t.admin();
 select t.check((select count(*) from notifications where event = 'DISPUTE_RESOLVED' and payload->>'outcome' = 'RELEASED' and tx_id = 'e3000000-0000-4000-8000-000000000001') = 3,
   'DISPUTE_RESOLVED (RELEASED) aux trois parties');
@@ -333,7 +365,7 @@ insert into disputes(tx_id, tranche_id, opened_by, reason)
 create temp table disp2 as select id from disputes where reason = 'Litige de test (insertion directe)';
 grant select on disp2 to authenticated;
 select t.login('e1000000-0000-4000-8000-000000000006');
-select t.hint($$select resolve_dispute((select id from disp2), 'REFUND_PAYER', 'Remboursement')$$, 'VALIDATOR_IS_PARTY', 'un administrateur partie ne tranche pas');
+select t.hint($$select resolve_dispute((select id from disp2), 'REFUND_FULL', 'Remboursement')$$, 'VALIDATOR_IS_PARTY', 'un administrateur partie ne tranche pas');
 select t.admin();
 delete from disputes where reason = 'Litige de test (insertion directe)';
 delete from transaction_parties where tx_id = 'e3000000-0000-4000-8000-000000000002' and user_id = 'e1000000-0000-4000-8000-000000000006';
@@ -350,13 +382,27 @@ select decide_tx('e3000000-0000-4000-8000-000000000002', false, false, 'Devis il
 select t.admin();
 select t.check((select count(*) from notifications where event = 'TX_REJECTED' and payload->>'reason' = 'Devis illisible' and tx_id = 'e3000000-0000-4000-8000-000000000002') = 2,
   'TX_REJECTED avec motif au payeur et au prestataire inscrit');
+-- Lot X v2 : un rejet annule l’opération (CANCELLED, motif conservé) ; plus de retour en brouillon pour correction.
+select t.check((select status = 'CANCELLED' and reject_reason = 'Devis illisible' from transactions where id = 'e3000000-0000-4000-8000-000000000002')
+           and not exists (select 1 from tranches where tx_id = 'e3000000-0000-4000-8000-000000000002' and status <> 'CANCELLED'),
+  'dossier rejeté : opération annulée avec son motif, demandes annulées');
 select t.login('e1000000-0000-4000-8000-000000000001');
-select t.check((t.j($$select save_draft(get_draft('e3000000-0000-4000-8000-000000000002') || '{"purpose":"Soins dentaires (devis lisible)"}')$$)->>'rejectionReason') = 'Devis illisible',
-  'un dossier rejeté se corrige par save_draft (motif restitué)');
-insert into t.ids select 'doc_q', id from documents where tx_id = 'e3000000-0000-4000-8000-000000000002' and kind = 'QUOTE';
+select t.hint($$select save_draft('{"id":"e3000000-0000-4000-8000-000000000002","vertical":"HEALTH","purpose":"Soins dentaires (devis lisible)"}')$$,
+  'NOT_EDITABLE', 'un dossier rejeté ne se corrige plus par save_draft');
+-- Pièce d’un brouillon audité : la consultation journalisée d’une pièce par une autre partie (X4) audite le brouillon.
+select save_draft('{"id":"e3000000-0000-4000-8000-000000000006","vertical":"HEALTH","amountMinor":"50000","currency":"XAF",
+  "purpose":"Consultation","beneficiaryName":"Maman","provider":{"name":"Cabinet Dr Ngo","invitedPhone":"+237 6 1111 0009"},
+  "planType":"SINGLE","tranches":[{"label":"Consultation","amountMinor":"50000"}]}');
+insert into t.ids select 'doc_q', (add_document('e3000000-0000-4000-8000-000000000006', 'QUOTE',
+  'e3000000-0000-4000-8000-000000000006/QUOTE/q.pdf', 'q.pdf', 'application/pdf', 1000)->>'id')::uuid;
+select t.admin();
+select t.login('e1000000-0000-4000-8000-000000000009');
+select get_document_access((select v from t.ids where k = 'doc_q'));
+select t.admin();
+select t.login('e1000000-0000-4000-8000-000000000001');
 select t.check(remove_document((select v from t.ids where k = 'doc_q')) = 'ARCHIVED', 'pièce d’un dossier audité archivée, pas supprimée');
-select t.check((select count(*) from documents where tx_id = 'e3000000-0000-4000-8000-000000000002' and kind = 'QUOTE' and deleted_at is not null) = 1, 'ligne archivée conservée');
-select t.check(not exists (select 1 from jsonb_array_elements(get_draft('e3000000-0000-4000-8000-000000000002')->'documents') d where d->>'kind' = 'QUOTE'),
+select t.check((select count(*) from documents where tx_id = 'e3000000-0000-4000-8000-000000000006' and kind = 'QUOTE' and deleted_at is not null) = 1, 'ligne archivée conservée');
+select t.check(not exists (select 1 from jsonb_array_elements(get_draft('e3000000-0000-4000-8000-000000000006')->'documents') d where d->>'kind' = 'QUOTE'),
   'pièce archivée absente du brouillon');
 select t.admin();
 
@@ -368,6 +414,35 @@ select t.check(not exists (select 1 from transactions where id = 'e3000000-0000-
 select t.admin();
 
 -- ---------- Fonctions de démonstration (mock_mode = true) ----------
+-- Chemin par défaut (lot X v2) : platform_review NEVER, règlement DIRECT (RENT).
+select t.login('e1000000-0000-4000-8000-000000000002');
+select save_draft('{"id":"e3000000-0000-4000-8000-000000000007","vertical":"RENT","amountMinor":"120000","currency":"XAF","purpose":"Loyer de novembre",
+  "beneficiaryName":"Awa","counterpartyPhone":"+33611110001","provider":{"name":"Bailleur","invitedPhone":"+237611110003"},
+  "planType":"SINGLE","tranches":[{"label":"Loyer","amountMinor":"120000"}]}');
+select add_document('e3000000-0000-4000-8000-000000000007', 'LEASE', 'e3000000-0000-4000-8000-000000000007/LEASE/bail.pdf', 'bail.pdf', 'application/pdf', 1000);
+select t.check((select status from transition_tx('e3000000-0000-4000-8000-000000000007', 'SUBMITTED')) = 'ACTIVE',
+  'soumission sans revue (platform_review NEVER) : opération ACTIVE');
+insert into t.ids select 'tr7', id from tranches where tx_id = 'e3000000-0000-4000-8000-000000000007';
+select t.admin();
+select t.check(exists (select 1 from audit_log where tx_id = 'e3000000-0000-4000-8000-000000000007' and event = 'AUTO_ACTIVATED' and to_status = 'ACTIVE')
+           and (select status from tranches where id = (select v from t.ids where k = 'tr7')) = 'SUBMITTED'
+           and not exists (select 1 from tranche_tokens where tranche_id = (select v from t.ids where k = 'tr7')),
+  'AUTO_ACTIVATED : demande due soumise, aucun jeton en DIRECT');
+select t.check(not exists (select 1 from notifications where tx_id = 'e3000000-0000-4000-8000-000000000007' and event in ('TX_VALIDATED','TX_REJECTED'))
+           and (select array_agg(user_id)::text from notifications where tx_id = 'e3000000-0000-4000-8000-000000000007' and event = 'PAYMENT_REQUEST_RECEIVED')
+               = '{e1000000-0000-4000-8000-000000000001}',
+  'sans revue : ni TX_VALIDATED ni TX_REJECTED ; PAYMENT_REQUEST_RECEIVED au payeur');
+select t.login('e1000000-0000-4000-8000-000000000001');
+select simulate_tranche_system((select v from t.ids where k = 'tr7'), 'PAID');
+select t.admin();
+select t.check((select status = 'PAID' and funds_state = 'NONE' from tranches where id = (select v from t.ids where k = 'tr7'))
+           and exists (select 1 from release_events where tranche_id = (select v from t.ids where k = 'tr7') and trigger = 'DIRECT_PAYMENT')
+           and (select status from transactions where id = 'e3000000-0000-4000-8000-000000000007') = 'CLOSED',
+  'règlement DIRECT : paiement → PAID sans blocage (DIRECT_PAYMENT), opération close');
+select t.login('e1000000-0000-4000-8000-000000000003');
+select t.check((get_receipt((select v from t.ids where k = 'tr7'))->>'amountMinor')::bigint = 120000, 'règlement DIRECT : reçu disponible dès le paiement');
+select t.admin();
+
 select t.login('e1000000-0000-4000-8000-000000000002');
 select save_draft('{"id":"e3000000-0000-4000-8000-000000000005","vertical":"RENT","amountMinor":"150000","currency":"XAF","purpose":"Loyer de décembre",
   "beneficiaryName":"Awa","counterpartyPhone":"+33611110001","provider":{"name":"Bailleur","invitedPhone":"+237611110003"},
@@ -375,26 +450,35 @@ select save_draft('{"id":"e3000000-0000-4000-8000-000000000005","vertical":"RENT
 select add_document('e3000000-0000-4000-8000-000000000005', 'LEASE', 'e3000000-0000-4000-8000-000000000005/LEASE/bail.pdf', 'bail.pdf', 'application/pdf', 1000);
 select t.hint($$select demo_review('e3000000-0000-4000-8000-000000000005', true)$$, 'NOT_IN_REVIEW', 'demo_review sur un brouillon refusé');
 select t.hint($$select demo_review('e3000000-0000-4000-8000-000000000003', true)$$, 'TX_NOT_FOUND', 'demo_review sur le dossier d’un autre refusé');
+-- demo_review ne sert que pour un dossier en revue : RENT passe en revue ALWAYS pour ce dossier.
+select t.admin();
+update request_modules set platform_review = 'ALWAYS' where code = 'RENT';
+select t.login('e1000000-0000-4000-8000-000000000002');
 select transition_tx('e3000000-0000-4000-8000-000000000005', 'SUBMITTED');
-select t.check((select status from demo_review('e3000000-0000-4000-8000-000000000005', true)) = 'IN_PROGRESS', 'demo_review : validation jusqu’à IN_PROGRESS');
-select t.check((select status from tranches where tx_id = 'e3000000-0000-4000-8000-000000000005' and seq = 1) = 'AWAITING_PAYMENT', 'demo_review : première tranche activée (RG-12)');
+select t.check((select status from demo_review('e3000000-0000-4000-8000-000000000005', true)) = 'ACTIVE', 'demo_review : validation jusqu’à ACTIVE');
+select t.check((select status from tranches where tx_id = 'e3000000-0000-4000-8000-000000000005' and seq = 1) = 'SUBMITTED', 'demo_review : première tranche soumise (RG-12)');
 select t.check((select count(*) from audit_log where tx_id = 'e3000000-0000-4000-8000-000000000005' and event = 'DEMO_REVIEW') = 2, 'demo_review écrit le journal d’audit');
 insert into t.ids select 'tr5', id from tranches where tx_id = 'e3000000-0000-4000-8000-000000000005';
-select simulate_tranche_system((select v from t.ids where k = 'tr5'), 'PAID_LOCKED');
 select t.admin();
 select t.login('e1000000-0000-4000-8000-000000000001');
+select simulate_tranche_system((select v from t.ids where k = 'tr5'), 'PAID');
 select open_dispute((select v from t.ids where k = 'tr5'), 'Le bailleur conteste avoir reçu le loyer', 'NOT_DELIVERED');
-select t.check((select status from demo_resolve_dispute((select v from t.ids where k = 'tr5'), 'REFUNDED', 'Remboursement simulé')) = 'REFUNDED_TO_PAYER', 'demo_resolve_dispute');
+select t.check((select status = 'RESOLVED' and outcome = 'REFUND_FULL' and refund_amount_minor = 150000 and refund_id is not null
+                from demo_resolve_dispute((select v from t.ids where k = 'tr5'), 'REFUND_FULL', 'Remboursement simulé')), 'demo_resolve_dispute (remboursement total)');
 select t.check((select count(*) from notifications where event = 'DISPUTE_RESOLVED' and payload->>'outcome' = 'REFUNDED' and tx_id = 'e3000000-0000-4000-8000-000000000005') = 1,
   'DISPUTE_RESOLVED (REFUNDED) reçu par le payeur');
 select t.admin();
+select t.check((select status from tranches where id = (select v from t.ids where k = 'tr5')) = 'PAID'
+           and (select count(*) from refunds where tranche_id = (select v from t.ids where k = 'tr5') and amount_minor = 150000) = 1,
+  'litige après paiement : remboursement créé, statut de la demande inchangé avant exécution');
 select t.check((select resolved_by from disputes where tranche_id = (select v from t.ids where k = 'tr5')) in (select id from profiles where platform_role = 'ADMIN'),
   'demo_resolve_dispute : décision attribuée à un administrateur');
 select t.login('e1000000-0000-4000-8000-000000000002');
 select t.check(demo_reset() >= 2, 'demo_reset : dossiers de l’utilisateur supprimés');
 select t.check(not exists (select 1 from transactions where created_by = auth.uid()), 'plus aucun dossier pour le demandeur');
 select t.admin();
-select t.check(not exists (select 1 from audit_log where tx_id in ('e3000000-0000-4000-8000-000000000001', 'e3000000-0000-4000-8000-000000000005'))
+select t.check(not exists (select 1 from audit_log where tx_id in ('e3000000-0000-4000-8000-000000000001', 'e3000000-0000-4000-8000-000000000005',
+                                                                   'e3000000-0000-4000-8000-000000000007'))
            and exists (select 1 from audit_log where tx_id = 'e3000000-0000-4000-8000-000000000002'),
   'demo_reset n’efface que le journal des dossiers de l’appelant');
 select t.fails($$delete from audit_log where tx_id = 'e3000000-0000-4000-8000-000000000002'$$, 'journal d’audit toujours en ajout seul hors demo_reset');
@@ -406,6 +490,8 @@ select t.hint($$select demo_review('e3000000-0000-4000-8000-000000000002', true)
 select t.hint($$select demo_resolve_dispute('e3000000-0000-4000-8000-000000000002', 'RELEASED', 'Note')$$, 'DEMO_DISABLED', 'demo_resolve_dispute refusé hors mock_mode');
 select t.hint($$select demo_reset()$$, 'DEMO_DISABLED', 'demo_reset refusé hors mock_mode');
 select t.hint($$select simulate_system_transition('e3000000-0000-4000-8000-000000000002', 'TOKEN_ISSUED')$$, 'DEMO_DISABLED', 'simulation système refusée hors mock_mode');
+select t.hint($$select simulate_tranche_system((select id from tranches where tx_id = 'e3000000-0000-4000-8000-000000000002' limit 1), 'PAID')$$,
+  'DEMO_DISABLED', 'paiement simulé refusé hors mock_mode');
 select t.admin();
 do $$ begin perform set_config('app.demo_reset', 'on', true); end $$;
 select t.fails($$delete from audit_log where tx_id = 'e3000000-0000-4000-8000-000000000002'$$, 'hors mock_mode, même le drapeau de réinitialisation n’efface rien');

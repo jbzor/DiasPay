@@ -1,11 +1,12 @@
 'use client';
 import { DomainError } from '@diaspay/domain';
+import type { DisputeOutcome, DisputeStatus } from '@diaspay/domain';
 import { toDomainError } from '@diaspay/api-client';
 
 import { browserClient } from './supabase/browser';
 
 /**
- * Accès aux données du bureau de contrôle : uniquement les vues et fonctions de la migration 0006 (et 0005),
+ * Accès aux données du bureau de contrôle : uniquement les vues et fonctions des migrations 0005, 0006 et 0014 (lot X v2),
  * avec le jeton de l’utilisateur connecté. Aucune règle métier ici : la base décide, l’écran affiche.
  * Toute erreur devient une DomainError à code stable (table des erreurs) ; une session expirée renvoie à la connexion.
  */
@@ -21,7 +22,8 @@ export interface DossierRow {
 export interface TrancheInfo { id: string; seq: number; label: string; amountMinor: number; dueDate: string | null; status: string; releaseMode: string; contestHours: number }
 export interface DocumentInfo { id: string; kind: string; name: string; mimeType: string; sizeBytes: number; trancheId: string | null; uploadedAt: string }
 export interface Decision { validatorId: string; validatorName: string; approved: boolean; reason: string | null; amountChecked: boolean; decidedAt: string; isMe: boolean }
-export interface DossierDetail { tranches: TrancheInfo[]; documents: DocumentInfo[]; checks: Check[]; decisions: Decision[] }
+/** settlementMode (lot X v2) : DIRECT (versé dès le paiement, la règle de déblocage ne sert pas) ou CONDITIONAL. */
+export interface DossierDetail { settlementMode: string; tranches: TrancheInfo[]; documents: DocumentInfo[]; checks: Check[]; decisions: Decision[] }
 
 export interface EvidenceRow {
   trancheId: string; txId: string; reference: string; seq: number; label: string; amountMinor: number; currency: string; vertical: string;
@@ -32,8 +34,10 @@ export interface EvidenceDetail { documents: DocumentInfo[]; checks: Check[]; de
 export interface DisputeRow {
   id: string; txId: string; trancheId: string; reference: string; trancheSeq: number; trancheLabel: string; amountMinor: number; trancheStatus: string;
   currency: string; vertical: string; purpose: string; reasonCode: string; description: string; openedByRole: 'PAYER' | 'PROVIDER'; openedAt: string;
-  status: 'OPEN' | 'RELEASED_TO_PROVIDER' | 'REFUNDED_TO_PAYER'; response: string | null; respondedAt: string | null; notifiedAt: string | null;
+  status: DisputeStatus; response: string | null; respondedAt: string | null; notifiedAt: string | null;
   resolutionNote: string | null; resolvedAt: string | null; resolvedByName: string | null; payerName: string | null; providerName: string | null; isParty: boolean;
+  /** Lot X v2 (0014) : issue, litige ouvert avant paiement, demande suspendue, mode de règlement, état des fonds, déjà remboursé. */
+  outcome: DisputeOutcome | null; beforePayment: boolean; onHold: boolean; settlementMode: string; fundsState: string; refundedMinor: number;
 }
 
 export interface AuditRow {
@@ -83,7 +87,7 @@ export async function listDossiers(): Promise<DossierRow[]> {
   }));
 }
 
-/** Prise en charge (D8) : SUBMITTED → IN_REVIEW au nom du validateur ; sans effet sur un dossier déjà en validation. */
+/** Prise en charge (D8) : PENDING_REVIEW → IN_REVIEW au nom du validateur ; sans effet sur un dossier déjà en validation. */
 export async function claimDossier(txId: string): Promise<string> {
   const row = await call<{ status: string }>(sb().rpc('claim_dossier', { p_tx: txId }), 'claimDossier');
   return row.status;
@@ -101,13 +105,15 @@ const toDecisions = (raw: unknown): Decision[] => (raw as Array<Record<string, u
 }));
 
 export async function dossierDetail(txId: string): Promise<DossierDetail> {
-  const [tranches, documents, checks, decisions] = await Promise.all([
+  const [tx, tranches, documents, checks, decisions] = await Promise.all([
+    call<{ settlement_mode: string | null }>(sb().from('transactions').select('settlement_mode').eq('id', txId).single(), 'settlementMode'),
     call<Array<Record<string, unknown>>>(sb().from('tranches').select('id, seq, label, amount_minor, due_date, status, release_mode, contest_hours').eq('tx_id', txId).order('seq'), 'tranches'),
     call<unknown>(sb().rpc('dossier_documents', { p_tx: txId }), 'dossierDocuments'),
     call<unknown>(sb().rpc('dossier_checks', { p_tx: txId }), 'dossierChecks'),
     call<unknown>(sb().rpc('bo_decisions', { p_tx: txId }), 'decisions'),
   ]);
   return {
+    settlementMode: s(tx.settlement_mode) || 'DIRECT',
     tranches: tranches.map((r) => ({
       id: s(r.id), seq: n(r.seq), label: s(r.label), amountMinor: n(r.amount_minor), dueDate: sn(r.due_date), status: s(r.status),
       releaseMode: s(r.release_mode), contestHours: n(r.contest_hours),
@@ -118,7 +124,10 @@ export async function dossierDetail(txId: string): Promise<DossierDetail> {
   };
 }
 
-/** Décision sur un dossier (decide_tx, 0006) : la base exige la case pour approuver et un motif pour rejeter. */
+/**
+ * Décision sur un dossier (decide_tx, 0014) : la base exige la case pour approuver et un motif pour rejeter.
+ * Renvoie le statut de l’opération : ACTIVE (approuvée), IN_REVIEW (une autre validation attendue), CANCELLED (rejetée).
+ */
 export async function decideDossier(txId: string, d: { approved: boolean; amountChecked: boolean; reason?: string }): Promise<string> {
   const row = await call<{ status: string }>(sb().rpc('decide_tx', {
     p_tx: txId, p_approved: d.approved, p_amount_checked: d.amountChecked, p_reason: d.reason?.trim() || undefined,
@@ -146,9 +155,13 @@ export async function evidenceDetail(txId: string, trancheId: string): Promise<E
   return { documents: toDocs(documents).filter((d) => d.trancheId === trancheId), checks: toChecks(checks), decisions: toDecisions(decisions) };
 }
 
+/**
+ * Décision sur une preuve (decide_tranche, 0014). La demande reste PAID : l’approbation complète libère les fonds
+ * (funds_state RELEASED) ; une approbation partielle les laisse bloqués (HELD). Renvoie l’état des fonds.
+ */
 export async function decideEvidence(trancheId: string, d: { approved: boolean; reason?: string }): Promise<string> {
-  const row = await call<{ status: string }>(sb().rpc('decide_tranche', { p_tranche: trancheId, p_approved: d.approved, p_reason: d.reason?.trim() || undefined }), 'decideEvidence');
-  return row.status;
+  const row = await call<{ funds_state: string }>(sb().rpc('decide_tranche', { p_tranche: trancheId, p_approved: d.approved, p_reason: d.reason?.trim() || undefined }), 'decideEvidence');
+  return s(row.funds_state);
 }
 
 // ——— Litiges (administrateurs) ———
@@ -162,6 +175,8 @@ export async function listDisputes(): Promise<DisputeRow[]> {
     openedAt: s(r.opened_at), status: s(r.status) as DisputeRow['status'], response: sn(r.response), respondedAt: sn(r.responded_at),
     notifiedAt: sn(r.notified_at), resolutionNote: sn(r.resolution_note), resolvedAt: sn(r.resolved_at), resolvedByName: sn(r.resolved_by_name),
     payerName: sn(r.payer_name), providerName: sn(r.provider_name), isParty: !!r.is_party,
+    outcome: (sn(r.outcome) as DisputeOutcome | null), beforePayment: !!r.before_payment, onHold: !!r.on_hold,
+    settlementMode: s(r.settlement_mode) || 'DIRECT', fundsState: s(r.funds_state) || 'NONE', refundedMinor: n(r.refunded_minor),
   }));
 }
 
@@ -170,11 +185,14 @@ export async function disputeDocuments(txId: string, trancheId: string): Promise
   return docs.filter((d) => d.trancheId === null || d.trancheId === trancheId);
 }
 
-/** Décision de litige (resolve_dispute : administrateur non partie, note obligatoire). Renvoie le nouvel état de la tranche. */
-export async function resolveDispute(disputeId: string, trancheId: string, outcome: 'RELEASE_TO_PROVIDER' | 'REFUND_PAYER', note: string): Promise<string> {
-  await call(sb().rpc('resolve_dispute', { p_dispute: disputeId, p_outcome: outcome, p_note: note.trim() }), 'resolveDispute');
-  const tr = await call<{ status: string }>(sb().from('tranches').select('status').eq('id', trancheId).single(), 'trancheStatus');
-  return tr.status;
+/**
+ * Décision de litige (resolve_dispute, 0014 : administrateur non partie, note obligatoire). Montant en unités mineures pour
+ * REFUND_PARTIAL seulement. Le statut d’une demande payée ne change pas (K7) : le remboursement est demandé au partenaire.
+ */
+export async function resolveDispute(disputeId: string, outcome: DisputeOutcome, note: string, amountMinor?: number): Promise<void> {
+  await call(sb().rpc('resolve_dispute', {
+    p_dispute: disputeId, p_outcome: outcome, p_note: note.trim(), p_amount_minor: outcome === 'REFUND_PARTIAL' ? amountMinor : undefined,
+  }), 'resolveDispute');
 }
 
 // ——— Pièces ———

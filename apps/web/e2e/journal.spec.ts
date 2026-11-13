@@ -8,7 +8,7 @@ import { signIn } from './helpers';
 test.describe.configure({ mode: 'serial' });
 test.afterAll(cleanup);
 
-/** Dossier parcouru : soumis, pris en charge, validé (jeton simulé), tranche payée. */
+/** Dossier parcouru (lot X v2) : soumis pour revue, pris en charge, approuvé (opération ACTIVE, demande envoyée), demande payée. */
 async function completedPath(purpose: string): Promise<string> {
   const tx = await submittedDossier({ amountMinor: 250_000, purpose });
   const sb = await staffClient(STAFF.A.email);
@@ -42,9 +42,12 @@ test('journal : recherche au clavier, chaîne vérifiée, empreinte copiée en e
   await expect(rows.first()).toContainText('Jean Demandeur (e2e) (demandeur)');
   await expect(page.locator('tr[data-event="STATUS_CHANGE"]').filter({ hasText: 'Dossier pris en charge' })).toContainText(`${STAFF.A.name} (validateur)`);
   await expect(page.locator('tr[data-event="VALIDATION_DECISION"]')).toContainText('Approbation d’un validateur (montant vérifié)');
-  await expect(page.locator('tr').filter({ hasText: 'Jeton émis' })).toContainText('Système');
-  await expect(page.locator('tr').filter({ hasText: 'Jeton émis' })).toContainText('Toutes');
-  await expect(page.locator('tr').filter({ hasText: 'Tranche activée' })).toContainText('Tranche 1');
+  await expect(page.locator('tr[data-event="STATUS_CHANGE"]').filter({ hasText: 'Dossier validé (opération active)' })).toContainText(`${STAFF.A.name} (validateur)`);
+  const sent = page.locator('tr[data-event="REQUEST_SUBMITTED"]');
+  await expect(sent).toContainText('Demande de paiement envoyée au payeur');
+  await expect(sent).toContainText('Système');
+  await expect(sent).toContainText('Tranche 1');
+  await expect(page.locator('tr[data-event="REQUEST_PAID"]')).toContainText('Demande payée');
   // Empreinte abrégée « 3f9a…c71b », copie complète au clic.
   const sb = await staffClient(STAFF.B.email);
   const first = ((await sb.rpc('bo_audit', { p_tx: txId })).data as Array<{ hash: string }>)[0]!.hash;

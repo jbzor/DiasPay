@@ -36,11 +36,13 @@ export default function Dispute() {
   return (
     <Screen footer={<><Button tone="destructive" label={t('openDisputeAction')} onPress={submit} /><Button tone="secondary" label={t('cancel')} onPress={() => router.back()} /></>}>
       <TopBar title={t('openDispute')} subtitle={`${verticalLabel(tx.vertical, locale)} · ${t('trancheN', { n: tr.seq })}`} />
-      <Banner text={t('disputeBanner')} />
+      {/* Lot X version 2 : avant paiement, la tranche est suspendue ; après paiement, le paiement reste exécuté (K7). */}
+      <Banner text={tr.status === 'PAID' || tr.status === 'REFUNDED' ? t('disputePaidNote') : t('disputeBanner')} />
       <View>
         <Row label={t('amount')} value={money({ amountMinor: tr.amountMinor, currency: tx.amount.currency })} />
         <Row label={t('providerLabel')} value={tx.providerName} />
-        {tr.contestEndsAt ? <Row label={t('contestPossibleUntil')} value={dateTime(tr.contestEndsAt)} /> : null}
+        {/* Délai de contestation : déblocage conditionnel seulement. */}
+        {tx.settlementMode === 'CONDITIONAL' && tr.contestEndsAt ? <Row label={t('contestPossibleUntil')} value={dateTime(tr.contestEndsAt)} /> : null}
       </View>
       <View accessibilityRole="radiogroup" accessibilityLabel={t('reason')} style={{ gap: spacing.sm }}>
         {reasons.map((r, i) => (

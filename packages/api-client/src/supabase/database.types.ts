@@ -88,16 +88,60 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
-                },"disputes": {
+                },"dispute_messages": {
                   Row: {
-                    "id": string,"opened_at": string,"opened_by": string,"reason": string,"reason_code": string | null,"resolution_note": string | null,"resolved_at": string | null,"resolved_by": string | null,"responded_at": string | null,"responded_by": string | null,"response": string | null,"status": string,"tranche_id": string,"tx_id": string
+                    "author_id": string | null,"body": string,"created_at": string,"dispute_id": string,"id": string,"kind": string,"tx_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "id"?: string,"opened_at"?: string,"opened_by": string,"reason": string,"reason_code"?: string | null,"resolution_note"?: string | null,"resolved_at"?: string | null,"resolved_by"?: string | null,"responded_at"?: string | null,"responded_by"?: string | null,"response"?: string | null,"status"?: string,"tranche_id": string,"tx_id": string
+                    "author_id"?: string | null,"body": string,"created_at"?: string,"dispute_id": string,"id"?: string,"kind": string,"tx_id": string
                   }
                   Update: {
-                    "id"?: string,"opened_at"?: string,"opened_by"?: string,"reason"?: string,"reason_code"?: string | null,"resolution_note"?: string | null,"resolved_at"?: string | null,"resolved_by"?: string | null,"responded_at"?: string | null,"responded_by"?: string | null,"response"?: string | null,"status"?: string,"tranche_id"?: string,"tx_id"?: string
+                    "author_id"?: string | null,"body"?: string,"created_at"?: string,"dispute_id"?: string,"id"?: string,"kind"?: string,"tx_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "dispute_messages_author_id_fkey"
+      columns: ["author_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "dispute_messages_dispute_id_fkey"
+      columns: ["dispute_id"]
+isOneToOne: false
+      referencedRelation: "bo_disputes"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "dispute_messages_dispute_id_fkey"
+      columns: ["dispute_id"]
+isOneToOne: false
+      referencedRelation: "disputes"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "dispute_messages_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "dispute_messages_tx_id_fkey"
+      columns: ["tx_id"]
+isOneToOne: false
+      referencedRelation: "transactions"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"disputes": {
+                  Row: {
+                    "before_payment": boolean,"id": string,"opened_at": string,"opened_by": string,"outcome": string | null,"reason": string,"reason_code": string | null,"refund_amount_minor": number | null,"refund_id": string | null,"resolution_note": string | null,"resolved_at": string | null,"resolved_by": string | null,"responded_at": string | null,"responded_by": string | null,"response": string | null,"status": string,"tranche_id": string,"tx_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "before_payment"?: boolean,"id"?: string,"opened_at"?: string,"opened_by": string,"outcome"?: string | null,"reason": string,"reason_code"?: string | null,"refund_amount_minor"?: number | null,"refund_id"?: string | null,"resolution_note"?: string | null,"resolved_at"?: string | null,"resolved_by"?: string | null,"responded_at"?: string | null,"responded_by"?: string | null,"response"?: string | null,"status"?: string,"tranche_id": string,"tx_id": string
+                  }
+                  Update: {
+                    "before_payment"?: boolean,"id"?: string,"opened_at"?: string,"opened_by"?: string,"outcome"?: string | null,"reason"?: string,"reason_code"?: string | null,"refund_amount_minor"?: number | null,"refund_id"?: string | null,"resolution_note"?: string | null,"resolved_at"?: string | null,"resolved_by"?: string | null,"responded_at"?: string | null,"responded_by"?: string | null,"response"?: string | null,"status"?: string,"tranche_id"?: string,"tx_id"?: string
                   }
                   Relationships: [
                     {
@@ -105,6 +149,12 @@ isOneToOne: false
       columns: ["opened_by"]
 isOneToOne: false
       referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "disputes_refund_id_fkey"
+      columns: ["refund_id"]
+isOneToOne: false
+      referencedRelation: "refunds"
       referencedColumns: ["id"]
     },{
       foreignKeyName: "disputes_resolved_by_fkey"
@@ -124,6 +174,12 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "bo_evidence_queue"
       referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "disputes_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "payment_requests"
+      referencedColumns: ["id"]
     },{
       foreignKeyName: "disputes_tranche_id_fkey"
       columns: ["tranche_id"]
@@ -162,6 +218,12 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "bo_evidence_queue"
       referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "documents_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "payment_requests"
+      referencedColumns: ["id"]
     },{
       foreignKeyName: "documents_tranche_id_fkey"
       columns: ["tranche_id"]
@@ -288,6 +350,12 @@ isOneToOne: false
       foreignKeyName: "ledger_journals_tranche_id_fkey"
       columns: ["tranche_id"]
 isOneToOne: false
+      referencedRelation: "payment_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "ledger_journals_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
       referencedRelation: "tranches"
       referencedColumns: ["id"]
     },{
@@ -364,6 +432,12 @@ isOneToOne: false
       foreignKeyName: "payment_attempts_tranche_id_fkey"
       columns: ["tranche_id"]
 isOneToOne: false
+      referencedRelation: "payment_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "payment_attempts_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
       referencedRelation: "tranches"
       referencedColumns: ["id"]
     },{
@@ -402,6 +476,12 @@ isOneToOne: false
       foreignKeyName: "payments_tranche_id_fkey"
       columns: ["tranche_id"]
 isOneToOne: false
+      referencedRelation: "payment_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "payments_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
       referencedRelation: "tranches"
       referencedColumns: ["id"]
     },{
@@ -415,6 +495,50 @@ isOneToOne: false
       columns: ["tx_id"]
 isOneToOne: false
       referencedRelation: "transactions"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"presentation_tokens": {
+                  Row: {
+                    "claimed_at": string | null,"claimed_by": string | null,"created_at": string,"created_by": string | null,"expires_at": string,"id": string,"revoked_at": string | null,"token_hash": string,"tranche_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "claimed_at"?: string | null,"claimed_by"?: string | null,"created_at"?: string,"created_by"?: string | null,"expires_at": string,"id"?: string,"revoked_at"?: string | null,"token_hash": string,"tranche_id": string
+                  }
+                  Update: {
+                    "claimed_at"?: string | null,"claimed_by"?: string | null,"created_at"?: string,"created_by"?: string | null,"expires_at"?: string,"id"?: string,"revoked_at"?: string | null,"token_hash"?: string,"tranche_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "presentation_tokens_claimed_by_fkey"
+      columns: ["claimed_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "presentation_tokens_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "presentation_tokens_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "bo_evidence_queue"
+      referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "presentation_tokens_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "payment_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "presentation_tokens_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "tranches"
       referencedColumns: ["id"]
     }
                   ]
@@ -518,6 +642,12 @@ isOneToOne: false
       foreignKeyName: "refunds_tranche_id_fkey"
       columns: ["tranche_id"]
 isOneToOne: false
+      referencedRelation: "payment_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "refunds_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
       referencedRelation: "tranches"
       referencedColumns: ["id"]
     },{
@@ -552,6 +682,12 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "bo_evidence_queue"
       referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "release_events_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "payment_requests"
+      referencedColumns: ["id"]
     },{
       foreignKeyName: "release_events_tranche_id_fkey"
       columns: ["tranche_id"]
@@ -600,6 +736,12 @@ isOneToOne: false
       foreignKeyName: "request_messages_tranche_id_fkey"
       columns: ["tranche_id"]
 isOneToOne: false
+      referencedRelation: "payment_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "request_messages_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
       referencedRelation: "tranches"
       referencedColumns: ["id"]
     },{
@@ -618,14 +760,14 @@ isOneToOne: false
                   ]
                 },"request_modules": {
                   Row: {
-                    "code": string,"contest_hours": number,"created_at": string,"description_en": string | null,"description_fr": string | null,"display_order": number,"dual_validation": boolean,"enabled": boolean,"label_en": string,"label_fr": string,"multiple_payers": boolean,"platform_review": string,"release_mode": Database["public"]['Enums']["release_mode"],"required_documents": NonNullable<Json>,"updated_at": string,"wave": number
+                    "code": string,"contest_hours": number,"created_at": string,"description_en": string | null,"description_fr": string | null,"display_order": number,"dual_validation": boolean,"enabled": boolean,"label_en": string,"label_fr": string,"multiple_payers": boolean,"platform_review": string,"release_mode": Database["public"]['Enums']["release_mode"],"request_expiry_days": number | null,"required_documents": NonNullable<Json>,"settlement_mode": Database["public"]['Enums']["settlement_mode"],"updated_at": string,"wave": number
                   }
                   ComputedFields: never
                   Insert: {
-                    "code": string,"contest_hours"?: number,"created_at"?: string,"description_en"?: string | null,"description_fr"?: string | null,"display_order"?: number,"dual_validation"?: boolean,"enabled"?: boolean,"label_en": string,"label_fr": string,"multiple_payers"?: boolean,"platform_review"?: string,"release_mode": Database["public"]['Enums']["release_mode"],"required_documents"?: NonNullable<Json>,"updated_at"?: string,"wave"?: number
+                    "code": string,"contest_hours"?: number,"created_at"?: string,"description_en"?: string | null,"description_fr"?: string | null,"display_order"?: number,"dual_validation"?: boolean,"enabled"?: boolean,"label_en": string,"label_fr": string,"multiple_payers"?: boolean,"platform_review"?: string,"release_mode": Database["public"]['Enums']["release_mode"],"request_expiry_days"?: number | null,"required_documents"?: NonNullable<Json>,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"updated_at"?: string,"wave"?: number
                   }
                   Update: {
-                    "code"?: string,"contest_hours"?: number,"created_at"?: string,"description_en"?: string | null,"description_fr"?: string | null,"display_order"?: number,"dual_validation"?: boolean,"enabled"?: boolean,"label_en"?: string,"label_fr"?: string,"multiple_payers"?: boolean,"platform_review"?: string,"release_mode"?: Database["public"]['Enums']["release_mode"],"required_documents"?: NonNullable<Json>,"updated_at"?: string,"wave"?: number
+                    "code"?: string,"contest_hours"?: number,"created_at"?: string,"description_en"?: string | null,"description_fr"?: string | null,"display_order"?: number,"dual_validation"?: boolean,"enabled"?: boolean,"label_en"?: string,"label_fr"?: string,"multiple_payers"?: boolean,"platform_review"?: string,"release_mode"?: Database["public"]['Enums']["release_mode"],"request_expiry_days"?: number | null,"required_documents"?: NonNullable<Json>,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"updated_at"?: string,"wave"?: number
                   }
                   Relationships: [
                     
@@ -698,6 +840,12 @@ isOneToOne: false
       foreignKeyName: "tranche_tokens_tranche_id_fkey"
       columns: ["tranche_id"]
 isOneToOne: false
+      referencedRelation: "payment_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "tranche_tokens_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
       referencedRelation: "tranches"
       referencedColumns: ["id"]
     }
@@ -718,14 +866,14 @@ isOneToOne: false
                   ]
                 },"tranches": {
                   Row: {
-                    "amount_minor": number,"contest_ends_at": string | null,"contest_hours": number,"created_at": string,"due_date": string | null,"first_viewed_at": string | null,"id": string,"label": string,"release_mode": Database["public"]['Enums']["release_mode"],"released_at": string | null,"seq": number,"status": Database["public"]['Enums']["tranche_status"],"tx_id": string,"updated_at": string
+                    "amount_minor": number,"confirmed_at": string | null,"contest_ends_at": string | null,"contest_hours": number,"created_at": string,"currency": Database["public"]['Enums']["currency"] | null,"due_date": string | null,"evidence_submitted_at": string | null,"expires_at": string | null,"first_viewed_at": string | null,"funds_state": string,"id": string,"label": string,"on_hold": boolean,"paid_at": string | null,"refunded_minor": number,"release_mode": Database["public"]['Enums']["release_mode"],"released_at": string | null,"scheduled_for": string | null,"seq": number,"status": Database["public"]['Enums']["tranche_status"],"target_amount_minor": number | null,"tx_id": string,"updated_at": string,"_request_final": boolean | null
                   }
-                  ComputedFields: never
+                  ComputedFields: "_request_final"
                   Insert: {
-                    "amount_minor": number,"contest_ends_at"?: string | null,"contest_hours"?: number,"created_at"?: string,"due_date"?: string | null,"first_viewed_at"?: string | null,"id"?: string,"label": string,"release_mode": Database["public"]['Enums']["release_mode"],"released_at"?: string | null,"seq": number,"status"?: Database["public"]['Enums']["tranche_status"],"tx_id": string,"updated_at"?: string
+                    "amount_minor": number,"confirmed_at"?: string | null,"contest_ends_at"?: string | null,"contest_hours"?: number,"created_at"?: string,"currency"?: Database["public"]['Enums']["currency"] | null,"due_date"?: string | null,"evidence_submitted_at"?: string | null,"expires_at"?: string | null,"first_viewed_at"?: string | null,"funds_state"?: string,"id"?: string,"label": string,"on_hold"?: boolean,"paid_at"?: string | null,"refunded_minor"?: number,"release_mode": Database["public"]['Enums']["release_mode"],"released_at"?: string | null,"scheduled_for"?: never,"seq": number,"status"?: Database["public"]['Enums']["tranche_status"],"target_amount_minor"?: never,"tx_id": string,"updated_at"?: string
                   }
                   Update: {
-                    "amount_minor"?: number,"contest_ends_at"?: string | null,"contest_hours"?: number,"created_at"?: string,"due_date"?: string | null,"first_viewed_at"?: string | null,"id"?: string,"label"?: string,"release_mode"?: Database["public"]['Enums']["release_mode"],"released_at"?: string | null,"seq"?: number,"status"?: Database["public"]['Enums']["tranche_status"],"tx_id"?: string,"updated_at"?: string
+                    "amount_minor"?: number,"confirmed_at"?: string | null,"contest_ends_at"?: string | null,"contest_hours"?: number,"created_at"?: string,"currency"?: Database["public"]['Enums']["currency"] | null,"due_date"?: string | null,"evidence_submitted_at"?: string | null,"expires_at"?: string | null,"first_viewed_at"?: string | null,"funds_state"?: string,"id"?: string,"label"?: string,"on_hold"?: boolean,"paid_at"?: string | null,"refunded_minor"?: number,"release_mode"?: Database["public"]['Enums']["release_mode"],"released_at"?: string | null,"scheduled_for"?: never,"seq"?: number,"status"?: Database["public"]['Enums']["tranche_status"],"target_amount_minor"?: never,"tx_id"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     {
@@ -776,19 +924,31 @@ isOneToOne: false
                   ]
                 },"transactions": {
                   Row: {
-                    "amount_minor": number | null,"beneficiary_name": string | null,"created_at": string,"created_by": string,"currency": Database["public"]['Enums']["currency"] | null,"draft_data": NonNullable<Json>,"due_date": string | null,"expires_at": string | null,"id": string,"plan_type": string | null,"provider_id": string | null,"provider_name": string | null,"purpose": string | null,"reject_reason": string | null,"status": Database["public"]['Enums']["tx_status"],"updated_at": string,"vertical": string
+                    "accepted_at": string | null,"accepted_by": string | null,"amount_minor": number | null,"beneficiary_name": string | null,"created_at": string,"created_by": string,"currency": Database["public"]['Enums']["currency"] | null,"draft_data": NonNullable<Json>,"due_date": string | null,"expires_at": string | null,"id": string,"initiator_id": string | null,"plan_type": string | null,"provider_id": string | null,"provider_name": string | null,"purpose": string | null,"reject_reason": string | null,"settlement_mode": Database["public"]['Enums']["settlement_mode"],"status": Database["public"]['Enums']["tx_status"],"updated_at": string,"vertical": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "amount_minor"?: number | null,"beneficiary_name"?: string | null,"created_at"?: string,"created_by": string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical": string
+                    "accepted_at"?: string | null,"accepted_by"?: string | null,"amount_minor"?: number | null,"beneficiary_name"?: string | null,"created_at"?: string,"created_by": string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"initiator_id"?: string | null,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical": string
                   }
                   Update: {
-                    "amount_minor"?: number | null,"beneficiary_name"?: string | null,"created_at"?: string,"created_by"?: string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical"?: string
+                    "accepted_at"?: string | null,"accepted_by"?: string | null,"amount_minor"?: number | null,"beneficiary_name"?: string | null,"created_at"?: string,"created_by"?: string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"initiator_id"?: string | null,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical"?: string
                   }
                   Relationships: [
                     {
+      foreignKeyName: "transactions_accepted_by_fkey"
+      columns: ["accepted_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
       foreignKeyName: "transactions_created_by_fkey"
       columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "transactions_initiator_id_fkey"
+      columns: ["initiator_id"]
 isOneToOne: false
       referencedRelation: "profiles"
       referencedColumns: ["id"]
@@ -866,6 +1026,12 @@ isOneToOne: false
       foreignKeyName: "validations_tranche_id_fkey"
       columns: ["tranche_id"]
 isOneToOne: false
+      referencedRelation: "payment_requests"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "validations_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
       referencedRelation: "tranches"
       referencedColumns: ["id"]
     },{
@@ -907,7 +1073,7 @@ isOneToOne: false
           Views: {
             "bo_disputes": {
                   Row: {
-                    "amount_minor": number | null,"currency": string | null,"description": string | null,"id": string | null,"is_party": boolean | null,"notified_at": string | null,"opened_at": string | null,"opened_by_role": string | null,"payer_name": string | null,"provider_name": string | null,"purpose": string | null,"reason_code": string | null,"reference": string | null,"resolution_note": string | null,"resolved_at": string | null,"resolved_by_name": string | null,"responded_at": string | null,"response": string | null,"status": string | null,"tranche_id": string | null,"tranche_label": string | null,"tranche_seq": number | null,"tranche_status": string | null,"tx_id": string | null,"vertical": string | null
+                    "amount_minor": number | null,"before_payment": boolean | null,"currency": string | null,"description": string | null,"funds_state": string | null,"id": string | null,"is_party": boolean | null,"notified_at": string | null,"on_hold": boolean | null,"opened_at": string | null,"opened_by_role": string | null,"outcome": string | null,"payer_name": string | null,"provider_name": string | null,"purpose": string | null,"reason_code": string | null,"reference": string | null,"refunded_minor": number | null,"resolution_note": string | null,"resolved_at": string | null,"resolved_by_name": string | null,"responded_at": string | null,"response": string | null,"settlement_mode": string | null,"status": string | null,"tranche_id": string | null,"tranche_label": string | null,"tranche_seq": number | null,"tranche_status": string | null,"tx_id": string | null,"vertical": string | null
                   }
                   ComputedFields: never
                   Relationships: [
@@ -917,6 +1083,12 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "bo_evidence_queue"
       referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "disputes_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "payment_requests"
+      referencedColumns: ["id"]
     },{
       foreignKeyName: "disputes_tranche_id_fkey"
       columns: ["tranche_id"]
@@ -1019,6 +1191,32 @@ isOneToOne: false
       referencedColumns: ["vertical"]
     }
                   ]
+                },"payment_requests": {
+                  Row: {
+                    "created_at": string | null,"currency": Database["public"]['Enums']["currency"] | null,"expires_at": string | null,"first_viewed_at": string | null,"funds_state": string | null,"id": string | null,"label": string | null,"on_hold": boolean | null,"operation_id": string | null,"paid_at": string | null,"refunded_minor": number | null,"scheduled_for": string | null,"seq": number | null,"status": Database["public"]['Enums']["tranche_status"] | null,"target_amount_minor": number | null,"updated_at": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                           "created_at"?: string | null,"currency"?: Database["public"]['Enums']["currency"] | null,"expires_at"?: string | null,"first_viewed_at"?: string | null,"funds_state"?: string | null,"id"?: string | null,"label"?: string | null,"on_hold"?: boolean | null,"operation_id"?: string | null,"paid_at"?: string | null,"refunded_minor"?: number | null,"scheduled_for"?: string | null,"seq"?: number | null,"status"?: Database["public"]['Enums']["tranche_status"] | null,"target_amount_minor"?: number | null,"updated_at"?: string | null
+                         }
+                        Update: {
+                           "created_at"?: string | null,"currency"?: Database["public"]['Enums']["currency"] | null,"expires_at"?: string | null,"first_viewed_at"?: string | null,"funds_state"?: string | null,"id"?: string | null,"label"?: string | null,"on_hold"?: boolean | null,"operation_id"?: string | null,"paid_at"?: string | null,"refunded_minor"?: number | null,"scheduled_for"?: string | null,"seq"?: number | null,"status"?: Database["public"]['Enums']["tranche_status"] | null,"target_amount_minor"?: number | null,"updated_at"?: string | null
+                         }
+                        Relationships: [
+                    {
+      foreignKeyName: "tranches_tx_id_fkey"
+      columns: ["operation_id"]
+isOneToOne: false
+      referencedRelation: "bo_dossiers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "tranches_tx_id_fkey"
+      columns: ["operation_id"]
+isOneToOne: false
+      referencedRelation: "transactions"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"release_rules": {
                   Row: {
                     "contest_hours": number | null,"dual_validation": boolean | null,"release_mode": Database["public"]['Enums']["release_mode"] | null,"vertical": string | null
@@ -1043,7 +1241,7 @@ isOneToOne: false
                   ]
                 },"v_reconciliation": {
                   Row: {
-                    "amount_minor": number | null,"attempt_id": string | null,"attempt_status": string | null,"currency": string | null,"issues": (string)[] | null,"paid_ledger": number | null,"provider": string | null,"reference": string | null,"refunded_requested": number | null,"refunded_settled": number | null,"rejected_events": number | null,"released_ledger": number | null,"success_events": number | null,"tranche_id": string | null,"tranche_status": string | null,"tx_id": string | null
+                    "amount_minor": number | null,"attempt_id": string | null,"attempt_status": string | null,"currency": string | null,"funds_state": string | null,"issues": (string)[] | null,"paid_ledger": number | null,"provider": string | null,"reference": string | null,"refunded_requested": number | null,"refunded_settled": number | null,"rejected_events": number | null,"released_ledger": number | null,"success_events": number | null,"tranche_id": string | null,"tranche_status": string | null,"tx_id": string | null
                   }
                   ComputedFields: never
                   Relationships: [
@@ -1053,6 +1251,12 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "bo_evidence_queue"
       referencedColumns: ["tranche_id"]
+    },{
+      foreignKeyName: "payment_attempts_tranche_id_fkey"
+      columns: ["tranche_id"]
+isOneToOne: false
+      referencedRelation: "payment_requests"
+      referencedColumns: ["id"]
     },{
       foreignKeyName: "payment_attempts_tranche_id_fkey"
       columns: ["tranche_id"]
@@ -1076,7 +1280,37 @@ isOneToOne: false
                 }
           }
           Functions: {
-            "_attempt_json":
+            "_activate_operation":
+{ Args: { "p_actor": string,"p_event": string,"p_payload"?: Json,"p_tx": string }; Returns: {
+              "accepted_at": string | null,
+"accepted_by": string | null,
+"amount_minor": number | null,
+"beneficiary_name": string | null,
+"created_at": string,
+"created_by": string,
+"currency": Database["public"]['Enums']["currency"] | null,
+"draft_data": NonNullable<Json>,
+"due_date": string | null,
+"expires_at": string | null,
+"id": string,
+"initiator_id": string | null,
+"plan_type": string | null,
+"provider_id": string | null,
+"provider_name": string | null,
+"purpose": string | null,
+"reject_reason": string | null,
+"settlement_mode": Database["public"]['Enums']["settlement_mode"],
+"status": Database["public"]['Enums']["tx_status"],
+"updated_at": string,
+"vertical": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "transactions"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"_attempt_json":
 { Args: { "a": Omit<Database["public"]['Tables']["payment_attempts"]['Row'], Database["public"]['Tables']["payment_attempts"]['ComputedFields']> }; Returns: Json
                            },
 "_check_message":
@@ -1085,23 +1319,125 @@ isOneToOne: false
 "_check_token_manager":
 { Args: { "p_tranche": string }; Returns: {
               "amount_minor": number,
+"confirmed_at": string | null,
 "contest_ends_at": string | null,
 "contest_hours": number,
 "created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
 "due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
 "first_viewed_at": string | null,
+"funds_state": string,
 "id": string,
 "label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
 "release_mode": Database["public"]['Enums']["release_mode"],
 "released_at": string | null,
+"scheduled_for": string | null,
 "seq": number,
 "status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
 "tx_id": string,
 "updated_at": string
             }
                           SetofOptions: {
         from: "*"
         to: "tranches"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"_close_operation_if_done":
+{ Args: { "p_actor": string,"p_tx": string }; Returns: undefined
+                           },
+"_conditional_tranche":
+{ Args: { "p_tranche": string }; Returns: {
+              "amount_minor": number,
+"confirmed_at": string | null,
+"contest_ends_at": string | null,
+"contest_hours": number,
+"created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
+"due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
+"first_viewed_at": string | null,
+"funds_state": string,
+"id": string,
+"label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
+"release_mode": Database["public"]['Enums']["release_mode"],
+"released_at": string | null,
+"scheduled_for": string | null,
+"seq": number,
+"status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
+"tx_id": string,
+"updated_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "tranches"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"_confirm_service":
+{ Args: { "p_actor": string,"p_event": string,"p_payload": Json,"tr": Omit<Database["public"]['Tables']["tranches"]['Row'], Database["public"]['Tables']["tranches"]['ComputedFields']> }; Returns: {
+              "amount_minor": number,
+"confirmed_at": string | null,
+"contest_ends_at": string | null,
+"contest_hours": number,
+"created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
+"due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
+"first_viewed_at": string | null,
+"funds_state": string,
+"id": string,
+"label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
+"release_mode": Database["public"]['Enums']["release_mode"],
+"released_at": string | null,
+"scheduled_for": string | null,
+"seq": number,
+"status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
+"tx_id": string,
+"updated_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "tranches"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"_create_refund":
+{ Args: { "p_actor": string,"p_amount_minor": number,"p_key": string,"p_reason": string,"p_tranche": string }; Returns: {
+              "amount_minor": number,
+"attempt_id": string,
+"completed_at": string | null,
+"created_at": string,
+"currency": Database["public"]['Enums']["currency"],
+"error_code": string | null,
+"id": string,
+"idempotency_key": string,
+"provider_ref": string | null,
+"reason": string,
+"requested_by": string | null,
+"status": string,
+"tranche_id": string,
+"tx_id": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "refunds"
         isOneToOne: true
         isSetofReturn: false
       } },
@@ -1125,6 +1461,9 @@ isOneToOne: false
                            },
 "_hash_reuse":
 { Args: { "p_hash": string,"p_tx": string }; Returns: (string)[]
+                           },
+"_is_initiator":
+{ Args: { "p_tx": string }; Returns: boolean
                            },
 "_issue_tranche_token":
 { Args: { "p_tranche": string }; Returns: undefined
@@ -1186,20 +1525,33 @@ isOneToOne: false
 "_refunded":
 { Args: { "p_attempt": string }; Returns: number
                            },
+"_request_final":
+{ Args: { "tr": Omit<Database["public"]['Tables']["tranches"]['Row'], Database["public"]['Tables']["tranches"]['ComputedFields']> }; Returns: boolean
+                           },
 "_request_tranche":
 { Args: { "p_tranche": string }; Returns: {
               "amount_minor": number,
+"confirmed_at": string | null,
 "contest_ends_at": string | null,
 "contest_hours": number,
 "created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
 "due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
 "first_viewed_at": string | null,
+"funds_state": string,
 "id": string,
 "label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
 "release_mode": Database["public"]['Enums']["release_mode"],
 "released_at": string | null,
+"scheduled_for": string | null,
 "seq": number,
 "status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
 "tx_id": string,
 "updated_at": string
             }
@@ -1217,11 +1569,42 @@ isOneToOne: false
                            },
 "_resolve_dispute_core":
 { Args: { "p_actor": string,"p_dispute": string,"p_note": string,"p_outcome": string }; Returns: {
-              "id": string,
+              "before_payment": boolean,
+"id": string,
 "opened_at": string,
 "opened_by": string,
+"outcome": string | null,
 "reason": string,
 "reason_code": string | null,
+"refund_amount_minor": number | null,
+"refund_id": string | null,
+"resolution_note": string | null,
+"resolved_at": string | null,
+"resolved_by": string | null,
+"responded_at": string | null,
+"responded_by": string | null,
+"response": string | null,
+"status": string,
+"tranche_id": string,
+"tx_id": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "disputes"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"_resolve_dispute_v2":
+{ Args: { "p_actor": string,"p_amount_minor"?: number,"p_dispute": string,"p_note": string,"p_outcome": string }; Returns: {
+              "before_payment": boolean,
+"id": string,
+"opened_at": string,
+"opened_by": string,
+"outcome": string | null,
+"reason": string,
+"reason_code": string | null,
+"refund_amount_minor": number | null,
+"refund_id": string | null,
 "resolution_note": string | null,
 "resolved_at": string | null,
 "resolved_by": string | null,
@@ -1244,26 +1627,99 @@ isOneToOne: false
 "_round_start":
 { Args: { "p_tx": string }; Returns: string
                            },
-"_set_tranche_status":
-{ Args: { "p_actor": string,"p_event": string,"p_payload"?: Json,"p_to": Database["public"]['Enums']["tranche_status"],"p_tranche": string }; Returns: {
+"_set_funds_state":
+{ Args: { "p_actor": string,"p_event": string,"p_payload"?: Json,"p_state": string,"p_tranche": string }; Returns: {
               "amount_minor": number,
+"confirmed_at": string | null,
 "contest_ends_at": string | null,
 "contest_hours": number,
 "created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
 "due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
 "first_viewed_at": string | null,
+"funds_state": string,
 "id": string,
 "label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
 "release_mode": Database["public"]['Enums']["release_mode"],
 "released_at": string | null,
+"scheduled_for": string | null,
 "seq": number,
 "status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
 "tx_id": string,
 "updated_at": string
             }
                           SetofOptions: {
         from: "*"
         to: "tranches"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"_set_tranche_status":
+{ Args: { "p_actor": string,"p_event": string,"p_payload"?: Json,"p_to": Database["public"]['Enums']["tranche_status"],"p_tranche": string }; Returns: {
+              "amount_minor": number,
+"confirmed_at": string | null,
+"contest_ends_at": string | null,
+"contest_hours": number,
+"created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
+"due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
+"first_viewed_at": string | null,
+"funds_state": string,
+"id": string,
+"label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
+"release_mode": Database["public"]['Enums']["release_mode"],
+"released_at": string | null,
+"scheduled_for": string | null,
+"seq": number,
+"status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
+"tx_id": string,
+"updated_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "tranches"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"_set_tx_status":
+{ Args: { "p_actor": string,"p_event": string,"p_payload"?: Json,"p_to": Database["public"]['Enums']["tx_status"],"p_tx": string }; Returns: {
+              "accepted_at": string | null,
+"accepted_by": string | null,
+"amount_minor": number | null,
+"beneficiary_name": string | null,
+"created_at": string,
+"created_by": string,
+"currency": Database["public"]['Enums']["currency"] | null,
+"draft_data": NonNullable<Json>,
+"due_date": string | null,
+"expires_at": string | null,
+"id": string,
+"initiator_id": string | null,
+"plan_type": string | null,
+"provider_id": string | null,
+"provider_name": string | null,
+"purpose": string | null,
+"reject_reason": string | null,
+"settlement_mode": Database["public"]['Enums']["settlement_mode"],
+"status": Database["public"]['Enums']["tx_status"],
+"updated_at": string,
+"vertical": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "transactions"
         isOneToOne: true
         isSetofReturn: false
       } },
@@ -1279,6 +1735,42 @@ isOneToOne: false
 "_storage_tx":
 { Args: { "p_name": string }; Returns: string
                            },
+"_submit_request":
+{ Args: { "p_actor": string,"p_tranche": string }; Returns: {
+              "amount_minor": number,
+"confirmed_at": string | null,
+"contest_ends_at": string | null,
+"contest_hours": number,
+"created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
+"due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
+"first_viewed_at": string | null,
+"funds_state": string,
+"id": string,
+"label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
+"release_mode": Database["public"]['Enums']["release_mode"],
+"released_at": string | null,
+"scheduled_for": string | null,
+"seq": number,
+"status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
+"tx_id": string,
+"updated_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "tranches"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"_token_hash":
+{ Args: { "p_ref": string }; Returns: string
+                           },
 "_tx_ref":
 { Args: { "p_tx": string }; Returns: string
                            },
@@ -1288,26 +1780,93 @@ isOneToOne: false
 "_valid_phone":
 { Args: { "p": string }; Returns: boolean
                            },
+"accept_plan":
+{ Args: { "p_operation": string }; Returns: {
+              "accepted_at": string | null,
+"accepted_by": string | null,
+"amount_minor": number | null,
+"beneficiary_name": string | null,
+"created_at": string,
+"created_by": string,
+"currency": Database["public"]['Enums']["currency"] | null,
+"draft_data": NonNullable<Json>,
+"due_date": string | null,
+"expires_at": string | null,
+"id": string,
+"initiator_id": string | null,
+"plan_type": string | null,
+"provider_id": string | null,
+"provider_name": string | null,
+"purpose": string | null,
+"reject_reason": string | null,
+"settlement_mode": Database["public"]['Enums']["settlement_mode"],
+"status": Database["public"]['Enums']["tx_status"],
+"updated_at": string,
+"vertical": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "transactions"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "activate_due_tranches":
 { Args: Record<PropertyKey, never>; Returns: number
                            },
+"add_dispute_message":
+{ Args: { "p_dispute": string,"p_message": string }; Returns: {
+              "before_payment": boolean,
+"id": string,
+"opened_at": string,
+"opened_by": string,
+"outcome": string | null,
+"reason": string,
+"reason_code": string | null,
+"refund_amount_minor": number | null,
+"refund_id": string | null,
+"resolution_note": string | null,
+"resolved_at": string | null,
+"resolved_by": string | null,
+"responded_at": string | null,
+"responded_by": string | null,
+"response": string | null,
+"status": string,
+"tranche_id": string,
+"tx_id": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "disputes"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "add_document":
 { Args: { "p_hash"?: string,"p_kind": string,"p_mime": string,"p_name": string,"p_path": string,"p_size": number,"p_tx": string }; Returns: Json
                            },
 "answer_info":
 { Args: { "p_message": string,"p_tranche": string }; Returns: {
               "amount_minor": number,
+"confirmed_at": string | null,
 "contest_ends_at": string | null,
 "contest_hours": number,
 "created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
 "due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
 "first_viewed_at": string | null,
+"funds_state": string,
 "id": string,
 "label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
 "release_mode": Database["public"]['Enums']["release_mode"],
 "released_at": string | null,
+"scheduled_for": string | null,
 "seq": number,
 "status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
 "tx_id": string,
 "updated_at": string
             }
@@ -1320,6 +1879,39 @@ isOneToOne: false
 "apply_payment_event":
 { Args: { "p_event_id": string,"p_payload": Json,"p_provider": string,"p_signature_valid": boolean }; Returns: Json
                            },
+"approve_release":
+{ Args: { "p_tranche": string }; Returns: {
+              "amount_minor": number,
+"confirmed_at": string | null,
+"contest_ends_at": string | null,
+"contest_hours": number,
+"created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
+"due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
+"first_viewed_at": string | null,
+"funds_state": string,
+"id": string,
+"label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
+"release_mode": Database["public"]['Enums']["release_mode"],
+"released_at": string | null,
+"scheduled_for": string | null,
+"seq": number,
+"status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
+"tx_id": string,
+"updated_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "tranches"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "bo_audit":
 { Args: { "p_tx": string }; Returns: {
               "actor_id": string,"actor_name": string,"actor_role": string,"created_at": string,"event": string,"from_status": string,"hash": string,"id": number,"payload": Json,"prev_hash": string,"to_status": string,"tranche_id": string,"tranche_seq": number
@@ -1340,7 +1932,9 @@ isOneToOne: false
                            },
 "claim_dossier":
 { Args: { "p_tx": string }; Returns: {
-              "amount_minor": number | null,
+              "accepted_at": string | null,
+"accepted_by": string | null,
+"amount_minor": number | null,
 "beneficiary_name": string | null,
 "created_at": string,
 "created_by": string,
@@ -1349,11 +1943,13 @@ isOneToOne: false
 "due_date": string | null,
 "expires_at": string | null,
 "id": string,
+"initiator_id": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,
 "purpose": string | null,
 "reject_reason": string | null,
+"settlement_mode": Database["public"]['Enums']["settlement_mode"],
 "status": Database["public"]['Enums']["tx_status"],
 "updated_at": string,
 "vertical": string
@@ -1364,20 +1960,66 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"claim_presentation_token":
+{ Args: { "p_reference": string }; Returns: Json
+                           },
 "confirm_by_reference":
 { Args: { "p_device_time"?: string,"p_ref": string }; Returns: {
               "amount_minor": number,
+"confirmed_at": string | null,
 "contest_ends_at": string | null,
 "contest_hours": number,
 "created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
 "due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
 "first_viewed_at": string | null,
+"funds_state": string,
 "id": string,
 "label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
 "release_mode": Database["public"]['Enums']["release_mode"],
 "released_at": string | null,
+"scheduled_for": string | null,
 "seq": number,
 "status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
+"tx_id": string,
+"updated_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "tranches"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"confirm_service":
+{ Args: { "p_tranche": string }; Returns: {
+              "amount_minor": number,
+"confirmed_at": string | null,
+"contest_ends_at": string | null,
+"contest_hours": number,
+"created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
+"due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
+"first_viewed_at": string | null,
+"funds_state": string,
+"id": string,
+"label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
+"release_mode": Database["public"]['Enums']["release_mode"],
+"released_at": string | null,
+"scheduled_for": string | null,
+"seq": number,
+"status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
 "tx_id": string,
 "updated_at": string
             }
@@ -1390,17 +2032,27 @@ isOneToOne: false
 "create_tranches":
 { Args: { "p_items": Json,"p_tx": string }; Returns: {
               "amount_minor": number,
+"confirmed_at": string | null,
 "contest_ends_at": string | null,
 "contest_hours": number,
 "created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
 "due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
 "first_viewed_at": string | null,
+"funds_state": string,
 "id": string,
 "label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
 "release_mode": Database["public"]['Enums']["release_mode"],
 "released_at": string | null,
+"scheduled_for": string | null,
 "seq": number,
 "status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
 "tx_id": string,
 "updated_at": string
             }[]
@@ -1413,17 +2065,27 @@ isOneToOne: false
 "decide_tranche":
 { Args: { "p_approved": boolean,"p_reason"?: string,"p_tranche": string }; Returns: {
               "amount_minor": number,
+"confirmed_at": string | null,
 "contest_ends_at": string | null,
 "contest_hours": number,
 "created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
 "due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
 "first_viewed_at": string | null,
+"funds_state": string,
 "id": string,
 "label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
 "release_mode": Database["public"]['Enums']["release_mode"],
 "released_at": string | null,
+"scheduled_for": string | null,
 "seq": number,
 "status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
 "tx_id": string,
 "updated_at": string
             }
@@ -1435,7 +2097,9 @@ isOneToOne: false
       } },
 "decide_tx":
 { Args: { "p_amount_checked": boolean,"p_approved": boolean,"p_reason"?: string,"p_tx": string }; Returns: {
-              "amount_minor": number | null,
+              "accepted_at": string | null,
+"accepted_by": string | null,
+"amount_minor": number | null,
 "beneficiary_name": string | null,
 "created_at": string,
 "created_by": string,
@@ -1444,11 +2108,13 @@ isOneToOne: false
 "due_date": string | null,
 "expires_at": string | null,
 "id": string,
+"initiator_id": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,
 "purpose": string | null,
 "reject_reason": string | null,
+"settlement_mode": Database["public"]['Enums']["settlement_mode"],
 "status": Database["public"]['Enums']["tx_status"],
 "updated_at": string,
 "vertical": string
@@ -1467,11 +2133,15 @@ isOneToOne: false
                            },
 "demo_resolve_dispute":
 { Args: { "p_note": string,"p_outcome": string,"p_tranche": string }; Returns: {
-              "id": string,
+              "before_payment": boolean,
+"id": string,
 "opened_at": string,
 "opened_by": string,
+"outcome": string | null,
 "reason": string,
 "reason_code": string | null,
+"refund_amount_minor": number | null,
+"refund_id": string | null,
 "resolution_note": string | null,
 "resolved_at": string | null,
 "resolved_by": string | null,
@@ -1490,7 +2160,9 @@ isOneToOne: false
       } },
 "demo_review":
 { Args: { "p_approved": boolean,"p_reason"?: string,"p_tx": string }; Returns: {
-              "amount_minor": number | null,
+              "accepted_at": string | null,
+"accepted_by": string | null,
+"amount_minor": number | null,
 "beneficiary_name": string | null,
 "created_at": string,
 "created_by": string,
@@ -1499,11 +2171,13 @@ isOneToOne: false
 "due_date": string | null,
 "expires_at": string | null,
 "id": string,
+"initiator_id": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,
 "purpose": string | null,
 "reject_reason": string | null,
+"settlement_mode": Database["public"]['Enums']["settlement_mode"],
 "status": Database["public"]['Enums']["tx_status"],
 "updated_at": string,
 "vertical": string
@@ -1536,20 +2210,33 @@ isOneToOne: false
               "code": string,"detail": Json,"result": string
             }[]
                            },
+"expire_due_requests":
+{ Args: Record<PropertyKey, never>; Returns: number
+                           },
 "generate_recurring_tranches":
 { Args: { "p_freq": Database["public"]['Enums']["recurrence_freq"],"p_label"?: string,"p_n": number,"p_start": string,"p_tx": string }; Returns: {
               "amount_minor": number,
+"confirmed_at": string | null,
 "contest_ends_at": string | null,
 "contest_hours": number,
 "created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
 "due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
 "first_viewed_at": string | null,
+"funds_state": string,
 "id": string,
 "label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
 "release_mode": Database["public"]['Enums']["release_mode"],
 "released_at": string | null,
+"scheduled_for": string | null,
 "seq": number,
 "status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
 "tx_id": string,
 "updated_at": string
             }[]
@@ -1589,23 +2276,66 @@ isOneToOne: false
 "is_validator":
 { Args: Record<PropertyKey, never>; Returns: boolean
                            },
+"issue_presentation_token":
+{ Args: { "p_request": string }; Returns: Json
+                           },
+"lift_suspension":
+{ Args: { "p_reason": string,"p_tx": string }; Returns: {
+              "accepted_at": string | null,
+"accepted_by": string | null,
+"amount_minor": number | null,
+"beneficiary_name": string | null,
+"created_at": string,
+"created_by": string,
+"currency": Database["public"]['Enums']["currency"] | null,
+"draft_data": NonNullable<Json>,
+"due_date": string | null,
+"expires_at": string | null,
+"id": string,
+"initiator_id": string | null,
+"plan_type": string | null,
+"provider_id": string | null,
+"provider_name": string | null,
+"purpose": string | null,
+"reject_reason": string | null,
+"settlement_mode": Database["public"]['Enums']["settlement_mode"],
+"status": Database["public"]['Enums']["tx_status"],
+"updated_at": string,
+"vertical": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "transactions"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "log_audit_export":
 { Args: { "p_rows": number,"p_tx": string }; Returns: undefined
                            },
 "mark_received":
 { Args: { "p_tranche": string }; Returns: {
               "amount_minor": number,
+"confirmed_at": string | null,
 "contest_ends_at": string | null,
 "contest_hours": number,
 "created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
 "due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
 "first_viewed_at": string | null,
+"funds_state": string,
 "id": string,
 "label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
 "release_mode": Database["public"]['Enums']["release_mode"],
 "released_at": string | null,
+"scheduled_for": string | null,
 "seq": number,
 "status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
 "tx_id": string,
 "updated_at": string
             }
@@ -1620,11 +2350,15 @@ isOneToOne: false
                            },
 "open_dispute":
 { Args: { "p_reason": string,"p_reason_code"?: string,"p_tranche": string }; Returns: {
-              "id": string,
+              "before_payment": boolean,
+"id": string,
 "opened_at": string,
 "opened_by": string,
+"outcome": string | null,
 "reason": string,
 "reason_code": string | null,
+"refund_amount_minor": number | null,
+"refund_id": string | null,
 "resolution_note": string | null,
 "resolved_at": string | null,
 "resolved_by": string | null,
@@ -1650,17 +2384,27 @@ isOneToOne: false
 "reject_request":
 { Args: { "p_reason": string,"p_tranche": string }; Returns: {
               "amount_minor": number,
+"confirmed_at": string | null,
 "contest_ends_at": string | null,
 "contest_hours": number,
 "created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
 "due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
 "first_viewed_at": string | null,
+"funds_state": string,
 "id": string,
 "label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
 "release_mode": Database["public"]['Enums']["release_mode"],
 "released_at": string | null,
+"scheduled_for": string | null,
 "seq": number,
 "status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
 "tx_id": string,
 "updated_at": string
             }
@@ -1676,20 +2420,57 @@ isOneToOne: false
 "remove_document":
 { Args: { "p_doc": string }; Returns: string
                            },
+"request_dispute_response":
+{ Args: { "p_dispute": string,"p_message": string }; Returns: {
+              "before_payment": boolean,
+"id": string,
+"opened_at": string,
+"opened_by": string,
+"outcome": string | null,
+"reason": string,
+"reason_code": string | null,
+"refund_amount_minor": number | null,
+"refund_id": string | null,
+"resolution_note": string | null,
+"resolved_at": string | null,
+"resolved_by": string | null,
+"responded_at": string | null,
+"responded_by": string | null,
+"response": string | null,
+"status": string,
+"tranche_id": string,
+"tx_id": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "disputes"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "request_info":
 { Args: { "p_message": string,"p_tranche": string }; Returns: {
               "amount_minor": number,
+"confirmed_at": string | null,
 "contest_ends_at": string | null,
 "contest_hours": number,
 "created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
 "due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
 "first_viewed_at": string | null,
+"funds_state": string,
 "id": string,
 "label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
 "release_mode": Database["public"]['Enums']["release_mode"],
 "released_at": string | null,
+"scheduled_for": string | null,
 "seq": number,
 "status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
 "tx_id": string,
 "updated_at": string
             }
@@ -1706,12 +2487,16 @@ isOneToOne: false
 { Args: { "p_tranche"?: string,"p_tx": string }; Returns: number
                            },
 "resolve_dispute":
-{ Args: { "p_dispute": string,"p_note": string,"p_outcome": string }; Returns: {
-              "id": string,
+{ Args: { "p_amount_minor"?: number,"p_dispute": string,"p_note": string,"p_outcome": string }; Returns: {
+              "before_payment": boolean,
+"id": string,
 "opened_at": string,
 "opened_by": string,
+"outcome": string | null,
 "reason": string,
 "reason_code": string | null,
+"refund_amount_minor": number | null,
+"refund_id": string | null,
 "resolution_note": string | null,
 "resolved_at": string | null,
 "resolved_by": string | null,
@@ -1743,11 +2528,15 @@ isOneToOne: false
                            },
 "respond_dispute":
 { Args: { "p_dispute": string,"p_text": string }; Returns: {
-              "id": string,
+              "before_payment": boolean,
+"id": string,
 "opened_at": string,
 "opened_by": string,
+"outcome": string | null,
 "reason": string,
 "reason_code": string | null,
+"refund_amount_minor": number | null,
+"refund_id": string | null,
 "resolution_note": string | null,
 "resolved_at": string | null,
 "resolved_by": string | null,
@@ -1764,6 +2553,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"revoke_presentation_tokens":
+{ Args: { "p_request": string }; Returns: number
+                           },
 "revoke_token":
 { Args: { "p_reason": string,"p_tranche": string }; Returns: Json
                            },
@@ -1777,7 +2569,9 @@ isOneToOne: false
                            },
 "simulate_system_transition":
 { Args: { "p_to": Database["public"]['Enums']["tx_status"],"p_tx": string }; Returns: {
-              "amount_minor": number | null,
+              "accepted_at": string | null,
+"accepted_by": string | null,
+"amount_minor": number | null,
 "beneficiary_name": string | null,
 "created_at": string,
 "created_by": string,
@@ -1786,11 +2580,13 @@ isOneToOne: false
 "due_date": string | null,
 "expires_at": string | null,
 "id": string,
+"initiator_id": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,
 "purpose": string | null,
 "reject_reason": string | null,
+"settlement_mode": Database["public"]['Enums']["settlement_mode"],
 "status": Database["public"]['Enums']["tx_status"],
 "updated_at": string,
 "vertical": string
@@ -1804,17 +2600,27 @@ isOneToOne: false
 "simulate_tranche_system":
 { Args: { "p_to": Database["public"]['Enums']["tranche_status"],"p_tranche": string }; Returns: {
               "amount_minor": number,
+"confirmed_at": string | null,
 "contest_ends_at": string | null,
 "contest_hours": number,
 "created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
 "due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
 "first_viewed_at": string | null,
+"funds_state": string,
 "id": string,
 "label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
 "release_mode": Database["public"]['Enums']["release_mode"],
 "released_at": string | null,
+"scheduled_for": string | null,
 "seq": number,
 "status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
 "tx_id": string,
 "updated_at": string
             }
@@ -1830,20 +2636,123 @@ isOneToOne: false
 "status_ok":
 { Args: { "p_tx": string }; Returns: boolean
                            },
-"transition_tranche":
-{ Args: { "p_reason"?: string,"p_to": Database["public"]['Enums']["tranche_status"],"p_tranche": string }; Returns: {
+"submit_evidence":
+{ Args: { "p_tranche": string }; Returns: {
               "amount_minor": number,
+"confirmed_at": string | null,
 "contest_ends_at": string | null,
 "contest_hours": number,
 "created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
 "due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
 "first_viewed_at": string | null,
+"funds_state": string,
 "id": string,
 "label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
 "release_mode": Database["public"]['Enums']["release_mode"],
 "released_at": string | null,
+"scheduled_for": string | null,
 "seq": number,
 "status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
+"tx_id": string,
+"updated_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "tranches"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"submit_operation":
+{ Args: { "p_tx": string }; Returns: {
+              "accepted_at": string | null,
+"accepted_by": string | null,
+"amount_minor": number | null,
+"beneficiary_name": string | null,
+"created_at": string,
+"created_by": string,
+"currency": Database["public"]['Enums']["currency"] | null,
+"draft_data": NonNullable<Json>,
+"due_date": string | null,
+"expires_at": string | null,
+"id": string,
+"initiator_id": string | null,
+"plan_type": string | null,
+"provider_id": string | null,
+"provider_name": string | null,
+"purpose": string | null,
+"reject_reason": string | null,
+"settlement_mode": Database["public"]['Enums']["settlement_mode"],
+"status": Database["public"]['Enums']["tx_status"],
+"updated_at": string,
+"vertical": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "transactions"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"suspend_operation":
+{ Args: { "p_reason": string,"p_tx": string }; Returns: {
+              "accepted_at": string | null,
+"accepted_by": string | null,
+"amount_minor": number | null,
+"beneficiary_name": string | null,
+"created_at": string,
+"created_by": string,
+"currency": Database["public"]['Enums']["currency"] | null,
+"draft_data": NonNullable<Json>,
+"due_date": string | null,
+"expires_at": string | null,
+"id": string,
+"initiator_id": string | null,
+"plan_type": string | null,
+"provider_id": string | null,
+"provider_name": string | null,
+"purpose": string | null,
+"reject_reason": string | null,
+"settlement_mode": Database["public"]['Enums']["settlement_mode"],
+"status": Database["public"]['Enums']["tx_status"],
+"updated_at": string,
+"vertical": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "transactions"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"transition_tranche":
+{ Args: { "p_reason"?: string,"p_to": Database["public"]['Enums']["tranche_status"],"p_tranche": string }; Returns: {
+              "amount_minor": number,
+"confirmed_at": string | null,
+"contest_ends_at": string | null,
+"contest_hours": number,
+"created_at": string,
+"currency": Database["public"]['Enums']["currency"] | null,
+"due_date": string | null,
+"evidence_submitted_at": string | null,
+"expires_at": string | null,
+"first_viewed_at": string | null,
+"funds_state": string,
+"id": string,
+"label": string,
+"on_hold": boolean,
+"paid_at": string | null,
+"refunded_minor": number,
+"release_mode": Database["public"]['Enums']["release_mode"],
+"released_at": string | null,
+"scheduled_for": string | null,
+"seq": number,
+"status": Database["public"]['Enums']["tranche_status"],
+"target_amount_minor": number | null,
 "tx_id": string,
 "updated_at": string
             }
@@ -1855,7 +2764,9 @@ isOneToOne: false
       } },
 "transition_tx":
 { Args: { "p_reason"?: string,"p_to": Database["public"]['Enums']["tx_status"],"p_tx": string }; Returns: {
-              "amount_minor": number | null,
+              "accepted_at": string | null,
+"accepted_by": string | null,
+"amount_minor": number | null,
 "beneficiary_name": string | null,
 "created_at": string,
 "created_by": string,
@@ -1864,11 +2775,13 @@ isOneToOne: false
 "due_date": string | null,
 "expires_at": string | null,
 "id": string,
+"initiator_id": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,
 "purpose": string | null,
 "reject_reason": string | null,
+"settlement_mode": Database["public"]['Enums']["settlement_mode"],
 "status": Database["public"]['Enums']["tx_status"],
 "updated_at": string,
 "vertical": string
@@ -1884,7 +2797,7 @@ isOneToOne: false
                            }
           }
           Enums: {
-            "currency": "EUR"|"USD"|"XAF","payment_status": "PENDING"|"SUCCEEDED"|"FAILED"|"REFUNDED","platform_role": "USER"|"VALIDATOR"|"ADMIN","recurrence_freq": "WEEKLY"|"MONTHLY"|"QUARTERLY","release_mode": "PROVIDER_CONFIRM"|"PAYER_CONFIRM"|"EVIDENCE_REVIEW"|"AUTO"|"IMMEDIATE","tranche_status": "PLANNED"|"AWAITING_PAYMENT"|"PAID_LOCKED"|"EVIDENCE_SUBMITTED"|"CONFIRMED"|"RELEASED"|"DISPUTED"|"CANCELLED"|"EXPIRED"|"INFO_REQUESTED"|"REJECTED","tx_role": "PAYER"|"REQUESTER"|"PROVIDER"|"SYSTEM","tx_status": "DRAFT"|"SUBMITTED"|"IN_REVIEW"|"REJECTED"|"VALIDATED"|"TOKEN_ISSUED"|"AWAITING_PAYMENT"|"EXPIRED"|"CANCELLED"|"PAID_LOCKED"|"SERVICE_CONFIRMED"|"RELEASED"|"CLOSED"|"DISPUTED"|"IN_PROGRESS","vertical": "EDUCATION"|"HEALTH"|"RENT"|"AGRO"|"REAL_ESTATE"|"LAND"
+            "currency": "EUR"|"USD"|"XAF","payment_status": "PENDING"|"SUCCEEDED"|"FAILED"|"REFUNDED","platform_role": "USER"|"VALIDATOR"|"ADMIN","recurrence_freq": "WEEKLY"|"MONTHLY"|"QUARTERLY","release_mode": "PROVIDER_CONFIRM"|"PAYER_CONFIRM"|"EVIDENCE_REVIEW"|"AUTO"|"IMMEDIATE","settlement_mode": "DIRECT"|"CONDITIONAL","tranche_status": "PLANNED"|"AWAITING_PAYMENT"|"PAID_LOCKED"|"EVIDENCE_SUBMITTED"|"CONFIRMED"|"RELEASED"|"DISPUTED"|"CANCELLED"|"EXPIRED"|"INFO_REQUESTED"|"REJECTED"|"DRAFT"|"SUBMITTED"|"ACCEPTED"|"PAID"|"REFUNDED","tx_role": "PAYER"|"REQUESTER"|"PROVIDER"|"SYSTEM"|"INITIATOR","tx_status": "DRAFT"|"SUBMITTED"|"IN_REVIEW"|"REJECTED"|"VALIDATED"|"TOKEN_ISSUED"|"AWAITING_PAYMENT"|"EXPIRED"|"CANCELLED"|"PAID_LOCKED"|"SERVICE_CONFIRMED"|"RELEASED"|"CLOSED"|"DISPUTED"|"IN_PROGRESS"|"PENDING_REVIEW"|"ACTIVE"|"SUSPENDED","vertical": "EDUCATION"|"HEALTH"|"RENT"|"AGRO"|"REAL_ESTATE"|"LAND"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -2000,7 +2913,7 @@ export type CompositeTypes<
 export const Constants = {
   "public": {
           Enums: {
-            "currency": ["EUR", "USD", "XAF"],"payment_status": ["PENDING", "SUCCEEDED", "FAILED", "REFUNDED"],"platform_role": ["USER", "VALIDATOR", "ADMIN"],"recurrence_freq": ["WEEKLY", "MONTHLY", "QUARTERLY"],"release_mode": ["PROVIDER_CONFIRM", "PAYER_CONFIRM", "EVIDENCE_REVIEW", "AUTO", "IMMEDIATE"],"tranche_status": ["PLANNED", "AWAITING_PAYMENT", "PAID_LOCKED", "EVIDENCE_SUBMITTED", "CONFIRMED", "RELEASED", "DISPUTED", "CANCELLED", "EXPIRED", "INFO_REQUESTED", "REJECTED"],"tx_role": ["PAYER", "REQUESTER", "PROVIDER", "SYSTEM"],"tx_status": ["DRAFT", "SUBMITTED", "IN_REVIEW", "REJECTED", "VALIDATED", "TOKEN_ISSUED", "AWAITING_PAYMENT", "EXPIRED", "CANCELLED", "PAID_LOCKED", "SERVICE_CONFIRMED", "RELEASED", "CLOSED", "DISPUTED", "IN_PROGRESS"],"vertical": ["EDUCATION", "HEALTH", "RENT", "AGRO", "REAL_ESTATE", "LAND"]
+            "currency": ["EUR", "USD", "XAF"],"payment_status": ["PENDING", "SUCCEEDED", "FAILED", "REFUNDED"],"platform_role": ["USER", "VALIDATOR", "ADMIN"],"recurrence_freq": ["WEEKLY", "MONTHLY", "QUARTERLY"],"release_mode": ["PROVIDER_CONFIRM", "PAYER_CONFIRM", "EVIDENCE_REVIEW", "AUTO", "IMMEDIATE"],"settlement_mode": ["DIRECT", "CONDITIONAL"],"tranche_status": ["PLANNED", "AWAITING_PAYMENT", "PAID_LOCKED", "EVIDENCE_SUBMITTED", "CONFIRMED", "RELEASED", "DISPUTED", "CANCELLED", "EXPIRED", "INFO_REQUESTED", "REJECTED", "DRAFT", "SUBMITTED", "ACCEPTED", "PAID", "REFUNDED"],"tx_role": ["PAYER", "REQUESTER", "PROVIDER", "SYSTEM", "INITIATOR"],"tx_status": ["DRAFT", "SUBMITTED", "IN_REVIEW", "REJECTED", "VALIDATED", "TOKEN_ISSUED", "AWAITING_PAYMENT", "EXPIRED", "CANCELLED", "PAID_LOCKED", "SERVICE_CONFIRMED", "RELEASED", "CLOSED", "DISPUTED", "IN_PROGRESS", "PENDING_REVIEW", "ACTIVE", "SUSPENDED"],"vertical": ["EDUCATION", "HEALTH", "RENT", "AGRO", "REAL_ESTATE", "LAND"]
           }
         }
 } as const

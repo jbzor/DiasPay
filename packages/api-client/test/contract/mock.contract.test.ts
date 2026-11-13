@@ -18,7 +18,7 @@ contractSuite({
   as: async (who) => { api.setUser(USERS[who]); return api; },
   provider: { query: 'hopital', vertical: 'HEALTH', expectName: /Hôpital Central/ },
   file: (kind) => ({ kind: kind as never, name: `${kind}.pdf`, mimeType: 'application/pdf', sizeBytes: 1_000, uri: `file:///${kind}.pdf` }),
-  submittedStatuses: ['IN_REVIEW'],
+  refundSettlement: 'IMMEDIATE',   // partenaire simulé : le remboursement est appliqué aussitôt (voir Harness.refundSettlement)
   partyIsolation: false,
   phones: PHONES,
   timeout: 5_000,

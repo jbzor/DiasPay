@@ -1,5 +1,6 @@
 import { DomainError } from './types';
 import type { ErrorCode } from './errors';
+import { DISPUTE_OUTCOMES } from './disputes';
 
 /**
  * Décisions du bureau de contrôle (lot 5). Miroir de decide_tx, decide_tranche et resolve_dispute (0005, 0006) :
@@ -20,11 +21,9 @@ export function evidenceDecisionError(d: { approved: boolean; reason?: string | 
   return d.approved || textOk(d.reason) ? null : 'REASON_REQUIRED';
 }
 
-export type DisputeOutcomeCode = 'RELEASE_TO_PROVIDER' | 'REFUND_PAYER';
-
-/** Litige : issue connue et note de décision obligatoire (RG-09 : administrateur non partie, vérifié par la base). */
+/** Lot X v2 : issues du litige distinct (miroir de _resolve_dispute_v2) ; note de décision obligatoire. */
 export function disputeDecisionError(d: { outcome: string; note?: string | null }): ErrorCode | null {
-  if (d.outcome !== 'RELEASE_TO_PROVIDER' && d.outcome !== 'REFUND_PAYER') return 'INVALID_OUTCOME';
+  if (!(DISPUTE_OUTCOMES as readonly string[]).includes(d.outcome)) return 'INVALID_OUTCOME';
   return textOk(d.note) ? null : 'REASON_REQUIRED';
 }
 

@@ -18,7 +18,7 @@ export function messageError(text: string | null | undefined): 'REASON_REQUIRED'
 }
 
 /** Place de l’utilisateur dans la demande : payeur, initiateur (créateur du dossier). */
-export interface RequestParty { isPayer: boolean; isCreator: boolean }
+export interface RequestParty { isPayer: boolean; isCreator: boolean; /** Demande suspendue par un litige avant paiement. */ onHold?: boolean }
 
 function checkMessage(text: string | null | undefined): void {
   const code = messageError(text);
@@ -28,32 +28,33 @@ function checkMessage(text: string | null | undefined): void {
 /** Le payeur demande des informations complémentaires (miroir de request_info). */
 export function requestInfoDecision(status: TrancheStatus, who: RequestParty, message: string): 'INFO_REQUESTED' {
   if (!who.isPayer) throw new DomainError('PAYER_ONLY', 'Réservé au payeur');
-  if (status !== 'AWAITING_PAYMENT') throw new DomainError('TRANSITION_UNKNOWN', `Transition de tranche ${status} -> INFO_REQUESTED inconnue`);
+  if (status !== 'SUBMITTED') throw new DomainError('TRANSITION_UNKNOWN', `Transition de demande ${status} -> INFO_REQUESTED inconnue`);
   if (who.isCreator) throw new DomainError('TRANSITION_FORBIDDEN', 'Vous êtes l’initiateur de cette demande');
+  if (who.onHold) throw new DomainError('REQUEST_ON_HOLD', 'Demande suspendue par un litige');
   checkMessage(message);
   return 'INFO_REQUESTED';
 }
 
-/** L’initiateur répond : la tranche revient à payer (miroir de answer_info). */
-export function answerInfoDecision(status: TrancheStatus, who: RequestParty, message: string): 'AWAITING_PAYMENT' {
+/** L’initiateur répond : la demande redevient soumise (miroir de answer_info). */
+export function answerInfoDecision(status: TrancheStatus, who: RequestParty, message: string): 'SUBMITTED' {
   if (!who.isCreator) throw new DomainError('INITIATOR_ONLY', 'Réservé à l’initiateur de la demande');
-  if (status !== 'INFO_REQUESTED') throw new DomainError('TRANSITION_UNKNOWN', `Transition de tranche ${status} -> AWAITING_PAYMENT inconnue`);
+  if (status !== 'INFO_REQUESTED') throw new DomainError('TRANSITION_UNKNOWN', `Transition de demande ${status} -> SUBMITTED inconnue`);
   checkMessage(message);
-  return 'AWAITING_PAYMENT';
+  return 'SUBMITTED';
 }
 
 /** Le payeur rejette la demande : REJECTED, terminal ; le jeton est révoqué (miroir de reject_request). */
 export function rejectRequestDecision(status: TrancheStatus, who: RequestParty, reason: string): 'REJECTED' {
   if (!who.isPayer) throw new DomainError('PAYER_ONLY', 'Réservé au payeur');
-  if (status !== 'AWAITING_PAYMENT' && status !== 'INFO_REQUESTED') {
-    throw new DomainError('TRANSITION_UNKNOWN', `Transition de tranche ${status} -> REJECTED inconnue`);
+  if (status !== 'SUBMITTED' && status !== 'INFO_REQUESTED') {
+    throw new DomainError('TRANSITION_UNKNOWN', `Transition de demande ${status} -> REJECTED inconnue`);
   }
   checkMessage(reason);
   return 'REJECTED';
 }
 
-/** Statuts où l’initiateur peut encore révoquer le jeton : la tranche n’est pas payée. */
-export const REVOCABLE_BY_INITIATOR: readonly TrancheStatus[] = ['PLANNED', 'AWAITING_PAYMENT', 'INFO_REQUESTED'];
+/** Statuts où l’initiateur peut encore révoquer le jeton : la demande n’est pas payée (miroir de _check_token_manager, 0014). */
+export const REVOCABLE_BY_INITIATOR: readonly TrancheStatus[] = ['DRAFT', 'SUBMITTED', 'INFO_REQUESTED', 'ACCEPTED'];
 
 /**
  * Qui révoque ou réémet un jeton (miroir de _check_token_manager) : l’initiateur tant que la tranche n’est pas payée,

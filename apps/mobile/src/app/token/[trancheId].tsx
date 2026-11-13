@@ -18,6 +18,7 @@ type Load =
   | { kind: 'notfound' }
   | { kind: 'error' }
   | { kind: 'unavailable'; tx: Transaction; tranche: Tranche }
+  | { kind: 'direct'; tx: Transaction; tranche: Tranche }
   | { kind: 'ready'; tx: Transaction; tranche: Tranche; token: TrancheToken; image: boolean };
 
 /** Un tick par 30 s suffit pour le décompte (précision à la minute). */
@@ -31,7 +32,8 @@ function useNow(): Date {
 }
 
 /**
- * eQR d’une tranche (lot X, exigence 5.1 du cahier) : affiché uniquement au payeur connecté, pour sa propre tranche payée,
+ * eQR d’une tranche (lot X, exigence 5.1 du cahier) : affiché uniquement au payeur connecté, pour sa propre tranche payée
+ * en déblocage conditionnel (fonds bloqués ; lot X version 2 : jamais en règlement direct),
  * à présenter en personne au prestataire. Aucun lien, aucun partage, aucune copie, aucun enregistrement, aucune capture.
  * L’image du QR dépend du réglage serveur eqr_image_enabled ; la référence reste lisible pour la saisie manuelle.
  */
@@ -51,7 +53,12 @@ export default function TokenScreen() {
     (async () => {
       try {
         const { tx, tranche } = await api.getTranche(String(trancheId));
-        if (persona !== 'PAYER' || tranche.status !== 'PAID_LOCKED') {
+        // Lot X version 2 : aucun QR en règlement direct (getToken répondrait NO_TOKEN) ; message explicite.
+        if (tx.settlementMode !== 'CONDITIONAL') {
+          if (alive) setLoad({ kind: 'direct', tx, tranche });
+          return;
+        }
+        if (persona !== 'PAYER' || tranche.status !== 'PAID' || tranche.fundsState !== 'HELD' || tranche.confirmedAt) {
           if (alive) setLoad({ kind: 'unavailable', tx, tranche });
           return;
         }
@@ -71,9 +78,10 @@ export default function TokenScreen() {
     return (
       <Screen>
         <TopBar title={t('tokenReadyTitle')}
-          subtitle={load.kind === 'unavailable' ? t('tokenSubtitle', { type: verticalLabel(load.tx.vertical, locale), n: load.tranche.seq }) : undefined} />
+          subtitle={load.kind === 'unavailable' || load.kind === 'direct' ? t('tokenSubtitle', { type: verticalLabel(load.tx.vertical, locale), n: load.tranche.seq }) : undefined} />
         {load.kind === 'loading' ? <Text style={st.muted} accessibilityLiveRegion="polite">{t('loading')}</Text> : null}
         {load.kind === 'unavailable' ? <Banner tone="pending" text={t('tokenOnlyWhenPaid')} /> : null}
+        {load.kind === 'direct' ? <Banner tone="pending" text={t('tokenDirectMode')} /> : null}
         {load.kind === 'notfound' ? <Banner tone="error" text={t('err_TRANCHE_NOT_FOUND')} /> : null}
         {load.kind === 'error' ? (
           <>

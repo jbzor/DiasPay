@@ -2,7 +2,7 @@
 -- Coller tout le fichier dans l’éditeur et exécuter : lire le message d’erreur final (RESULTAT ou ECHEC).
 -- Test des migrations 0009 à 0012 (lot X, passe 2 : X4 à X7). Même format que 03_lotx.sql : utilisateurs fictifs, rôles
 -- réels (authenticated, anon), tout est annulé à la fin (ROLLBACK), le résumé échoue au moindre FAIL.
--- Prérequis : 0001 à 0012 appliquées, app_config.mock_mode = 'true' (projet de développement).
+-- Prérequis : 0001 à 0016 appliquées (modèle cible v2 : docs/specs/modele-cible-v2.md), app_config.mock_mode = 'true' (projet de développement).
 begin;
 create schema t;
 create table t.results (n serial primary key, ok boolean not null, label text not null);
@@ -63,6 +63,13 @@ create function t.draft(p_id uuid, p_amount int) returns jsonb language sql as $
     'tranches', jsonb_build_array(jsonb_build_object('label', 'Inscription', 'amountMinor', p_amount::text, 'dueDate', (current_date + 2)::text)))
 $$;
 grant execute on function t.draft(uuid, int) to authenticated;
+-- Brouillon d’un type de besoin donné (modules de test).
+create function t.module_draft(p_id uuid, p_module text, p_amount int) returns jsonb language sql as $$
+  select jsonb_build_object('id', p_id, 'vertical', p_module, 'amountMinor', p_amount::text, 'currency', 'XAF', 'purpose', 'Besoin (module de test)',
+    'beneficiaryName', 'Awa', 'provider', jsonb_build_object('name', 'Lycée (passe 2)', 'invitedPhone', '+237 6 2333 0003'), 'planType', 'SINGLE',
+    'tranches', jsonb_build_array(jsonb_build_object('label', 'Unique', 'amountMinor', p_amount::text, 'dueDate', (current_date + 2)::text)))
+$$;
+grant execute on function t.module_draft(uuid, text, int) to authenticated;
 
 -- ===================== X4 : TrustVault =====================
 -- ---------- Structure et droits (X4) ----------
@@ -198,17 +205,14 @@ select t.check(not exists (select 1 from transactions where id = 'fa300000-0000-
 select t.admin();
 
 -- ===================== X5 : fondations des paiements =====================
--- Dossier validé (en cours, première tranche à payer) : créé par le payeur fa..01, validé par fa..04.
-create function t.active_dossier(p_draft jsonb) returns void language plpgsql as $$
+-- Opération active (première demande soumise, à payer) : créée et soumise par le payeur fa..01. platform_review vaut NEVER
+-- par défaut (K2) : la soumission active l’opération sans passer par le bureau.
+create function t.active_dossier(p_draft jsonb, p_kind text default 'ENROLMENT_CERTIFICATE') returns void language plpgsql as $$
 begin
   perform t.login('fa000000-0000-4000-8000-000000000001');
   perform save_draft(p_draft);
-  perform add_document((p_draft->>'id')::uuid, 'ENROLMENT_CERTIFICATE', (p_draft->>'id') || '/ENROLMENT_CERTIFICATE/x.pdf', 'x.pdf', 'application/pdf', 1000);
+  perform add_document((p_draft->>'id')::uuid, p_kind, (p_draft->>'id') || '/' || p_kind || '/x.pdf', 'x.pdf', 'application/pdf', 1000);
   perform transition_tx((p_draft->>'id')::uuid, 'SUBMITTED');
-  perform t.admin();
-  perform t.login('fa000000-0000-4000-8000-000000000004');
-  perform transition_tx((p_draft->>'id')::uuid, 'IN_REVIEW');
-  perform decide_tx((p_draft->>'id')::uuid, true, true);
   perform t.admin();
 end $$;
 -- Événement du partenaire simulé (contenu de PaymentPort.parseWebhook).
@@ -255,13 +259,18 @@ select t.active_dossier(jsonb_build_object('id','fa300000-0000-4000-8000-0000000
                                                     jsonb_build_object('label','Solde','amountMinor','200000','dueDate',(current_date + 90)::text))));
 insert into t.ids select 'e1', id from tranches where tx_id = 'fa300000-0000-4000-8000-00000000000e' and seq = 1;
 insert into t.ids select 'e2', id from tranches where tx_id = 'fa300000-0000-4000-8000-00000000000e' and seq = 2;
-select t.check((select status from tranches where id = (select v from t.ids where k = 'e1')) = 'AWAITING_PAYMENT', 'dossier E en cours, tranche 1 à payer');
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-00000000000e') = 'ACTIVE'
+           and (select status from tranches where id = (select v from t.ids where k = 'e1')) = 'SUBMITTED'
+           and (select status from tranches where id = (select v from t.ids where k = 'e2')) = 'DRAFT',
+  'opération E active, demande 1 soumise (à payer), demande 2 programmée');
 
 -- ---------- X5.2 Tentatives et idempotence ----------
 select t.login('fa000000-0000-4000-8000-000000000001');
 insert into t.ids select 'att1', (start_payment((select v from t.ids where k = 'e1'), 'cle-e1-0001')->>'id')::uuid;
 select t.check((select status = 'PENDING' and provider = 'SIMULATED' and amount_minor = 100000 and provider_ref like 'SIM-%'
-                from payment_attempts where id = (select v from t.ids where k = 'att1')), 'start_payment : tentative en cours, montant de la tranche');
+                from payment_attempts where id = (select v from t.ids where k = 'att1'))
+           and (select status from tranches where id = (select v from t.ids where k = 'e1')) = 'ACCEPTED',
+  'start_payment : tentative en cours, montant de la demande, demande acceptée (ACCEPTED)');
 insert into t.res values ('att1b', start_payment((select v from t.ids where k = 'e1'), 'cle-e1-0001'));
 select t.check((select (v->>'id')::uuid from t.res where k = 'att1b') = (select v from t.ids where k = 'att1')
            and (select count(*) from payment_attempts where tranche_id = (select v from t.ids where k = 'e1')) = 1,
@@ -295,18 +304,21 @@ select t.check((apply_payment_event('SIMULATED', 'evt-e1-x', true, t.evt('PAYMEN
 insert into t.res values ('evt3', apply_payment_event('SIMULATED', 'evt-e1-3', true, t.evt('PAYMENT_SUCCEEDED', 'cle-e1-0001', 100000)));
 select t.check((select v->>'result' from t.res where k = 'evt3') = 'APPLIED'
            and (select status from payment_attempts where id = (select v from t.ids where k = 'att1')) = 'SUCCEEDED'
-           and (select status from tranches where id = (select v from t.ids where k = 'e1')) = 'PAID_LOCKED'
+           and (select status = 'PAID' and funds_state = 'NONE' and paid_at is not null from tranches where id = (select v from t.ids where k = 'e1'))
            and (select count(*) from payments where tranche_id = (select v from t.ids where k = 'e1') and status = 'SUCCEEDED' and provider = 'SIMULATED') = 1,
-  'paiement réussi : tentative réussie, tranche payée (fonds bloqués), paiement enregistré');
+  'paiement réussi : tentative réussie, demande payée (PAID, règlement direct : aucun fonds bloqué), paiement enregistré');
 select t.check((select count(*) from ledger_journals where tranche_id = (select v from t.ids where k = 'e1') and kind = 'PAYMENT') = 1
            and (select sum(debit_minor) from ledger_entries e join ledger_journals j on j.id = e.journal_id where j.tranche_id = (select v from t.ids where k = 'e1') and e.account_code = 'PARTNER_CASH') = 100000
            and (select sum(credit_minor) from ledger_entries e join ledger_journals j on j.id = e.journal_id where j.tranche_id = (select v from t.ids where k = 'e1') and e.account_code = 'DUE_TO_PROVIDER') = 100000,
   'journal financier : fonds chez le partenaire au débit, dû au prestataire au crédit');
+select t.check((select trigger from release_events where tranche_id = (select v from t.ids where k = 'e1')) = 'DIRECT_PAYMENT'
+           and (select array_agg(kind order by kind) from ledger_journals where tranche_id = (select v from t.ids where k = 'e1')) = array['PAYMENT','RELEASE'],
+  'règlement direct : événement DIRECT_PAYMENT, paiement puis versement au prestataire au journal');
 insert into t.res values ('evt3b', apply_payment_event('SIMULATED', 'evt-e1-3', true, t.evt('PAYMENT_SUCCEEDED', 'cle-e1-0001', 100000)));
 select t.check((select v - 'eventId' from t.res where k = 'evt3b') = '{"result":"DUPLICATE","original":"APPLIED"}'::jsonb
            and (select count(*) from webhook_events where event_id = 'evt-e1-3') = 1
-           and (select count(*) from ledger_journals where tranche_id = (select v from t.ids where k = 'e1')) = 1,
-  'événement en double (même identifiant) : DUPLICATE, rien de plus');
+           and (select count(*) from ledger_journals where tranche_id = (select v from t.ids where k = 'e1')) = 2,
+  'événement en double (même identifiant) : DUPLICATE, rien de plus (toujours un paiement et un versement au journal)');
 insert into t.res values ('evt4', apply_payment_event('SIMULATED', 'evt-e1-4', true, t.evt('PAYMENT_SUCCEEDED', 'cle-e1-0001', 100000)));
 select t.check((select v->>'error' from t.res where k = 'evt4') = 'ALREADY_APPLIED'
            and (select count(*) from payments where tranche_id = (select v from t.ids where k = 'e1')) = 1,
@@ -319,7 +331,7 @@ select t.check((select v->>'result' from t.res where k = 'evt0') = 'IGNORED'
   'hors d’ordre : « en cours » reçu après la réussite ignoré, échec contradictoire rejeté ; la réussite reste');
 select t.login('fa000000-0000-4000-8000-000000000001');
 select t.check((start_payment((select v from t.ids where k = 'e1'), 'cle-e1-0001')->>'status') = 'SUCCEEDED', 'même clé après la réussite : même résultat');
-select t.hint($$select start_payment((select v from t.ids where k = 'e1'), 'cle-e1-0003')$$, 'NOT_PAYABLE', 'nouvelle clé sur une tranche payée');
+select t.hint($$select start_payment((select v from t.ids where k = 'e1'), 'cle-e1-0003')$$, 'NOT_PAYABLE', 'nouvelle clé sur une demande payée');
 select t.check((select count(*) from ledger_entries) = 0 and (select count(*) from webhook_events) = 0, 'payeur : journal financier et événements illisibles (personnel seulement)');
 select t.admin();
 
@@ -352,25 +364,73 @@ select t.check((select array_agg(kind order by created_at, kind) from ledger_jou
                @> array['PAYMENT','REFUND_REQUESTED','REFUND_SETTLED']
            and (select bool_and(reverses_journal_id is not null) from ledger_journals where tranche_id = (select v from t.ids where k = 'e1') and kind like 'REFUND%'),
   'remboursement : contrepassations liées au paiement d’origine, jamais une modification');
-select t.check(not exists (
-  select 1 from ledger_entries e join ledger_journals j on j.id = e.journal_id where j.tranche_id = (select v from t.ids where k = 'e1')
-  group by e.account_code having sum(e.debit_minor) <> sum(e.credit_minor)),
-  'remboursé en totalité : chaque compte de la tranche revient à zéro');
+select t.check((select status = 'REFUNDED' and refunded_minor = 100000 from tranches where id = (select v from t.ids where k = 'e1'))
+           and exists (select 1 from audit_log where tranche_id = (select v from t.ids where k = 'e1') and event = 'REQUEST_REFUNDED'
+                       and payload->>'tranche_from' = 'PAID' and payload->>'tranche_to' = 'REFUNDED'),
+  'remboursements versés : demande PAID → REFUNDED, refunded_minor = montant remboursé (100 000)');
+select t.check((select sum(e.debit_minor) = sum(e.credit_minor) from ledger_entries e join ledger_journals j on j.id = e.journal_id
+                where j.tranche_id = (select v from t.ids where k = 'e1'))
+           and (select coalesce(sum(e.credit_minor), 0) - coalesce(sum(e.debit_minor), 0) from ledger_entries e join ledger_journals j on j.id = e.journal_id
+                where j.tranche_id = (select v from t.ids where k = 'e1') and e.account_code = 'REFUNDS_PAYABLE') = 0,
+  'règlement direct remboursé en totalité : journal de la demande équilibré, remboursements dus soldés');
 select t.check((select status from payments where tranche_id = (select v from t.ids where k = 'e1')) = 'REFUNDED', 'paiement marqué remboursé');
 
--- ---------- X2.6 + X5 : mode IMMEDIATE par le même chemin (débloqué au paiement) ----------
-update tranches set release_mode = 'IMMEDIATE' where id = (select v from t.ids where k = 'e2');
+-- ---------- X2.6 + X5 : règlement direct par le même chemin (l’ancien mode IMMEDIATE devient settlement_mode = DIRECT) ----------
+select t.fails($$update tranches set release_mode = 'IMMEDIATE' where id = (select v from t.ids where k = 'e2')$$,
+  'mode IMMEDIATE refusé (contrainte) : remplacé par le règlement direct');
 select t.login('fa000000-0000-4000-8000-000000000001');
-select simulate_tranche_system((select v from t.ids where k = 'e2'), 'AWAITING_PAYMENT');
+select simulate_tranche_system((select v from t.ids where k = 'e2'), 'SUBMITTED');
 insert into t.ids select 'att2', (start_payment((select v from t.ids where k = 'e2'), 'cle-e2-0001')->>'id')::uuid;
 insert into t.res values ('att2', demo_settle_payment((select v from t.ids where k = 'att2')));
 select t.check((select v->>'result' from t.res where k = 'att2') = 'APPLIED'
-           and (select status from tranches where id = (select v from t.ids where k = 'e2')) = 'RELEASED',
-  'IMMEDIATE : le paiement simulé (événement) débloque directement');
+           and (select status = 'PAID' and funds_state = 'NONE' from tranches where id = (select v from t.ids where k = 'e2')),
+  'DIRECT : demande soumise plus tôt, le paiement simulé (événement) la règle directement (PAID, aucun fonds bloqué)');
 select t.admin();
 select t.check((select trigger from release_events where tranche_id = (select v from t.ids where k = 'e2')) = 'DIRECT_PAYMENT'
            and (select array_agg(kind order by kind) from ledger_journals where tranche_id = (select v from t.ids where k = 'e2')) = array['PAYMENT','RELEASE'],
-  'débloqué : événement DIRECT_PAYMENT, versement au prestataire au journal');
+  'réglé : événement DIRECT_PAYMENT, versement au prestataire au journal');
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-00000000000e') = 'CLOSED',
+  'opération E close : toutes ses demandes dans un état final (remboursée, payée)');
+
+-- ---------- X5 : règlement conditionnel (CONDITIONAL : fonds bloqués, libération, remboursement) ----------
+select t.login('fa000000-0000-4000-8000-000000000007');
+insert into request_modules(code, label_fr, label_en, enabled, wave, release_mode, contest_hours, settlement_mode, required_documents, display_order)
+values ('TEST_COND', 'Module conditionnel', 'Conditional module', true, 1, 'PAYER_CONFIRM', 24, 'CONDITIONAL',
+        '[{"kind":"INVOICE","required":true,"maxFiles":1,"labels":{"fr":"Facture","en":"Invoice"}}]', 89);
+select t.admin();
+select t.active_dossier(t.module_draft('fa300000-0000-4000-8000-0000000000e1', 'TEST_COND', 80000), 'INVOICE');
+select t.active_dossier(t.module_draft('fa300000-0000-4000-8000-0000000000e2', 'TEST_COND', 90000), 'INVOICE');
+insert into t.ids select 'k1', id from tranches where tx_id = 'fa300000-0000-4000-8000-0000000000e1';
+insert into t.ids select 'l1', id from tranches where tx_id = 'fa300000-0000-4000-8000-0000000000e2';
+select t.login('fa000000-0000-4000-8000-000000000001');
+select simulate_tranche_system((select v from t.ids where k = 'k1'), 'PAID');
+select simulate_tranche_system((select v from t.ids where k = 'l1'), 'PAID');
+select t.admin();
+select t.check((select settlement_mode from transactions where id = 'fa300000-0000-4000-8000-0000000000e1') = 'CONDITIONAL'
+           and (select status = 'PAID' and funds_state = 'HELD' from tranches where id = (select v from t.ids where k = 'k1'))
+           and (select array_agg(kind) from ledger_journals where tranche_id = (select v from t.ids where k = 'k1')) = array['PAYMENT']
+           and not exists (select 1 from release_events where tranche_id = (select v from t.ids where k = 'k1')),
+  'CONDITIONAL : paiement réussi, demande payée, fonds bloqués (HELD), paiement seul au journal');
+select t.login('fa000000-0000-4000-8000-000000000007');
+insert into t.ids select 'rk', (request_refund((select v from t.ids where k = 'k1'), 80000, 'remb-k1-0001', 'Annulation')->>'id')::uuid;
+select demo_settle_refund((select v from t.ids where k = 'rk'));
+select t.admin();
+select t.check(not exists (
+  select 1 from ledger_entries e join ledger_journals j on j.id = e.journal_id where j.tranche_id = (select v from t.ids where k = 'k1')
+  group by e.account_code having sum(e.debit_minor) <> sum(e.credit_minor))
+           and (select status = 'REFUNDED' and refunded_minor = 80000 from tranches where id = (select v from t.ids where k = 'k1')),
+  'fonds bloqués remboursés en totalité : chaque compte de la demande revient à zéro, demande REFUNDED');
+select t.login('fa000000-0000-4000-8000-000000000001');
+select confirm_service((select v from t.ids where k = 'l1'));
+select approve_release((select v from t.ids where k = 'l1'));
+select t.admin();
+select t.check((select status = 'PAID' and funds_state = 'RELEASED' from tranches where id = (select v from t.ids where k = 'l1'))
+           and (select array_agg(kind order by kind) from ledger_journals where tranche_id = (select v from t.ids where k = 'l1')) = array['PAYMENT','RELEASE'],
+  'CONDITIONAL : fonds libérés après confirmation (RELEASED), versement au prestataire au journal');
+select t.login('fa000000-0000-4000-8000-000000000007');
+select t.hint($$select request_refund((select v from t.ids where k = 'l1'), 1000, 'remb-l1-0001', 'Trop tard')$$, 'NOT_REFUNDABLE',
+  'fonds conditionnels libérés au prestataire : remboursement refusé');
+select t.admin();
 
 -- ---------- Dossier F : échec puis nouvelle tentative ----------
 select t.active_dossier(t.draft('fa300000-0000-4000-8000-0000000000f0', 50000));
@@ -380,11 +440,11 @@ insert into t.ids select 'attf1', (start_payment((select v from t.ids where k = 
 insert into t.res values ('attf1', demo_settle_payment((select v from t.ids where k = 'attf1'), 'FAILED'));
 select t.check((select v->>'result' from t.res where k = 'attf1') = 'APPLIED'
            and (select status = 'FAILED' and error_code = 'SIMULATED_DECLINE' from payment_attempts where id = (select v from t.ids where k = 'attf1'))
-           and (select status from tranches where id = (select v from t.ids where k = 'f1')) = 'AWAITING_PAYMENT',
-  'échec du paiement : tentative échouée, tranche toujours à payer');
+           and (select status from tranches where id = (select v from t.ids where k = 'f1')) = 'SUBMITTED',
+  'échec du paiement : tentative échouée, demande de nouveau à payer (ACCEPTED → SUBMITTED)');
 insert into t.ids select 'attf2', (start_payment((select v from t.ids where k = 'f1'), 'cle-f1-0002')->>'id')::uuid;
 select demo_settle_payment((select v from t.ids where k = 'attf2'));
-select t.check((select status from tranches where id = (select v from t.ids where k = 'f1')) = 'PAID_LOCKED', 'nouvelle tentative après un échec : payée');
+select t.check((select status from tranches where id = (select v from t.ids where k = 'f1')) = 'PAID', 'nouvelle tentative après un échec : payée');
 select t.check((select count(*) from v_reconciliation) = 0, 'rapprochement : réservé au personnel');
 select t.admin();
 
@@ -404,8 +464,21 @@ select t.check((select issues from v_reconciliation where attempt_id = (select v
            and (select issues from v_reconciliation where attempt_id = (select v from t.ids where k = 'attf1')) = '{}'
            and (select issues from v_reconciliation where attempt_id = (select v from t.ids where k = 'attf2')) = '{}',
   'paiements cohérents : aucun écart (y compris la tentative échouée suivie d’une réussite)');
+select t.check((select issues from v_reconciliation where attempt_id = (select v from t.ids where k = 'att1')) = array['EVENT_REJECTED']
+           and (select tranche_status from v_reconciliation where attempt_id = (select v from t.ids where k = 'att1')) = 'REFUNDED',
+  'demande remboursée (REFUNDED) : pas d’écart de statut ; événements rejetés (montant, état contradictoire) : signalés');
+select t.check((select issues from v_reconciliation where tranche_id = (select v from t.ids where k = 'k1')) = '{}'
+           and (select funds_state from v_reconciliation where tranche_id = (select v from t.ids where k = 'l1')) = 'RELEASED'
+           and (select issues from v_reconciliation where tranche_id = (select v from t.ids where k = 'l1')) = '{}',
+  'règlement conditionnel cohérent (remboursé, libéré) : aucun écart ; état des fonds exposé');
+select t.admin();
+-- Écart volontaire : remboursement versé, demande remise à PAID (propriétaire de la base, hors des fonctions).
+select set_config('app.via_transition', 'on', true);
+update tranches set status = 'PAID' where id = (select v from t.ids where k = 'e1');
+select set_config('app.via_transition', 'off', true);
+select t.login('fa000000-0000-4000-8000-000000000004');
 select t.check((select issues from v_reconciliation where attempt_id = (select v from t.ids where k = 'att1')) = array['REFUNDED_TRANCHE_OPEN','EVENT_REJECTED'],
-  'tranche remboursée en totalité mais toujours ouverte, événements rejetés (montant, état contradictoire) : signalés');
+  'écart volontaire : remboursement versé mais demande non marquée remboursée, signalé (REFUNDED_TRANCHE_OPEN)');
 select t.admin();
 
 -- ===================== X6 : types de besoin configurables =====================
@@ -415,9 +488,15 @@ select t.check((select count(*) from request_modules) >= 6
                = array['EDUCATION','HEALTH','RENT','AGRO','REAL_ESTATE','LAND'],
   'request_modules : les six types de besoin, dans l’ordre d’affichage');
 select t.check((select bool_and(enabled = (code in ('EDUCATION','HEALTH','RENT')) and wave = case when code in ('EDUCATION','HEALTH','RENT') then 1 else 2 end
-                         and platform_review = 'ALWAYS' and not multiple_payers)
-                from request_modules where code in ('EDUCATION','HEALTH','RENT','AGRO','REAL_ESTATE','LAND')),
-  'amorçage : vague 1 ouverte, vague 2 fermée, platform_review ALWAYS et un seul payeur partout');
+                         and platform_review = 'NEVER' and not multiple_payers)
+                from request_modules where code in ('EDUCATION','HEALTH','RENT','AGRO','REAL_ESTATE','LAND'))
+           and (select column_default from information_schema.columns where table_name = 'request_modules' and column_name = 'platform_review') like '''NEVER''%',
+  'amorçage : vague 1 ouverte, vague 2 fermée, platform_review NEVER (défaut de la colonne et lignes existantes, K2) et un seul payeur partout');
+select t.check((select bool_and(settlement_mode::text = case when code in ('EDUCATION','HEALTH','RENT') then 'DIRECT' else 'CONDITIONAL' end
+                         and request_expiry_days is null)
+                from request_modules where code in ('EDUCATION','HEALTH','RENT','AGRO','REAL_ESTATE','LAND'))
+           and not exists (select 1 from request_modules where release_mode = 'IMMEDIATE'),
+  'amorçage : vague 1 en règlement direct, vague 2 en conditionnel ; aucune expiration configurée ; plus de mode IMMEDIATE');
 select t.check((select string_agg(vertical || ':' || release_mode || ':' || contest_hours || ':' || dual_validation, ',' order by vertical) from release_rules
                 where vertical in ('EDUCATION','HEALTH','RENT','AGRO','REAL_ESTATE','LAND'))
                = 'AGRO:PAYER_CONFIRM:72:false,EDUCATION:PROVIDER_CONFIRM:72:false,HEALTH:PROVIDER_CONFIRM:48:false,LAND:EVIDENCE_REVIEW:0:true,'
@@ -447,7 +526,7 @@ select t.check(not has_function_privilege('authenticated', '_platform_review(uui
 
 -- ---------- Un type de besoin s’ajoute par une ligne de données ----------
 select t.login('fa000000-0000-4000-8000-000000000001');
-select t.fails($$insert into request_modules(code, label_fr, label_en, release_mode) values ('PIRATE', 'Pirate', 'Pirate', 'IMMEDIATE')$$,
+select t.fails($$insert into request_modules(code, label_fr, label_en, release_mode) values ('PIRATE', 'Pirate', 'Pirate', 'PAYER_CONFIRM')$$,
   'un utilisateur ne crée pas de type de besoin');
 select t.check(t.n_updated($$update request_modules set enabled = true where code = 'AGRO'$$) = 0, 'un utilisateur ne modifie pas un type de besoin');
 select t.admin();
@@ -461,12 +540,7 @@ select t.hint($$insert into request_modules(code, label_fr, label_en, release_mo
   values ('TEST_BAD', 'Mauvais', 'Bad', 'AUTO', '[{"kind":"x","required":true}]')$$, 'VALIDATION', 'pièce de module mal décrite refusée');
 select t.admin();
 
--- NEVER : validation automatique, journalisée ; pièces et règle de déblocage lues dans le module.
-create function t.module_draft(p_id uuid, p_module text, p_amount int) returns jsonb language sql as $$
-  select jsonb_build_object('id', p_id, 'vertical', p_module, 'amountMinor', p_amount::text, 'currency', 'XAF', 'purpose', 'Besoin (module de test)',
-    'beneficiaryName', 'Awa', 'provider', jsonb_build_object('name', 'Lycée (passe 2)', 'invitedPhone', '+237 6 2333 0003'), 'planType', 'SINGLE',
-    'tranches', jsonb_build_array(jsonb_build_object('label', 'Unique', 'amountMinor', p_amount::text, 'dueDate', (current_date + 2)::text)))
-$$;
+-- NEVER (défaut) : activation automatique, journalisée ; pièces et règle de déblocage lues dans le module.
 select t.login('fa000000-0000-4000-8000-000000000001');
 select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000a1', 'TEST_NEVER', 40000));
 select t.check((select release_mode::text || ':' || contest_hours from tranches where tx_id = 'fa300000-0000-4000-8000-0000000000a1') = 'PAYER_CONFIRM:24',
@@ -480,25 +554,39 @@ select t.hint($$select add_document('fa300000-0000-4000-8000-0000000000a1', 'INV
 select t.check(not needs_platform_review('fa300000-0000-4000-8000-0000000000a1'), 'NEVER : pas de revue par le bureau');
 select transition_tx('fa300000-0000-4000-8000-0000000000a1', 'SUBMITTED');
 select t.admin();
-select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000a1') = 'IN_PROGRESS'
-           and exists (select 1 from audit_log where tx_id = 'fa300000-0000-4000-8000-0000000000a1' and event = 'AUTO_VALIDATED'
-                       and from_status = 'SUBMITTED' and to_status = 'VALIDATED' and actor_id is null and payload->>'mode' = 'NEVER')
-           and not exists (select 1 from validations where tx_id = 'fa300000-0000-4000-8000-0000000000a1'),
-  'NEVER : validation automatique par le système (AUTO_VALIDATED), sans validateur, puis jeton et tranche (développement)');
-select t.check(exists (select 1 from notifications where tx_id = 'fa300000-0000-4000-8000-0000000000a1' and event = 'TX_VALIDATED'),
-  'NEVER : alerte de validation comme après une décision du bureau');
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000a1') = 'ACTIVE'
+           and exists (select 1 from audit_log where tx_id = 'fa300000-0000-4000-8000-0000000000a1' and event = 'AUTO_ACTIVATED'
+                       and from_status = 'DRAFT' and to_status = 'ACTIVE' and actor_id = 'fa000000-0000-4000-8000-000000000001' and payload->>'mode' = 'NEVER')
+           and not exists (select 1 from validations where tx_id = 'fa300000-0000-4000-8000-0000000000a1')
+           and (select status from tranches where tx_id = 'fa300000-0000-4000-8000-0000000000a1') = 'SUBMITTED',
+  'NEVER : activation automatique à la soumission (AUTO_ACTIVATED, DRAFT → ACTIVE), sans validateur ; demande due soumise');
+select t.check(exists (select 1 from notifications where tx_id = 'fa300000-0000-4000-8000-0000000000a1' and event = 'PAYMENT_READY'
+                       and user_id = 'fa000000-0000-4000-8000-000000000001')
+           and not exists (select 1 from notifications where tx_id = 'fa300000-0000-4000-8000-0000000000a1' and event = 'TX_VALIDATED'),
+  'NEVER : alerte de demande à payer au payeur ; aucune alerte de validation (aucune décision du bureau)');
 -- NEVER au seuil de double validation : toujours le bureau (double validation toujours appliquée).
 select t.login('fa000000-0000-4000-8000-000000000001');
 select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000a2', 'TEST_NEVER', 3000000));
 select add_document('fa300000-0000-4000-8000-0000000000a2', 'INVOICE', 'fa300000-0000-4000-8000-0000000000a2/INVOICE/i.pdf', 'i.pdf', 'application/pdf', 1000);
 select transition_tx('fa300000-0000-4000-8000-0000000000a2', 'SUBMITTED');
 select t.admin();
-select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000a2') = 'SUBMITTED'
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000a2') = 'PENDING_REVIEW'
            and (_platform_review('fa300000-0000-4000-8000-0000000000a2')->'reasons') = '["DUAL_VALIDATION"]'
            and required_validations('fa300000-0000-4000-8000-0000000000a2') = 2,
   'NEVER au seuil : file du bureau, deux validateurs exigés');
 
--- RISK_BASED : automatique sauf première demande ou doublon.
+-- RISK_BASED : automatique sauf seuil de montant absent ou atteint, première demande ou doublon.
+-- Seuil absent (point ouvert 4) : revue par prudence.
+delete from app_config where key = 'risk_review_threshold';
+select t.login('fa000000-0000-4000-8000-000000000001');
+select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000b0', 'TEST_RISK', 15000));
+select add_document('fa300000-0000-4000-8000-0000000000b0', 'INVOICE', 'fa300000-0000-4000-8000-0000000000b0/INVOICE/i.pdf', 'i.pdf', 'application/pdf', 1000);
+select transition_tx('fa300000-0000-4000-8000-0000000000b0', 'SUBMITTED');
+select t.admin();
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000b0') = 'PENDING_REVIEW'
+           and (_platform_review('fa300000-0000-4000-8000-0000000000b0')->'reasons') = '["THRESHOLD_NOT_CONFIGURED"]',
+  'RISK_BASED : seuil de montant non configuré → bureau de contrôle (prudence)');
+insert into app_config(key, value) values ('risk_review_threshold', '{"XAF": 100000}');
 select t.login('fa000000-0000-4000-8000-000000000001');
 select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000b1', 'TEST_RISK', 70000));
 select add_document('fa300000-0000-4000-8000-0000000000b1', 'INVOICE', 'fa300000-0000-4000-8000-0000000000b1/INVOICE/i.pdf', 'i.pdf', 'application/pdf', 1000);
@@ -507,9 +595,10 @@ select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000b2', 'TEST_R
 select add_document('fa300000-0000-4000-8000-0000000000b2', 'INVOICE', 'fa300000-0000-4000-8000-0000000000b2/INVOICE/i.pdf', 'i.pdf', 'application/pdf', 1000);
 select transition_tx('fa300000-0000-4000-8000-0000000000b2', 'SUBMITTED');
 select t.admin();
-select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000b1') = 'IN_PROGRESS',
-  'RISK_BASED : demandeur connu, montant sous le seuil, pas de doublon : validation automatique');
-select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000b2') = 'SUBMITTED'
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000b1') = 'ACTIVE'
+           and exists (select 1 from audit_log where tx_id = 'fa300000-0000-4000-8000-0000000000b1' and event = 'AUTO_ACTIVATED' and payload->>'mode' = 'RISK_BASED'),
+  'RISK_BASED : demandeur connu, montant sous le seuil, pas de doublon : activation automatique');
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000b2') = 'PENDING_REVIEW'
            and (_platform_review('fa300000-0000-4000-8000-0000000000b2')->'reasons') = '["DUPLICATE"]',
   'RISK_BASED : doublon possible → bureau de contrôle');
 select t.login('fa000000-0000-4000-8000-000000000006');
@@ -517,20 +606,52 @@ select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000b3', 'TEST_R
 select add_document('fa300000-0000-4000-8000-0000000000b3', 'INVOICE', 'fa300000-0000-4000-8000-0000000000b3/INVOICE/i.pdf', 'i.pdf', 'application/pdf', 1000);
 select transition_tx('fa300000-0000-4000-8000-0000000000b3', 'SUBMITTED');
 select t.admin();
-select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000b3') = 'SUBMITTED'
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000b3') = 'PENDING_REVIEW'
            and (_platform_review('fa300000-0000-4000-8000-0000000000b3')->'reasons') = '["FIRST_REQUEST"]',
   'RISK_BASED : première demande de ce demandeur → bureau de contrôle');
--- ALWAYS (défaut) : comportement inchangé.
-select t.check((_platform_review('fa300000-0000-4000-8000-00000000000c')->'reasons') = '["ALWAYS"]'
-           and (select status from transactions where id = 'fa300000-0000-4000-8000-00000000000c') = 'SUBMITTED',
-  'ALWAYS (défaut) : file du bureau, comme avant');
+select t.login('fa000000-0000-4000-8000-000000000001');
+select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000b4', 'TEST_RISK', 150000));
+select add_document('fa300000-0000-4000-8000-0000000000b4', 'INVOICE', 'fa300000-0000-4000-8000-0000000000b4/INVOICE/i.pdf', 'i.pdf', 'application/pdf', 1000);
+select transition_tx('fa300000-0000-4000-8000-0000000000b4', 'SUBMITTED');
+select t.admin();
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000b4') = 'PENDING_REVIEW'
+           and (_platform_review('fa300000-0000-4000-8000-0000000000b4')->'reasons') = '["AMOUNT_THRESHOLD"]',
+  'RISK_BASED : montant au-delà du seuil configuré → bureau de contrôle');
+-- NEVER (défaut) : le dossier C (Scolarité) est actif sans passer par le bureau.
+select t.check((_platform_review('fa300000-0000-4000-8000-00000000000c')->'reasons') = '[]'
+           and (select status from transactions where id = 'fa300000-0000-4000-8000-00000000000c') = 'ACTIVE',
+  'NEVER (défaut) : aucune revue, opération active dès la soumission');
+-- ALWAYS : file du bureau, prise en charge, approbation → ACTIVE, alerte de validation.
+select t.login('fa000000-0000-4000-8000-000000000007');
+insert into request_modules(code, label_fr, label_en, enabled, wave, release_mode, contest_hours, platform_review, required_documents, display_order)
+values ('TEST_ALWAYS', 'Module revu', 'Reviewed module', true, 1, 'PROVIDER_CONFIRM', 48, 'ALWAYS',
+        '[{"kind":"INVOICE","required":true,"maxFiles":1,"labels":{"fr":"Facture","en":"Invoice"}}]', 93);
+select t.admin();
+select t.login('fa000000-0000-4000-8000-000000000001');
+select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000a3', 'TEST_ALWAYS', 45000));
+select add_document('fa300000-0000-4000-8000-0000000000a3', 'INVOICE', 'fa300000-0000-4000-8000-0000000000a3/INVOICE/i.pdf', 'i.pdf', 'application/pdf', 1000);
+select t.check(needs_platform_review('fa300000-0000-4000-8000-0000000000a3'), 'needs_platform_review : vrai pour un module ALWAYS');
+select transition_tx('fa300000-0000-4000-8000-0000000000a3', 'SUBMITTED');
+select t.admin();
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000a3') = 'PENDING_REVIEW'
+           and (_platform_review('fa300000-0000-4000-8000-0000000000a3')->'reasons') = '["ALWAYS"]'
+           and (select status from tranches where tx_id = 'fa300000-0000-4000-8000-0000000000a3') = 'DRAFT',
+  'ALWAYS : file du bureau (PENDING_REVIEW), demande pas encore soumise');
+select t.login('fa000000-0000-4000-8000-000000000004');
+select transition_tx('fa300000-0000-4000-8000-0000000000a3', 'IN_REVIEW');
+select decide_tx('fa300000-0000-4000-8000-0000000000a3', true, true);
+select t.admin();
+select t.check((select status from transactions where id = 'fa300000-0000-4000-8000-0000000000a3') = 'ACTIVE'
+           and (select status from tranches where tx_id = 'fa300000-0000-4000-8000-0000000000a3') = 'SUBMITTED'
+           and exists (select 1 from notifications where tx_id = 'fa300000-0000-4000-8000-0000000000a3' and event = 'TX_VALIDATED'),
+  'ALWAYS : approuvé par le bureau → ACTIVE, demande soumise, alerte de validation (TX_VALIDATED)');
 -- Vague 2 fermée : refusée à la soumission.
 select t.login('fa000000-0000-4000-8000-000000000001');
 select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000c1', 'AGRO', 10000));
 select add_document('fa300000-0000-4000-8000-0000000000c1', 'SUPPORTING_DOCUMENT', 'fa300000-0000-4000-8000-0000000000c1/SUPPORTING_DOCUMENT/s.pdf', 's.pdf', 'application/pdf', 1000);
 select t.hint($$select transition_tx('fa300000-0000-4000-8000-0000000000c1', 'SUBMITTED')$$, 'VERTICAL_UNAVAILABLE', 'type de la vague 2 désactivé : refusé');
 select t.hint($$select save_draft(t.module_draft('fa300000-0000-4000-8000-0000000000c2', 'INCONNU', 10000))$$, 'VALIDATION', 'brouillon d’un type inconnu refusé');
-select t.check(needs_platform_review('fa300000-0000-4000-8000-0000000000c1'), 'needs_platform_review : vrai pour un module ALWAYS');
+select t.check(not needs_platform_review('fa300000-0000-4000-8000-0000000000c1'), 'needs_platform_review : faux pour un module NEVER (défaut)');
 select t.admin();
 select t.login('fa000000-0000-4000-8000-000000000006');
 select t.hint($$select needs_platform_review('fa300000-0000-4000-8000-0000000000c1')$$, 'TX_NOT_FOUND', 'needs_platform_review : dossier étranger introuvable');

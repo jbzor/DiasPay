@@ -52,7 +52,9 @@ export function precheck(info: ReferenceInfo, now: number, isProvider: boolean):
   if (!isProvider) return 'PROVIDER_ONLY';
   if (info.used) return 'TOKEN_USED';
   if (now > new Date(info.expiresAt).getTime()) return 'TOKEN_EXPIRED';
-  if (info.status !== 'PAID_LOCKED') return 'NOT_PAID';
+  // Lot X version 2 : seule une tranche payée (fonds bloqués, déblocage conditionnel) se confirme ; le serveur répond
+  // WRONG_MODE en règlement direct et NOT_PAID si les fonds sont déjà traités.
+  if (info.status !== 'PAID') return 'NOT_PAID';
   return null;
 }
 

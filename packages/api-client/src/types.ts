@@ -1,28 +1,48 @@
 import type {
-  CreatorRole, Currency, DraftDocument, DraftDocumentInput, ModuleCode, Money, NeedDraft, PlanType, ReleaseMode, RequestMessageKind, RequestModule,
-  TrancheStatus, TxStatus,
+  CreatorRole, Currency, DisputeOutcome, DisputeStatus, DraftDocument, DraftDocumentInput, FundsState, ModuleCode, Money, NeedDraft, PlanType, ReleaseMode,
+  RequestMessageKind, RequestModule, SettlementMode, TrancheStatus, TxStatus,
 } from '@diaspay/domain';
 import type { ProviderSummary } from './need';
 
-export interface Tranche {
+/**
+ * Demande de paiement (lot X version 2 ; table SQL `tranches`, vue `payment_requests`). `Tranche` reste un alias de transition.
+ */
+export interface PaymentRequest {
   id: string;
   seq: number;
   label: string;
   amountMinor: number;
   dueDate?: string;
   status: TrancheStatus;
+  /** Règle de libération (CONDITIONAL seulement). */
   releaseMode: ReleaseMode;
   contestHours: number;
   contestEndsAt?: string; // ISO
-  reference?: string;     // 18 hex minuscules, portée par l'eQR (présente dès que la tranche n'est plus PLANNED)
+  reference?: string;     // 18 hex minuscules, portée par l’eQR (CONDITIONAL seulement)
   evidenceCount: number;
+  /** Date de libération des fonds (CONDITIONAL). */
   releasedAt?: string;
+  /** Date d’exécution du paiement (PAID). */
+  paidAt?: string;
+  /** État des fonds : NONE en DIRECT ; HELD, RELEASED ou RETURNED en CONDITIONAL. */
+  fundsState: FundsState;
+  /** Suspendue par un litige ouvert avant paiement. */
+  onHold: boolean;
+  refundedMinor: number;
+  expiresAt?: string;
+  /** Prestation confirmée (CONDITIONAL). */
+  confirmedAt?: string;
 }
+export type Tranche = PaymentRequest;
 
 export interface Transaction {
   id: string;
   /** Code du type de besoin (module, lot X : X6). */
   vertical: ModuleCode;
+  /** Mode de règlement (K1) : DIRECT par défaut. */
+  settlementMode: SettlementMode;
+  /** Le payeur a accepté le principe du plan (K6). */
+  acceptedAt?: string;
   purpose: string;
   amount: Money;
   status: TxStatus;
@@ -65,20 +85,28 @@ export type NotificationEvent =
   | { type: 'TRANCHE_CONFIRMED'; txId: string; trancheId: string; releaseAt?: string }
   | { type: 'TRANCHE_RELEASED'; txId: string; trancheId: string }
   | { type: 'DISPUTE_OPENED'; txId: string; trancheId: string }
-  | { type: 'DISPUTE_RESOLVED'; txId: string; trancheId: string; outcome: 'RELEASED' | 'REFUNDED' }
+  | { type: 'DISPUTE_RESOLVED'; txId: string; trancheId: string; outcome: 'RELEASED' | 'REFUNDED' | 'NO_ACTION' }
   // Lot X : demande initiée par un prestataire (au payeur), décisions du payeur et réponse de l’initiateur (aux autres parties).
   | { type: 'PAYMENT_REQUEST_RECEIVED'; txId: string }
   | { type: 'INFO_REQUESTED'; txId: string; trancheId: string }
   | { type: 'INFO_ANSWERED'; txId: string; trancheId: string }
-  | { type: 'REQUEST_REJECTED'; txId: string; trancheId: string };
+  | { type: 'REQUEST_REJECTED'; txId: string; trancheId: string }
+  // Lot X version 2 : paiement exécuté (règlement direct), plan accepté par le payeur.
+  | { type: 'REQUEST_PAID'; txId: string; trancheId: string }
+  | { type: 'PLAN_ACCEPTED'; txId: string };
 export interface AppNotification { id: string; event: NotificationEvent; at: string; readAt?: string }
 
 /** Motif d’un litige : code stable, libellé traduit par l’application. */
 export type DisputeReason = 'NOT_DELIVERED' | 'INCOMPLETE' | 'WRONG_AMOUNT' | 'OTHER';
+/** Litige (lot X version 2) : dossier distinct ; il ne change jamais le statut d’une demande payée. */
 export interface DisputeView {
   id: string; txId: string; trancheId: string; reason: string; description: string;
   openedBy: 'PAYER' | 'PROVIDER'; openedAt: string;
-  status: 'OPEN' | 'RELEASED_TO_PROVIDER' | 'REFUNDED_TO_PAYER';
+  status: DisputeStatus;
+  outcome?: DisputeOutcome;
+  /** Ouvert avant paiement : la demande est suspendue (on_hold). */
+  beforePayment: boolean;
+  refundAmountMinor?: number;
   resolvedAt?: string; resolutionNote?: string;
 }
 
@@ -150,10 +178,12 @@ export interface TransactionApi {
    */
   payTranche(trancheId: string, idempotencyKey?: string): Promise<Transaction>;
   getTranche(trancheId: string): Promise<{ tx: Transaction; tranche: Tranche }>;
-  getToken(trancheId: string): Promise<TrancheToken>;                     // TrustToken d'une tranche non PLANNED
+  getToken(trancheId: string): Promise<TrancheToken>;                     // jeton d’une demande soumise (CONDITIONAL seulement)
   resolveReference(reference: string): Promise<ReferenceInfo>;            // miroir de resolve_tranche_reference
   confirmByReference(reference: string, deviceTime?: string): Promise<Transaction>; // prestataire (scan eQR), miroir de confirm_by_reference
-  approveRelease(trancheId: string): Promise<Transaction>;                // payeur, déblocage anticipé
+  approveRelease(trancheId: string): Promise<Transaction>;                // payeur, libération anticipée (CONDITIONAL)
+  /** Payeur, mode PAYER_CONFIRM (CONDITIONAL) : confirme la prestation, le délai de contestation démarre. */
+  confirmService(trancheId: string): Promise<Transaction>;
   openDispute(trancheId: string, reason: string, description?: string): Promise<Transaction>;
   timeline(txId: string): Promise<AuditEntry[]>;
 
@@ -166,7 +196,6 @@ export interface TransactionApi {
   attachDocument(draftId: string, file: DraftDocumentInput, onProgress?: (p: number) => void): Promise<DraftDocument>;
   removeDocument(draftId: string, documentId: string): Promise<void>;
   submitNeed(draftId: string): Promise<Transaction>;
-  reopenForCorrection(txId: string): Promise<NeedDraft>;       // REJECTED → DRAFT
 
   // Lot 3 bis.
   listNotifications(): Promise<AppNotification[]>;
@@ -174,7 +203,8 @@ export interface TransactionApi {
   markAllNotificationsRead(): Promise<void>;
   getDispute(trancheId: string): Promise<DisputeView | null>;
   getReceipt(trancheId: string): Promise<Receipt>;
-  abandonRejected(txId: string): Promise<Transaction>;         // REJECTED → CANCELLED (D4)
+  /** Initiateur : annule l’opération (DRAFT ou ACTIVE) ; en ACTIVE, seules les demandes non payées sont annulées. */
+  cancelOperation(txId: string, reason?: string): Promise<Transaction>;
 
   // Lot X (X1) : sécurité du TrustLink. Aucun lien n’est produit : le jeton ne se lit que par le payeur, dans l’application.
   /** Révocation par l’initiateur (tranche non payée) : le QR et la référence ne valent plus rien (TOKEN_REVOKED). */
@@ -187,9 +217,11 @@ export interface TransactionApi {
   // Lot X (X2) : décisions du payeur, sans écran pour l’instant (lot Y).
   /** Le payeur ouvre la demande : première ouverture journalisée (REQUEST_VIEWED), idempotent. */
   markReceived(trancheId: string): Promise<void>;
-  requestInfo(trancheId: string, message: string): Promise<Transaction>;   // payeur : AWAITING_PAYMENT → INFO_REQUESTED
-  answerInfo(trancheId: string, message: string): Promise<Transaction>;    // initiateur : INFO_REQUESTED → AWAITING_PAYMENT
-  rejectRequest(trancheId: string, reason: string): Promise<Transaction>;  // payeur : → REJECTED (terminal), jeton révoqué
+  requestInfo(trancheId: string, message: string): Promise<Transaction>;   // payeur : SUBMITTED → INFO_REQUESTED
+  answerInfo(trancheId: string, message: string): Promise<Transaction>;    // initiateur : INFO_REQUESTED → SUBMITTED
+  rejectRequest(trancheId: string, reason: string): Promise<Transaction>;  // payeur : → REJECTED (final), jeton révoqué
+  /** Payeur : accepte le principe du plan (une fois) ; n’autorise aucun paiement à l’avance (K6). */
+  acceptPlan(txId: string): Promise<Transaction>;
   listMessages(trancheId: string): Promise<RequestMessage[]>;
 
   // Lot X (X3) : création avec un rôle explicite (PROVIDER : prestataire autorisé, payeur désigné par téléphone).

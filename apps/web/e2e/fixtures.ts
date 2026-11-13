@@ -8,11 +8,16 @@ import type { Transaction } from '@diaspay/api-client';
 import { emptyDraft } from '@diaspay/domain';
 import type { NeedDraft } from '@diaspay/domain';
 
-import { SUPABASE_KEY, SUPABASE_URL, STAFF_PASSWORD } from './env';
+import { STAFF, SUPABASE_KEY, SUPABASE_URL, STAFF_PASSWORD } from './env';
 
 /**
  * Données de bout en bout créées comme le fait l’application mobile : connexion par SMS des comptes de test
  * (numéros réservés, code fixe), brouillon, pièces envoyées au bucket, soumission. Nettoyage par demo_reset.
+ *
+ * Lot X version 2 (docs/specs/modele-cible-v2.md) : à la soumission, une opération devient ACTIVE sans revue
+ * (platform_review = NEVER, défaut de tous les modules), sauf double validation. Pour remplir la file du bureau, les
+ * fixtures passent le module en ALWAYS le temps du test (compte administrateur, politique request_modules_admin_write),
+ * et le rétablissent dans cleanup().
  */
 export type Party = 'PAYER' | 'REQUESTER' | 'OTHER';
 const PHONES: Record<Party, { phone: string; role: 'PAYER' | 'REQUESTER'; name: string }> = {
@@ -55,9 +60,37 @@ const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString(
 /** Identifiant de série : rend les objectifs uniques d’une exécution à l’autre. */
 export const RUN = Math.random().toString(36).slice(2, 7).toUpperCase();
 
+type ModuleCode = 'EDUCATION' | 'HEALTH' | 'RENT';
+type ModuleSettings = { platform_review: 'NEVER' | 'RISK_BASED' | 'ALWAYS'; settlement_mode: 'DIRECT' | 'CONDITIONAL' };
+const moduleBackup = new Map<string, ModuleSettings>();
+
+/** Réglage d’un module le temps des tests (administrateur) ; la valeur d’origine est gardée pour restoreModules(). */
+async function setModule(code: ModuleCode, patch: Partial<ModuleSettings>): Promise<void> {
+  const admin = await staffClient(STAFF.ADMIN.email);
+  if (!moduleBackup.has(code)) {
+    const cur = await admin.from('request_modules').select('platform_review, settlement_mode').eq('code', code).single();
+    if (cur.error) throw cur.error;
+    moduleBackup.set(code, cur.data as ModuleSettings);
+  }
+  const res = await admin.from('request_modules').update(patch).eq('code', code).select('code');
+  if (res.error) throw res.error;
+  if ((res.data ?? []).length !== 1) throw new Error(`request_modules ${code} : mise à jour refusée (compte administrateur requis)`);
+}
+
+/** Rétablit les réglages d’origine des modules modifiés par les tests. */
+export async function restoreModules(): Promise<void> {
+  if (moduleBackup.size === 0) return;
+  const admin = await staffClient(STAFF.ADMIN.email);
+  for (const [code, v] of moduleBackup) {
+    const res = await admin.from('request_modules').update(v).eq('code', code);
+    if (res.error) throw res.error;
+  }
+  moduleBackup.clear();
+}
+
 export interface DossierSpec {
   by?: Party;
-  vertical?: 'EDUCATION' | 'HEALTH' | 'RENT';
+  vertical?: ModuleCode;
   amountMinor: number;
   purpose: string;
   payerPhone?: string;
@@ -65,8 +98,27 @@ export interface DossierSpec {
   tranches?: Array<{ label: string; amountMinor: number; dueInDays: number }>;
 }
 
-/** Dossier soumis (statut SUBMITTED), pièces obligatoires de la scolarité ou de la santé jointes. */
+/** Dossier en attente de revue du bureau (PENDING_REVIEW) : module en ALWAYS le temps du test. */
 export async function submittedDossier(spec: DossierSpec): Promise<Transaction> {
+  await setModule(spec.vertical ?? 'EDUCATION', { platform_review: 'ALWAYS' });
+  const tx = await submitDossier(spec);
+  if (tx.status !== 'PENDING_REVIEW') throw new Error(`Dossier ${tx.id} : PENDING_REVIEW attendu, ${tx.status} obtenu`);
+  return tx;
+}
+
+/**
+ * Opération active dès la soumission (platform_review NEVER, montant sans double validation) : la première demande est
+ * envoyée au payeur. conditional : règlement CONDITIONAL (fonds bloqués après paiement), sinon DIRECT.
+ */
+export async function activeDossier(spec: DossierSpec & { conditional?: boolean }): Promise<Transaction> {
+  await setModule(spec.vertical ?? 'EDUCATION', { platform_review: 'NEVER', settlement_mode: spec.conditional ? 'CONDITIONAL' : 'DIRECT' });
+  const tx = await submitDossier(spec);
+  if (tx.status !== 'ACTIVE') throw new Error(`Dossier ${tx.id} : ACTIVE attendu, ${tx.status} obtenu (double validation ?)`);
+  return tx;
+}
+
+/** Brouillon complet (pièces obligatoires de la scolarité, de la santé ou du loyer), puis soumission. */
+async function submitDossier(spec: DossierSpec): Promise<Transaction> {
   const api = await party(spec.by ?? 'REQUESTER');
   const id = randomUUID();
   const vertical = spec.vertical ?? 'EDUCATION';
@@ -93,16 +145,21 @@ export async function staffClient(email: string) {
   return sb;
 }
 
-/** Nettoyage : dossiers, journal et alertes créés par les comptes de test (demo_reset, mock_mode seulement). */
+/**
+ * Nettoyage : dossiers, journal et alertes créés par les comptes de test (demo_reset, mock_mode seulement), puis réglages
+ * d’origine des modules.
+ */
 export async function cleanup(): Promise<void> {
   for (const p of apis.values()) await (await p).resetDemoData().catch(() => undefined);
   apis.clear();
+  await restoreModules();
 }
 
 /**
  * Preuve de jalon (vague 2) : le demandeur crée un brouillon terrain et y dépose la preuve (envoi réel au bucket,
- * permis tant que le dossier est un brouillon), puis supabase/seed-evidence.sql amène le dossier jusqu’à la preuve
- * en attente (scripts/db.sh seed-evidence <tx>). Renvoie l’identifiant du dossier.
+ * permis tant que le dossier est un brouillon), puis supabase/seed-evidence.sql amène l’opération (CONDITIONAL) jusqu’à
+ * la preuve en attente : ACTIVE, première demande PAID, fonds HELD, preuve déposée (scripts/db.sh seed-evidence <tx>).
+ * Renvoie l’identifiant du dossier.
  */
 export async function landWithPendingEvidence(purpose: string): Promise<string> {
   const api = await party('REQUESTER');
@@ -127,19 +184,16 @@ export async function partyClient(who: Party) {
 }
 
 /**
- * Litige ouvert sur la première tranche d’un dossier de scolarité validé (validation par l’API du personnel,
- * jeton émis en développement), payé par le payeur. Le prestataire est le compte de test OTHER.
+ * Litige ouvert sur la première demande d’une opération de scolarité active dès la soumission (lot X v2). Par défaut,
+ * la demande est payée (règlement DIRECT, ou CONDITIONAL avec fonds bloqués) ; beforePayment : litige ouvert sur la
+ * demande non payée (demande suspendue, opération SUSPENDED). Le prestataire est le compte de test OTHER.
  */
-export async function openedDispute(purpose: string, opts: { by: 'PAYER' | 'PROVIDER'; answer?: string }): Promise<{ txId: string; trancheId: string; disputeId: string }> {
-  const tx = await submittedDossier({ amountMinor: 300_000, purpose, provider: { name: 'École Les Palmiers (e2e)', invitedPhone: PHONES.OTHER.phone } });
-  const staff = await staffClient('validateur.b@diaspay.test');
-  const claim = await staff.rpc('claim_dossier', { p_tx: tx.id });
-  if (claim.error) throw claim.error;
-  const decided = await staff.rpc('decide_tx', { p_tx: tx.id, p_approved: true, p_amount_checked: true });
-  if (decided.error) throw decided.error;
+export async function openedDispute(purpose: string, opts: { by: 'PAYER' | 'PROVIDER'; answer?: string; conditional?: boolean; beforePayment?: boolean }):
+  Promise<{ txId: string; trancheId: string; disputeId: string }> {
+  const tx = await activeDossier({ amountMinor: 300_000, purpose, conditional: opts.conditional, provider: { name: 'École Les Palmiers (e2e)', invitedPhone: PHONES.OTHER.phone } });
   const payer = await party('PAYER');
   const trancheId = (await payer.getTransaction(tx.id)).tranches[0]!.id;
-  await payer.payTranche(trancheId);
+  if (!opts.beforePayment) await payer.payTranche(trancheId);
   const opener = opts.by === 'PAYER' ? payer : await party('OTHER');
   await opener.openDispute(trancheId, opts.by === 'PAYER' ? 'NOT_DELIVERED' : 'OTHER',
     opts.by === 'PAYER' ? 'L’élève n’a pas reçu les cours prévus.' : 'Le payeur conteste une prestation livrée.');

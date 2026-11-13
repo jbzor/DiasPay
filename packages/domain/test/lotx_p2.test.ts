@@ -7,7 +7,8 @@ import {
   checkContentHash, documentLockError, isContentHash, journalBalanced, normalizeContentHash, otherDossiersWithHash, reconcile, sha256Hex,
 } from '../src';
 import { DEFAULT_MODULES, checkAddPayer, checkModule, describeRelease, maxFilesFor, moduleLabel, platformReviewDecision, sortModules, validateStep } from '../src';
-import type { IncomingWebhook, PaymentAttempt, PaymentContext, PlatformReview, RequestModule, TrancheStatus } from '../src';
+import { paymentOutcome } from '../src';
+import type { FundsState, IncomingWebhook, PaymentAttempt, PaymentContext, PlatformReview, RequestModule, SettlementMode, TrancheStatus } from '../src';
 
 const root = join(__dirname, '..', '..', '..');
 const sql = (f: string) => readFileSync(join(root, 'supabase', 'migrations', f), 'utf8');
@@ -46,27 +47,27 @@ describe('X4 — empreintes des pièces', () => {
     expect(checkContentHash('B'.repeat(64))).toBe('b'.repeat(64));
   });
 
-  it('immuabilité : modifiable en brouillon ou dossier rejeté, pièce de réponse pendant INFO_REQUESTED (miroir de _documents_immutable)', () => {
+  it('immuabilité : modifiable en brouillon seulement, pièce de réponse pendant INFO_REQUESTED (miroir de _documents_immutable, 0014)', () => {
     expect(documentLockError('DRAFT')).toBeNull();
-    expect(documentLockError('REJECTED')).toBeNull();
-    expect(documentLockError('SUBMITTED')).toBe('DOCUMENT_LOCKED');
-    expect(documentLockError('IN_PROGRESS')).toBe('DOCUMENT_LOCKED');
-    expect(documentLockError('IN_PROGRESS', 'INFO_REQUESTED')).toBeNull();
-    expect(documentLockError('IN_PROGRESS', 'PAID_LOCKED')).toBe('DOCUMENT_LOCKED');
-    const fn = sql('0009_lotx_x4.sql');
-    expect(fn).toMatch(/v_status in \('DRAFT','REJECTED'\)/);
+    expect(documentLockError('PENDING_REVIEW')).toBe('DOCUMENT_LOCKED');
+    expect(documentLockError('ACTIVE')).toBe('DOCUMENT_LOCKED');
+    expect(documentLockError('CANCELLED')).toBe('DOCUMENT_LOCKED');
+    expect(documentLockError('ACTIVE', 'INFO_REQUESTED')).toBeNull();
+    expect(documentLockError('ACTIVE', 'PAID')).toBe('DOCUMENT_LOCKED');
+    const fn = sql('0014_lotx2_core.sql');
+    expect(fn).toMatch(/if v_status = 'DRAFT' then return/);
     expect(fn).toMatch(/v_tr = 'INFO_REQUESTED'/);
   });
 
   it('réutilisation : autres dossiers seulement, brouillons et pièces archivées exclus (miroir de _hash_reuse)', () => {
     const h = 'c'.repeat(64);
     const docs = [
-      { txId: 'A', contentHash: h, txStatus: 'SUBMITTED' as const },
-      { txId: 'B', contentHash: h.toUpperCase(), txStatus: 'IN_PROGRESS' as const },
-      { txId: 'B', contentHash: h, txStatus: 'IN_PROGRESS' as const },
+      { txId: 'A', contentHash: h, txStatus: 'ACTIVE' as const },
+      { txId: 'B', contentHash: h.toUpperCase(), txStatus: 'ACTIVE' as const },
+      { txId: 'B', contentHash: h, txStatus: 'ACTIVE' as const },
       { txId: 'C', contentHash: h, txStatus: 'DRAFT' as const },
       { txId: 'D', contentHash: h, txStatus: 'CLOSED' as const, deleted: true },
-      { txId: 'E', contentHash: 'd'.repeat(64), txStatus: 'SUBMITTED' as const },
+      { txId: 'E', contentHash: 'd'.repeat(64), txStatus: 'PENDING_REVIEW' as const },
     ];
     expect(otherDossiersWithHash(h, docs, 'A')).toEqual(['B']);
     expect(otherDossiersWithHash(h, docs, 'C')).toEqual(['A', 'B']);
@@ -79,13 +80,23 @@ describe('X4 — empreintes des pièces', () => {
 
 describe('X5 — paiements, événements, journal financier', () => {
   /** Un simulateur minimal : une tranche, l’adaptateur simulé, le moteur, et la réception des webhooks (même chemin). */
-  function setup(outcome: 'SUCCEEDED' | 'FAILED' = 'SUCCEEDED', releaseMode: 'PROVIDER_CONFIRM' | 'IMMEDIATE' = 'PROVIDER_CONFIRM') {
-    const status: Record<string, TrancheStatus> = { T1: 'AWAITING_PAYMENT' };
+  // Lot X v2 : la demande soumise est acceptée au démarrage du paiement (SUBMITTED → ACCEPTED), payée par l’événement du
+  // partenaire (ACCEPTED → PAID, fonds NONE en DIRECT avec versement au journal, HELD en CONDITIONAL), redevient payable si
+  // toutes les tentatives échouent (ACCEPTED → SUBMITTED), passe en REFUNDED au premier remboursement versé.
+  function setup(outcome: 'SUCCEEDED' | 'FAILED' = 'SUCCEEDED', mode: SettlementMode = 'CONDITIONAL') {
+    const status: Record<string, TrancheStatus> = { T1: 'SUBMITTED' };
+    const funds: Record<string, FundsState> = { T1: 'NONE' };
     const engine = new PaymentEngine(() => new Date('2026-11-12T10:00:00Z'));
     const ctx: PaymentContext = {
-      tranche: (id) => ({ status: status[id] ?? 'PLANNED', active: true }),
-      onPaid: (a: PaymentAttempt) => { status[a.trancheId] = releaseMode === 'IMMEDIATE' ? 'RELEASED' : 'PAID_LOCKED'; if (releaseMode === 'IMMEDIATE') engine.release(a.trancheId); },
+      tranche: (id) => ({ status: status[id] ?? 'DRAFT', active: true }),
+      onPaid: (a: PaymentAttempt) => {
+        const o = paymentOutcome(mode); status[a.trancheId] = o.status; funds[a.trancheId] = o.fundsState;
+        if (mode === 'DIRECT') engine.release(a.trancheId);
+      },
+      onRetryAllowed: (a) => { status[a.trancheId] = 'SUBMITTED'; },
+      onRefunded: (r) => { if (status[r.trancheId] === 'PAID') status[r.trancheId] = 'REFUNDED'; },
     };
+    const view = (id: string) => ({ status: status[id] ?? 'DRAFT', fundsState: funds[id] ?? 'NONE' });
     const received: IncomingWebhook[] = [];
     const adapter: SimulatedPaymentAdapter = new SimulatedPaymentAdapter({
       secret: 'secret-de-test', outcome: () => outcome,
@@ -101,13 +112,14 @@ describe('X5 — paiements, événements, journal financier', () => {
       const { attempt, created } = engine.startPayment({ txId: 'TX', trancheId: 'T1', idempotencyKey: key, amountMinor: 100_000, currency: 'XAF',
         trancheStatus: status.T1!, createdBy: 'payeur' });
       if (created) {
+        status.T1 = 'ACCEPTED';
         const res = await adapter.createPayment({ idempotencyKey: key, trancheId: 'T1', amount: { amountMinor: 100_000, currency: 'XAF' },
           payer: { userId: 'payeur' }, payee: { name: 'École' }, method: 'SIMULATED' });
         engine.setProviderRef(attempt.id, res.providerRef);
       }
       return engine.attempt(attempt.id)!;
     }
-    return { status, engine, ctx, adapter, received, outcomes, deliver, pay };
+    return { status, funds, view, engine, ctx, adapter, received, outcomes, deliver, pay };
   }
   const code = (f: () => unknown) => { try { f(); return null; } catch (e) { return e instanceof DomainError ? e.code : 'OTHER'; } };
 
@@ -115,7 +127,8 @@ describe('X5 — paiements, événements, journal financier', () => {
     const s = setup();
     const a = await s.pay('cle-paiement-0001');
     expect(a.status).toBe('SUCCEEDED');
-    expect(s.status.T1).toBe('PAID_LOCKED');
+    expect(s.status.T1).toBe('PAID');
+    expect(s.funds.T1).toBe('HELD');
     expect(s.received.map((w) => JSON.parse(w.rawBody).data.type)).toEqual(['PAYMENT_PENDING', 'PAYMENT_SUCCEEDED']);
     expect(s.received.every((w) => w.headers[SIMULATED_SIGNATURE_HEADER]?.length === 64)).toBe(true);
     expect(await s.adapter.getPaymentStatus(a.providerRef!)).toMatchObject({ status: 'SUCCEEDED' });
@@ -132,20 +145,20 @@ describe('X5 — paiements, événements, journal financier', () => {
     expect(code(() => s.engine.startPayment({ txId: 'TX', trancheId: 'T1', idempotencyKey: 'cle-paiement-0002', amountMinor: 100_000, currency: 'XAF',
       trancheStatus: s.status.T1!, createdBy: 'payeur' }))).toBe('NOT_PAYABLE');
     expect(code(() => s.engine.startPayment({ txId: 'TX', trancheId: 'T2', idempotencyKey: 'cle-paiement-0001', amountMinor: 1, currency: 'XAF',
-      trancheStatus: 'AWAITING_PAYMENT', createdBy: 'payeur' }))).toBe('IDEMPOTENCY_CONFLICT');
+      trancheStatus: 'SUBMITTED', createdBy: 'payeur' }))).toBe('IDEMPOTENCY_CONFLICT');
     expect(code(() => s.engine.startPayment({ txId: 'TX', trancheId: 'T2', idempotencyKey: 'court', amountMinor: 1, currency: 'XAF',
-      trancheStatus: 'AWAITING_PAYMENT' }))).toBe('VALIDATION');
+      trancheStatus: 'SUBMITTED' }))).toBe('VALIDATION');
   });
 
   it('une seule tentative en cours par tranche ; après un échec, une nouvelle tentative est possible', async () => {
     const s = setup('FAILED');
     const failed = await s.pay('cle-paiement-0001');
     expect(failed).toMatchObject({ status: 'FAILED', errorCode: 'SIMULATED_DECLINE' });
-    expect(s.status.T1).toBe('AWAITING_PAYMENT');
+    expect(s.status.T1).toBe('SUBMITTED');   // ACCEPTED → SUBMITTED : toutes les tentatives ont échoué
     const e = new PaymentEngine();
-    e.startPayment({ txId: 'TX', trancheId: 'T1', idempotencyKey: 'cle-en-cours-01', amountMinor: 5, currency: 'XAF', trancheStatus: 'AWAITING_PAYMENT' });
+    e.startPayment({ txId: 'TX', trancheId: 'T1', idempotencyKey: 'cle-en-cours-01', amountMinor: 5, currency: 'XAF', trancheStatus: 'SUBMITTED' });
     expect(code(() => e.startPayment({ txId: 'TX', trancheId: 'T1', idempotencyKey: 'cle-en-cours-02', amountMinor: 5, currency: 'XAF',
-      trancheStatus: 'AWAITING_PAYMENT' }))).toBe('PAYMENT_IN_PROGRESS');
+      trancheStatus: 'SUBMITTED' }))).toBe('PAYMENT_IN_PROGRESS');
   });
 
   it('événements : doublon, ordre inversé, signature invalide, montant différent, tentative inconnue', async () => {
@@ -165,7 +178,8 @@ describe('X5 — paiements, événements, journal financier', () => {
     // Signature invalide (événement forgé avec un autre secret) : enregistré, jamais appliqué.
     const s2 = setup();
     const { attempt } = s2.engine.startPayment({ txId: 'TX', trancheId: 'T1', idempotencyKey: 'cle-paiement-0009', amountMinor: 100_000, currency: 'XAF',
-      trancheStatus: 'AWAITING_PAYMENT', createdBy: 'payeur' });
+      trancheStatus: 'SUBMITTED', createdBy: 'payeur' });
+    s2.status.T1 = 'ACCEPTED';
     const forged = s2.adapter.signed({ provider: 'SIMULATED', eventId: 'forge-1', occurredAt: '', payload: { type: 'PAYMENT_SUCCEEDED',
       idempotencyKey: 'cle-paiement-0009', amountMinor: 100_000, currency: 'XAF' } }, 'mauvais-secret');
     expect(s2.adapter.verifyWebhook(forged.headers, forged.rawBody)).toBe(false);
@@ -181,7 +195,7 @@ describe('X5 — paiements, événements, journal financier', () => {
       idempotencyKey: 'cle-paiement-0009', amountMinor: 100_000, currency: 'XAF' } }, s2.ctx).result).toBe('APPLIED');
     expect(s2.engine.applyEvent({ provider: 'SIMULATED', eventId: 'pend-1', signatureValid: true, payload: { type: 'PAYMENT_PENDING',
       idempotencyKey: 'cle-paiement-0009', amountMinor: 100_000, currency: 'XAF' } }, s2.ctx).result).toBe('IGNORED');
-    expect(s2.status.T1).toBe('PAID_LOCKED');
+    expect(s2.status.T1).toBe('PAID');
   });
 
   it('journal : équilibré par devise, au moins deux lignes, gelé (aucune modification)', async () => {
@@ -205,13 +219,13 @@ describe('X5 — paiements, événements, journal financier', () => {
   it('remboursement partiel puis total, jamais au-delà, jamais deux fois ; contrepassations', async () => {
     const s = setup();
     const a = await s.pay('cle-paiement-0001');
-    const r1 = s.engine.requestRefund({ trancheId: 'T1', amountMinor: 30_000, idempotencyKey: 'remb-0001', reason: 'Trop perçu', trancheStatus: 'PAID_LOCKED' });
-    expect(s.engine.requestRefund({ trancheId: 'T1', amountMinor: 30_000, idempotencyKey: 'remb-0001', reason: 'Trop perçu', trancheStatus: 'PAID_LOCKED' }).id).toBe(r1.id);
-    expect(code(() => s.engine.requestRefund({ trancheId: 'T1', amountMinor: 40_000, idempotencyKey: 'remb-0001', reason: 'x', trancheStatus: 'PAID_LOCKED' }))).toBe('IDEMPOTENCY_CONFLICT');
-    expect(code(() => s.engine.requestRefund({ trancheId: 'T1', amountMinor: 80_000, idempotencyKey: 'remb-0002', reason: 'Annulation', trancheStatus: 'PAID_LOCKED' }))).toBe('REFUND_EXCEEDS_PAID');
-    const r2 = s.engine.requestRefund({ trancheId: 'T1', amountMinor: 70_000, idempotencyKey: 'remb-0003', reason: 'Reste', trancheStatus: 'PAID_LOCKED' });
-    expect(code(() => s.engine.requestRefund({ trancheId: 'T1', amountMinor: 1, idempotencyKey: 'remb-0004', reason: 'Encore', trancheStatus: 'PAID_LOCKED' }))).toBe('REFUND_EXCEEDS_PAID');
-    expect(code(() => s.engine.requestRefund({ trancheId: 'T9', amountMinor: 1, idempotencyKey: 'remb-0005', reason: 'Rien', trancheStatus: 'PAID_LOCKED' }))).toBe('NOT_REFUNDABLE');
+    const r1 = s.engine.requestRefund({ trancheId: 'T1', amountMinor: 30_000, idempotencyKey: 'remb-0001', reason: 'Trop perçu', fundsState: 'HELD' });
+    expect(s.engine.requestRefund({ trancheId: 'T1', amountMinor: 30_000, idempotencyKey: 'remb-0001', reason: 'Trop perçu', fundsState: 'HELD' }).id).toBe(r1.id);
+    expect(code(() => s.engine.requestRefund({ trancheId: 'T1', amountMinor: 40_000, idempotencyKey: 'remb-0001', reason: 'x', fundsState: 'HELD' }))).toBe('IDEMPOTENCY_CONFLICT');
+    expect(code(() => s.engine.requestRefund({ trancheId: 'T1', amountMinor: 80_000, idempotencyKey: 'remb-0002', reason: 'Annulation', fundsState: 'HELD' }))).toBe('REFUND_EXCEEDS_PAID');
+    const r2 = s.engine.requestRefund({ trancheId: 'T1', amountMinor: 70_000, idempotencyKey: 'remb-0003', reason: 'Reste', fundsState: 'HELD' });
+    expect(code(() => s.engine.requestRefund({ trancheId: 'T1', amountMinor: 1, idempotencyKey: 'remb-0004', reason: 'Encore', fundsState: 'HELD' }))).toBe('REFUND_EXCEEDS_PAID');
+    expect(code(() => s.engine.requestRefund({ trancheId: 'T9', amountMinor: 1, idempotencyKey: 'remb-0005', reason: 'Rien', fundsState: 'HELD' }))).toBe('NOT_REFUNDABLE');
     await s.adapter.refund({ paymentId: a.providerRef!, amountMinor: 30_000, idempotencyKey: 'remb-0001' });
     await s.adapter.refund({ paymentId: a.providerRef!, amountMinor: 70_000, idempotencyKey: 'remb-0003' });
     expect(s.engine.refunds.map((r) => r.status)).toEqual(['SUCCEEDED', 'SUCCEEDED']);
@@ -224,33 +238,34 @@ describe('X5 — paiements, événements, journal financier', () => {
   it('remboursement refusé par le partenaire : contrepassation de la demande, le montant redevient dû', async () => {
     const s = setup();
     await s.pay('cle-paiement-0001');
-    s.engine.requestRefund({ trancheId: 'T1', amountMinor: 10_000, idempotencyKey: 'remb-0001', reason: 'Essai', trancheStatus: 'PAID_LOCKED' });
+    s.engine.requestRefund({ trancheId: 'T1', amountMinor: 10_000, idempotencyKey: 'remb-0001', reason: 'Essai', fundsState: 'HELD' });
     s.engine.applyEvent({ provider: 'SIMULATED', eventId: 'rf-ko', signatureValid: true, payload: { type: 'REFUND_FAILED', refundKey: 'remb-0001',
       amountMinor: 10_000, currency: 'XAF' } }, s.ctx);
     expect(s.engine.balances('T1')['DUE_TO_PROVIDER:XAF']).toBe(-100_000);
     expect(s.engine.balances('T1')['REFUNDS_PAYABLE:XAF']).toBe(0);
   });
 
-  it('IMMEDIATE : débloqué au paiement, versement au journal ; tranche débloquée non remboursable', async () => {
-    const s = setup('SUCCEEDED', 'IMMEDIATE');
+  it('DIRECT (remplace IMMEDIATE) : payée sans blocage, versement au journal ; CONDITIONAL libéré : non remboursable', async () => {
+    const s = setup('SUCCEEDED', 'DIRECT');
     await s.pay('cle-paiement-0001');
-    expect(s.status.T1).toBe('RELEASED');
+    expect(s.status.T1).toBe('PAID');
+    expect(s.funds.T1).toBe('NONE');
     expect(s.engine.journals.map((j) => j.kind)).toEqual(['PAYMENT', 'RELEASE']);
     expect(s.engine.balances('T1')['DUE_TO_PROVIDER:XAF']).toBe(0);
-    expect(code(() => s.engine.requestRefund({ trancheId: 'T1', amountMinor: 1, idempotencyKey: 'remb-0001', reason: 'Trop tard', trancheStatus: 'RELEASED' }))).toBe('NOT_REFUNDABLE');
+    expect(code(() => s.engine.requestRefund({ trancheId: 'T1', amountMinor: 1, idempotencyKey: 'remb-0001', reason: 'Trop tard', fundsState: 'RELEASED' }))).toBe('NOT_REFUNDABLE');
   });
 
   it('rapprochement : aucun écart quand tout concorde ; écart volontaire détecté (miroir de v_reconciliation)', async () => {
     const s = setup();
     const a = await s.pay('cle-paiement-0001');
-    expect(s.engine.reconciliation((id) => s.status[id]!)).toEqual([{ attemptId: a.id, trancheId: 'T1', issues: [] }]);
+    expect(s.engine.reconciliation(s.view)).toEqual([{ attemptId: a.id, trancheId: 'T1', issues: [] }]);
     // Écart : tentative réussie sans événement ni écriture, tranche non payée.
     const st = s.engine.state();
     const forged = { ...st, attempts: [...st.attempts, { ...a, id: 'pay-forge', trancheId: 'T2', idempotencyKey: 'cle-forge-0001' }] };
-    expect(reconcile(forged, (id) => (id === 'T2' ? 'AWAITING_PAYMENT' : s.status[id]!)).find((r) => r.attemptId === 'pay-forge')?.issues)
+    expect(reconcile(forged, (id) => (id === 'T2' ? { status: 'SUBMITTED', fundsState: 'NONE' } : s.view(id))).find((r) => r.attemptId === 'pay-forge')?.issues)
       .toEqual(['SUCCEEDED_WITHOUT_EVENT', 'SUCCEEDED_WITHOUT_LEDGER', 'TRANCHE_NOT_PAID']);
     // Tranche annulée (litige) sans remboursement versé.
-    expect(s.engine.reconciliation(() => 'CANCELLED')[0]?.issues).toEqual(['CANCELLED_NOT_REFUNDED']);
+    expect(s.engine.reconciliation(() => ({ status: 'CANCELLED', fundsState: 'HELD' }))[0]?.issues).toEqual(['CANCELLED_NOT_REFUNDED']);
     // Mêmes codes, même ordre que la vue SQL.
     const view = sql('0010_lotx_x5.sql');
     const sqlCodes = [...view.slice(view.indexOf('create or replace view v_reconciliation')).matchAll(/then '([A-Z_]+)' end/g)].map((m) => m[1]);
@@ -261,12 +276,12 @@ describe('X5 — paiements, événements, journal financier', () => {
 // ——— X6 : types de besoin configurables ———
 describe('X6 — modules (types de besoin) décrits par des données', () => {
   const testModule = (over: Partial<RequestModule> = {}): RequestModule => ({
-    code: 'TEST_NEVER', labels: { fr: 'Module de test', en: 'Test module' }, enabled: true, wave: 1, releaseMode: 'PAYER_CONFIRM', contestHours: 24,
+    code: 'TEST_NEVER', labels: { fr: 'Module de test', en: 'Test module' }, enabled: true, wave: 1, settlementMode: 'DIRECT', releaseMode: 'PAYER_CONFIRM', contestHours: 24,
     dualValidation: false, platformReview: 'NEVER', multiplePayers: false, displayOrder: 90,
     requiredDocuments: [{ kind: 'INVOICE', required: true, maxFiles: 1, labels: { fr: 'Facture', en: 'Invoice' } }], ...over,
   });
 
-  it('DEFAULT_MODULES (RELEASE_RULES, REQUIRED_DOCUMENTS, vague 1) coïncide avec l’amorçage SQL de request_modules', () => {
+  it('DEFAULT_MODULES (RELEASE_RULES, REQUIRED_DOCUMENTS, vague 1) coïncide avec l’amorçage SQL de request_modules (0011, complété par 0014)', () => {
     const mig = sql('0011_lotx_x6.sql');
     const block = mig.slice(mig.indexOf('-- seed:begin'), mig.indexOf('-- seed:end'));
     const json = block.slice(block.indexOf('$seed$') + 6, block.lastIndexOf('$seed$'));
@@ -275,28 +290,39 @@ describe('X6 — modules (types de besoin) décrits par des données', () => {
       code: String(x.code), labels: { fr: String(x.label_fr), en: String(x.label_en) },
       descriptions: { fr: String(x.description_fr), en: String(x.description_en) },
       enabled: x.enabled as boolean, wave: x.wave as number, releaseMode: x.release_mode as RequestModule['releaseMode'],
-      contestHours: x.contest_hours as number, dualValidation: x.dual_validation as boolean, platformReview: x.platform_review as PlatformReview,
+      contestHours: x.contest_hours as number, dualValidation: x.dual_validation as boolean,
+      // 0014 (lot X v2) : platform_review passe à NEVER partout ; vague 1 en DIRECT, vague 2 en CONDITIONAL.
+      platformReview: (x.platform_review === 'ALWAYS' ? 'NEVER' : x.platform_review) as PlatformReview,
+      settlementMode: ['EDUCATION', 'HEALTH', 'RENT'].includes(String(x.code)) ? 'DIRECT' : 'CONDITIONAL',
       multiplePayers: x.multiple_payers as boolean, requiredDocuments: x.required_documents as RequestModule['requiredDocuments'],
       displayOrder: x.display_order as number,
     }));
     expect(fromSql).toEqual(DEFAULT_MODULES);
     for (const m of DEFAULT_MODULES) expect(() => checkModule(m)).not.toThrow();
-    expect(DEFAULT_MODULES.every((m) => m.platformReview === 'ALWAYS' && !m.multiplePayers)).toBe(true);
+    expect(DEFAULT_MODULES.every((m) => m.platformReview === 'NEVER' && !m.multiplePayers)).toBe(true);
+    const core = sql('0014_lotx2_core.sql');
+    expect(core).toMatch(/update request_modules set platform_review = 'NEVER';/);
+    expect(core).toMatch(/when code in \('EDUCATION','HEALTH','RENT'\) then 'DIRECT' else 'CONDITIONAL'/);
   });
 
-  it('platform_review : ALWAYS, NEVER, RISK_BASED ; double validation toujours appliquée (miroir de _platform_review)', () => {
+  it('platform_review : NEVER (défaut), ALWAYS, RISK_BASED ; double validation toujours appliquée (miroir de _platform_review, 0014)', () => {
     const base = { requiredValidations: 1 as const, firstRequest: false, duplicate: false };
-    expect(platformReviewDecision(DEFAULT_MODULES[0], base)).toEqual({ review: true, reasons: ['ALWAYS'] });
+    expect(platformReviewDecision(DEFAULT_MODULES[0], base)).toEqual({ review: false, reasons: [] });   // NEVER par défaut (K2)
+    expect(platformReviewDecision({ ...DEFAULT_MODULES[0]!, platformReview: 'ALWAYS' }, base)).toEqual({ review: true, reasons: ['ALWAYS'] });
     expect(platformReviewDecision(testModule(), base)).toEqual({ review: false, reasons: [] });
     expect(platformReviewDecision(testModule(), { ...base, requiredValidations: 2 })).toEqual({ review: true, reasons: ['DUAL_VALIDATION'] });
     const risk = testModule({ platformReview: 'RISK_BASED' });
-    expect(platformReviewDecision(risk, base).review).toBe(false);
-    expect(platformReviewDecision(risk, { ...base, firstRequest: true }).reasons).toEqual(['FIRST_REQUEST']);
-    expect(platformReviewDecision(risk, { ...base, duplicate: true }).reasons).toEqual(['DUPLICATE']);
+    expect(platformReviewDecision(risk, base).reasons).toEqual(['THRESHOLD_NOT_CONFIGURED']);   // seuil absent : revue par prudence
+    const configured = { ...base, riskThresholdMinor: 1_000_000, amountMinor: 50_000 };
+    expect(platformReviewDecision(risk, configured).review).toBe(false);
+    expect(platformReviewDecision(risk, { ...configured, amountMinor: 1_000_000 }).reasons).toEqual(['AMOUNT_THRESHOLD']);
+    expect(platformReviewDecision(risk, { ...configured, firstRequest: true }).reasons).toEqual(['FIRST_REQUEST']);
+    expect(platformReviewDecision(risk, { ...configured, duplicate: true }).reasons).toEqual(['DUPLICATE']);
     expect(platformReviewDecision(testModule(), { ...base, firstRequest: true, duplicate: true }).review).toBe(false);   // NEVER : ni l’un ni l’autre
     expect(platformReviewDecision(undefined, base).reasons).toEqual(['ALWAYS']);
-    const fn = sql('0011_lotx_x6.sql');
-    expect([...fn.matchAll(/array_append\(v_reasons, '([A-Z_]+)'\)/g)].map((m) => m[1])).toEqual(['ALWAYS', 'DUAL_VALIDATION', 'FIRST_REQUEST', 'DUPLICATE']);
+    const fn = sql('0014_lotx2_core.sql');
+    expect([...fn.matchAll(/array_append\(v_reasons, '([A-Z_]+)'\)/g)].map((m) => m[1]))
+      .toEqual(['ALWAYS', 'DUAL_VALIDATION', 'THRESHOLD_NOT_CONFIGURED', 'AMOUNT_THRESHOLD', 'FIRST_REQUEST', 'DUPLICATE']);
   });
 
   it('un module ajouté par des données guide l’assistant sans changer le code : type, pièces, règle de déblocage', () => {

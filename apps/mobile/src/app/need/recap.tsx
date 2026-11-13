@@ -3,7 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { Text } from '@/ui/text';
 import { router } from 'expo-router';
 import type { ApiError } from '@diaspay/api-client';
-import { describeRelease } from '@diaspay/domain';
+import { describeRelease, findModule } from '@diaspay/domain';
 import { getModules } from '@/state/modules';
 import type { NeedIssue } from '@diaspay/domain';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
@@ -30,6 +30,10 @@ export default function NeedRecap() {
   const tranches = d.tranches ?? [];
   const docs = d.documents.filter((x) => x.status === 'UPLOADED').length;
   const rule = describeRelease(vertical, getModules());
+  // Lot X version 2 : règlement direct (sans délai de contestation) et revue du bureau selon le module.
+  const module = findModule(vertical, getModules());
+  const direct = module?.settlementMode !== 'CONDITIONAL';
+  const reviewed = module?.platformReview !== 'NEVER';
   const firstDue = tranches[0]?.dueDate;
   const planLine = d.planType === 'SINGLE'
     ? t('planSummary_SINGLE', { amount: money(total) })
@@ -87,9 +91,9 @@ export default function NeedRecap() {
       </View>
       <View style={st.block}>
         <Text style={st.blockLabel}>{t('releaseRule')}</Text>
-        <Text style={st.blockTitle}>{t(`release_${rule.releaseMode}`, { hours: rule.contestHours })}</Text>
+        <Text style={st.blockTitle}>{direct ? t('release_IMMEDIATE') : t(`release_${rule.releaseMode}`, { hours: rule.contestHours })}</Text>
       </View>
-      <Banner tone="active" text={t('reviewNote')} />
+      {reviewed ? <Banner tone="active" text={t('reviewNote')} /> : null}
       {error ? <Banner tone="error" text={error} /> : null}
     </WizardFrame>
   );

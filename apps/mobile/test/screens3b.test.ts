@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AppNotification, DisputeView, Receipt, Transaction } from '@diaspay/api-client';
-import { ALERT_TYPES, alertKeys, groupByDay, localDay, unreadCount } from '../src/features/alerts/alerts';
-import { canViewReceipt, disputeStatus, disputeSteps, isResolved, reasonKey } from '../src/features/dispute/state';
+import { ALERT_OUTCOMES, ALERT_TYPES, alertKeys, groupByDay, localDay, unreadCount } from '../src/features/alerts/alerts';
+import { demoOutcomes, disputeStatus, disputeSteps, isResolved, reasonKey, resolutionAmount, suspendsTranche } from '../src/features/dispute/state';
 import { receiptHtml, receiptRows, receiptShareText } from '../src/features/receipt/receipt';
 import type { ReceiptFormat, ReceiptLabels } from '../src/features/receipt/receipt';
 import { formatPhoneDisplay } from '../src/lib/format';
@@ -48,7 +48,7 @@ describe('alertes : libellés', () => {
   });
   it('chaque type d’événement a son titre et son texte en français et en anglais, avec les mêmes paramètres', () => {
     const keys = ALERT_TYPES.flatMap((t) => [`alert_${t}_title`, `alert_${t}_body`]);
-    keys.push('alert_PAYMENT_READY_body_nodate', 'alert_TRANCHE_CONFIRMED_body_noauto', 'outcome_RELEASED', 'outcome_REFUNDED');
+    keys.push('alert_PAYMENT_READY_body_nodate', 'alert_TRANCHE_CONFIRMED_body_noauto', ...ALERT_OUTCOMES.map((o) => `outcome_${o}`));
     const ph = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join();
     for (const k of keys) {
       const f = (fr as Record<string, string>)[k];
@@ -63,6 +63,7 @@ describe('alertes : libellés', () => {
 describe('litige : état et déroulement', () => {
   const open: DisputeView = {
     id: 'd', txId: 'tx', trancheId: 'tr', reason: 'NOT_DELIVERED', description: 'x', openedBy: 'PAYER', openedAt: at('2026-11-09T10:12:00'), status: 'OPEN',
+    beforePayment: false,
   };
   it('en cours : deux étapes accomplies, examen en cours, décision à venir', () => {
     expect(disputeSteps(open).map((s) => [s.key, s.done, s.pending ?? null])).toEqual([
@@ -70,17 +71,28 @@ describe('litige : état et déroulement', () => {
     ]);
     expect(disputeStatus(open)).toEqual({ key: 'disputeInReview', kind: 'pending' });
     expect(isResolved(open)).toBe(false);
-    expect(canViewReceipt(open)).toBe(false);
+    expect(isResolved({ ...open, status: 'IN_MEDIATION' })).toBe(false);
+    expect(resolutionAmount(open, 1000)).toBeNull();
   });
-  it('résolu : déroulement complet ; reçu seulement si les fonds sont remis', () => {
-    const refunded: DisputeView = { ...open, status: 'REFUNDED_TO_PAYER', resolvedAt: at('2026-11-10T16:40:00'), resolutionNote: 'n' };
+  // Lot X v2 : le reçu dépend du paiement (receiptAvailable), plus du litige ; l’issue donne le libellé et le montant.
+  it('résolu : déroulement complet ; libellé et montant selon l’issue', () => {
+    const refunded: DisputeView = { ...open, status: 'RESOLVED', outcome: 'REFUND_PARTIAL', refundAmountMinor: 400, resolvedAt: at('2026-11-10T16:40:00'), resolutionNote: 'n' };
     expect(disputeSteps(refunded).every((s) => s.done)).toBe(true);
     expect(disputeSteps(refunded)[2]).toMatchObject({ key: 'review', dayOnly: true, at: refunded.resolvedAt });
     expect(disputeStatus(refunded)).toEqual({ key: 'disputeResolvedRefunded', kind: 'active' });
-    expect(canViewReceipt(refunded)).toBe(false);
-    const released: DisputeView = { ...refunded, status: 'RELEASED_TO_PROVIDER' };
+    expect(resolutionAmount(refunded, 1000)).toEqual({ key: 'refundedAmount', amountMinor: 400 });
+    const released: DisputeView = { ...refunded, outcome: 'FUNDS_RELEASED' };
     expect(disputeStatus(released).key).toBe('disputeResolvedReleased');
-    expect(canViewReceipt(released)).toBe(true);
+    expect(resolutionAmount(released, 1000)).toEqual({ key: 'releasedAmount', amountMinor: 1000 });
+    expect(disputeStatus({ ...refunded, outcome: 'NO_ACTION' }).key).toBe('disputeResolvedNoAction');
+  });
+  it('suspension et décisions de démonstration valides seulement', () => {
+    expect(suspendsTranche({ ...open, beforePayment: true })).toBe(true);
+    expect(suspendsTranche({ ...open, beforePayment: true, status: 'RESOLVED', outcome: 'NO_ACTION' })).toBe(false);
+    expect(demoOutcomes({ status: 'SUBMITTED', fundsState: 'NONE', amountMinor: 10, refundedMinor: 0 })).toEqual({ noAction: 'NO_ACTION' });
+    expect(demoOutcomes({ status: 'PAID', fundsState: 'NONE', amountMinor: 10, refundedMinor: 0 })).toEqual({ refund: 'REFUND_FULL', noAction: 'NO_ACTION' });
+    expect(demoOutcomes({ status: 'PAID', fundsState: 'HELD', amountMinor: 10, refundedMinor: 0 }))
+      .toEqual({ release: 'FUNDS_RELEASED', refund: 'FUNDS_RETURNED', noAction: 'NO_ACTION' });
   });
   it('motif : code traduit, ancien texte libre conservé', () => {
     expect(reasonKey('INCOMPLETE')).toBe('disputeReason_INCOMPLETE');

@@ -34,11 +34,11 @@ export function checkContentHash(hash: string | null | undefined, required = fal
 }
 
 /**
- * Une pièce ne change ni ne disparaît que si le dossier est modifiable (brouillon, dossier rejeté), ou, pour une pièce
+ * Une pièce ne change ni ne disparaît que si l’opération est un brouillon, ou, pour une pièce
  * de réponse (rattachée à une tranche), tant que la tranche attend des informations (miroir de _documents_immutable).
  */
 export function documentLockError(txStatus: TxStatus, trancheStatus?: TrancheStatus): 'DOCUMENT_LOCKED' | null {
-  if (txStatus === 'DRAFT' || txStatus === 'REJECTED') return null;
+  if (txStatus === 'DRAFT') return null;   // lot X v2 : plus d’opération rejetée en correction
   if (trancheStatus === 'INFO_REQUESTED') return null;
   return 'DOCUMENT_LOCKED';
 }

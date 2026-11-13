@@ -5,9 +5,12 @@
 --   scripts/db.sh seed-evidence <tx_id>    # brouillon terrain existant (créé par l’application ou un test), dont la
 --                                          # preuve (pièce de type EVIDENCE) est déjà envoyée dans le bucket
 --
--- Le dossier est amené à l’état qu’il aurait au bout du parcours : soumis, pris en charge, validé par deux validateurs
--- (case du montant cochée), jeton émis, en cours ; première tranche payée, puis preuve déposée par le prestataire.
--- Le journal d’audit retrace chaque étape (chaîne d’empreintes intacte). Affiche l’identifiant du dossier et de la tranche.
+-- Modèle du lot X version 2 (docs/specs/modele-cible-v2.md, migration 0014) : l’opération terrain est en règlement
+-- CONDITIONAL. Elle est amenée à l’état qu’elle aurait au bout du parcours : soumise (PENDING_REVIEW, double validation),
+-- prise en charge (IN_REVIEW), approuvée par deux validateurs (case du montant cochée), ACTIVE ; première demande envoyée
+-- au payeur (SUBMITTED), acceptée, payée par une tentative réussie (PAID, fonds bloqués : funds_state HELD, journal financier
+-- PAYMENT), puis preuve déposée par le prestataire (evidence_submitted_at, événement EVIDENCE_SUBMITTED) : elle apparaît
+-- dans bo_evidence_queue. Le journal d’audit retrace chaque étape (chaîne d’empreintes intacte).
 \if :{?tx}
 select set_config('seed.tx', :'tx', false);
 \else
@@ -18,6 +21,7 @@ begin;
 do $$
 declare
   v_tx uuid; v_req uuid; v_payer uuid; v_prov uuid; v_val1 uuid; v_val2 uuid; v_tr uuid; t transactions; v_n int;
+  v_amount bigint; v_cur currency; v_attempt uuid;
 begin
   if coalesce((select value from app_config where key = 'mock_mode'), 'false') <> 'true' then
     raise exception 'seed-evidence.sql refusé : app_config.mock_mode n’est pas ''true'' (projet de production ?)';
@@ -65,24 +69,48 @@ begin
   select id into v_tr from tranches where tx_id = v_tx order by seq limit 1;
   update documents set tranche_id = v_tr where tx_id = v_tx and kind = 'EVIDENCE' and tranche_id is null;
 
-  -- Parcours du dossier, journalisé comme par les fonctions de l’application.
-  update transactions set status = 'SUBMITTED' where id = v_tx;
-  insert into audit_log(tx_id, actor_id, event, from_status, to_status, payload) values (v_tx, v_req, 'STATUS_CHANGE', 'DRAFT', 'SUBMITTED', '{"reason":null}');
-  update transactions set status = 'IN_REVIEW' where id = v_tx;
-  insert into audit_log(tx_id, actor_id, event, from_status, to_status, payload) values (v_tx, v_val1, 'STATUS_CHANGE', 'SUBMITTED', 'IN_REVIEW', '{"reason":null}');
+  -- Règlement conditionnel et règle de déblocage par preuve (vague 2), même si le module a changé depuis le brouillon.
+  update transactions set settlement_mode = 'CONDITIONAL' where id = v_tx;
+  update tranches set release_mode = 'EVIDENCE_REVIEW', contest_hours = 0 where tx_id = v_tx;
+
+  -- Parcours de l’opération (section 3.1), journalisé par les fonctions internes de 0014.
+  perform _set_tx_status(v_tx, 'PENDING_REVIEW', v_req, 'STATUS_CHANGE', '{"review":{"mode":"ALWAYS","reasons":["DUAL_VALIDATION"]}}');
+  perform _set_tx_status(v_tx, 'IN_REVIEW', v_val1, 'STATUS_CHANGE', '{"reason":null}');
   insert into validations(tx_id, validator_id, approved, amount_checked) values (v_tx, v_val1, true, true), (v_tx, v_val2, true, true);
   insert into audit_log(tx_id, actor_id, event, payload) values
     (v_tx, v_val1, 'VALIDATION_DECISION', '{"approved":true,"amount_checked":true,"reason":null,"got":1,"need":2}'),
     (v_tx, v_val2, 'VALIDATION_DECISION', '{"approved":true,"amount_checked":true,"reason":null,"got":2,"need":2}');
-  update transactions set status = 'VALIDATED' where id = v_tx;
-  insert into audit_log(tx_id, actor_id, event, from_status, to_status, payload) values (v_tx, v_val2, 'STATUS_CHANGE', 'IN_REVIEW', 'VALIDATED', '{"reason":null}');
-  perform _simulate_token_issue(v_tx);   -- jeton, IN_PROGRESS, première tranche activée (jalon)
-  perform _set_tranche_status(v_tr, 'PAID_LOCKED', v_payer, 'SYSTEM_SIMULATED', '{}');
-  insert into payments(tx_id, tranche_id, provider, status) values (v_tx, v_tr, 'MOCK', 'SUCCEEDED');
-  perform _set_tranche_status(v_tr, 'EVIDENCE_SUBMITTED', v_prov, 'TRANCHE_CHANGE', '{"reason":null}');
+  perform _set_tx_status(v_tx, 'ACTIVE', v_val2, 'STATUS_CHANGE', '{}');
+
+  -- Première demande (section 3.2) : envoyée au payeur, acceptée, payée (tentative réussie), fonds bloqués.
+  perform set_config('app.via_transition', 'on', true);
+  if (select status from tranches where id = v_tr) = 'DRAFT' then perform _submit_request(v_tr, null); end if;
+  select amount_minor, currency into v_amount, v_cur from tranches where id = v_tr;
+  insert into payment_attempts(tx_id, tranche_id, idempotency_key, provider, method, status, amount_minor, currency, provider_ref, created_by, completed_at)
+  values (v_tx, v_tr, 'seed-evidence-' || replace(gen_random_uuid()::text, '-', ''), 'SIMULATED', 'SIMULATED', 'SUCCEEDED', v_amount, v_cur,
+          'seed-' || replace(gen_random_uuid()::text, '-', ''), v_payer, now())
+  returning id into v_attempt;
+  perform _set_tranche_status(v_tr, 'ACCEPTED', v_payer, 'REQUEST_ACCEPTED', jsonb_build_object('attempt_id', v_attempt));
+  insert into payments(tx_id, tranche_id, provider, status) values (v_tx, v_tr, 'SIMULATED', 'SUCCEEDED');
+  perform _post_journal('PAYMENT', v_tr, v_cur, jsonb_build_array(
+      jsonb_build_object('account','PARTNER_CASH','debit', v_amount), jsonb_build_object('account','DUE_TO_PROVIDER','credit', v_amount)),
+      v_attempt, null, null, null, 'Paiement reçu par le partenaire (seed-evidence)');
+  insert into audit_log(tx_id, tranche_id, actor_id, event, payload)
+  values (v_tx, v_tr, null, 'PAYMENT_SUCCEEDED', jsonb_build_object('attempt_id', v_attempt, 'provider', 'SIMULATED'));
+  update tranches set funds_state = 'HELD' where id = v_tr;
+  perform _set_tranche_status(v_tr, 'PAID', null, 'REQUEST_PAID', jsonb_build_object('attempt_id', v_attempt, 'funds', 'HELD'));
+
+  -- Preuve déposée par le prestataire (submit_evidence) : file « Preuves de jalons » du bureau.
+  update tranches set evidence_submitted_at = now() where id = v_tr;
+  insert into audit_log(tx_id, tranche_id, actor_id, event, payload) values (v_tx, v_tr, v_prov, 'EVIDENCE_SUBMITTED', '{}');
+
+  -- Conditions de la vue bo_evidence_queue (0014) : PAID, fonds HELD, preuve déposée.
+  if not exists (select 1 from tranches where id = v_tr and status = 'PAID' and funds_state = 'HELD' and evidence_submitted_at is not null) then
+    raise exception 'seed-evidence.sql : la demande % n’est pas en attente de preuve', v_tr;
+  end if;
 
   select count(*) into v_n from audit_log where tx_id = v_tx;
-  raise notice 'Dossier terrain % : tranche % en attente de preuve (% lignes de journal, chaîne valide : %)', v_tx, v_tr, v_n, verify_audit(v_tx);
+  raise notice 'Opération terrain % : demande % payée, fonds bloqués, preuve en attente (% lignes de journal, chaîne valide : %)', v_tx, v_tr, v_n, verify_audit(v_tx);
 end $$;
 
 commit;

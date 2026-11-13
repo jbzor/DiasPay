@@ -48,6 +48,10 @@ Les trois journaux de remboursement sont des **contrepassations** : ils portent 
   La fonction répond toujours (pas d’exception) pour que l’événement reste enregistré.
 - Paiement réussi alors que la tranche n’est plus à payer (demande rejetée entre-temps) : l’argent est reçu, la tranche ne bouge pas, l’événement porte `TRANCHE_NOT_AWAITING` et le rapprochement le signale.
 
+## Règlement direct (lot X version 2)
+
+En `DIRECT` (par défaut, K1), le paiement confirmé est aussitôt versé au prestataire : un journal `PAYMENT` puis un journal `RELEASE`. Un remboursement ultérieur, issu d’un litige ou d’une décision d’administrateur, passe par `REFUND_REQUESTED` puis `REFUND_SETTLED`. Pour la demande, `DUE_TO_PROVIDER` termine alors au crédit et `PARTNER_CASH` au débit négatif : la somme est due par le prestataire (rétrofacturation). Le journal reste équilibré. Le traitement comptable et les recours, selon le rail de paiement, sont des points ouverts : `docs/open-parameters.md`, ligne 5.
+
 ## Remboursements
 
 `request_refund(tranche, montant, clé, motif)` : administrateur non partie. Jamais au-delà du montant payé (`REFUND_EXCEEDS_PAID`) : un remboursement partiel puis le reste sont acceptés, rien au-delà. Même clé : même remboursement (jamais deux). Une tranche déjà débloquée n’est pas remboursable par cette voie (`NOT_REFUNDABLE`) : les fonds ont été versés au prestataire.

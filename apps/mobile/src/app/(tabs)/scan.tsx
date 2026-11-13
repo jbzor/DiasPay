@@ -146,7 +146,7 @@ export default function Scan() {
 
           {s.phase === 'error' ? (
             <>
-              <Banner tone="error" text={s.error === 'OFFLINE' ? t('scanOffline') : errorText({ code: s.error === 'GENERIC' ? undefined : s.error })} />
+              <Banner tone="error" text={s.error === 'OFFLINE' ? t('scanOffline') : s.error === 'WRONG_MODE' ? t('scanWrongMode') : errorText({ code: s.error === 'GENERIC' ? undefined : s.error })} />
               <Button label={t('scanAnother')} onPress={() => dispatch({ type: 'RESET' })} />
             </>
           ) : null}

@@ -1,4 +1,4 @@
-import type { Receipt } from '@diaspay/api-client';
+import type { Receipt, Tranche, Transaction } from '@diaspay/api-client';
 import { shortHash } from '@diaspay/domain';
 import { palette, semantic } from '@diaspay/ui-tokens';
 
@@ -14,6 +14,15 @@ export interface ReceiptLabels {
   footer: string;           // mention de simulation / génération
 }
 
+/**
+ * Reçu disponible (lot X version 2, miroir de getReceipt) : dès que la tranche est payée en règlement direct ; en déblocage
+ * conditionnel, une fois les fonds remis au prestataire. Une tranche remboursée garde son reçu de paiement.
+ */
+export function receiptAvailable(tx: Pick<Transaction, 'settlementMode'>, tr: Pick<Tranche, 'status' | 'fundsState'>): boolean {
+  if (tr.status !== 'PAID' && tr.status !== 'REFUNDED') return false;
+  return tx.settlementMode === 'DIRECT' || tr.fundsState === 'RELEASED';
+}
+
 export interface ReceiptFormat {
   money: (amountMinor: number, currency: Receipt['currency']) => string;
   dateTime: (iso: string) => string;
@@ -25,7 +34,7 @@ export function receiptRows(r: Receipt, l: ReceiptLabels, f: ReceiptFormat): Arr
     [l.payer, r.payerName || '—'],
     [l.provider, r.providerName],
     [l.purpose, r.purpose],
-    [l.reference, r.reference],
+    [l.reference, r.reference || '—'],   // règlement direct : aucun jeton, donc aucune référence
     [l.fingerprint, shortHash(r.lastHash)],
   ];
 }

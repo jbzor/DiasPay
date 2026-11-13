@@ -2,7 +2,7 @@ import { hmac } from '@noble/hashes/hmac.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 import { DomainError } from './types';
-import type { Currency, Money, TrancheStatus } from './types';
+import type { Currency, FundsState, Money, TrancheStatus } from './types';
 
 // Lot X (X5) : fondations des paiements (exigence 5.2), sans appeler TrustPayWay.
 // - PaymentPort v2 : contrat d’un partenaire de paiement (TrustPayWay plus tard, adaptateur simulé aujourd’hui).
@@ -199,15 +199,21 @@ export interface EventOutcome { result: EventResult; error?: string; original?: 
 
 /** Ce que le moteur demande à l’appelant (simulateur, serveur) au moment d’un paiement réussi : faire avancer la tranche. */
 export interface PaymentContext {
-  /** État courant de la tranche (et de sa transaction : « active » si IN_PROGRESS). */
+  /** État courant de la demande (et de son opération : « active » si ACTIVE). */
   tranche(trancheId: string): { status: TrancheStatus; active: boolean };
-  /** Tranche à payer et transaction active : AWAITING_PAYMENT → PAID_LOCKED (ou RELEASED en mode IMMEDIATE). */
+  /** Demande acceptée (en attente du paiement) et opération active : ACCEPTED → PAID (fonds bloqués en CONDITIONAL). */
   onPaid(attempt: PaymentAttempt): void;
+  /** Toutes les tentatives ont échoué : la demande redevient payable (ACCEPTED → SUBMITTED). */
+  onRetryAllowed?(attempt: PaymentAttempt): void;
+  /** Remboursement versé : la demande payée passe en REFUNDED (refunded_minor). */
+  onRefunded?(refund: Refund): void;
 }
 
-const NOT_PAID_STATUSES: readonly TrancheStatus[] = ['PLANNED', 'AWAITING_PAYMENT', 'INFO_REQUESTED', 'REJECTED', 'EXPIRED'];
-const PAID_STATUSES: readonly TrancheStatus[] = ['PAID_LOCKED', 'EVIDENCE_SUBMITTED', 'CONFIRMED', 'RELEASED', 'DISPUTED'];
-const CLOSED_STATUSES: readonly TrancheStatus[] = ['CANCELLED', 'REJECTED', 'EXPIRED'];
+const NOT_PAID_STATUSES: readonly TrancheStatus[] = ['DRAFT', 'SUBMITTED', 'INFO_REQUESTED', 'ACCEPTED', 'REJECTED', 'EXPIRED'];
+const PAID_STATUSES: readonly TrancheStatus[] = ['PAID', 'REFUNDED'];
+
+/** Demande vue par le rapprochement : statut et état des fonds. */
+export interface RequestView { status: TrancheStatus; fundsState: FundsState }
 
 /** Codes d’écart du rapprochement, dans l’ordre de v_reconciliation. */
 export const RECONCILIATION_ISSUES = [
@@ -222,12 +228,12 @@ export interface LedgerState {
 }
 
 /** Rapprochement (miroir de v_reconciliation) : tentatives, événements, écritures et état des tranches. */
-export function reconcile(state: LedgerState, trancheStatus: (trancheId: string) => TrancheStatus): ReconciliationRow[] {
+export function reconcile(state: LedgerState, requestOf: (trancheId: string) => RequestView): ReconciliationRow[] {
   const sum = (kind: JournalKind, attemptId: string, account: LedgerAccount, side: 'debitMinor' | 'creditMinor') =>
     state.journals.filter((j) => j.kind === kind && j.attemptId === attemptId)
       .flatMap((j) => j.lines).filter((l) => l.account === account).reduce((s, l) => s + l[side], 0);
   return state.attempts.map((a) => {
-    const st = trancheStatus(a.trancheId);
+    const { status: st, fundsState } = requestOf(a.trancheId);
     const successEvents = state.events.filter((e) => e.attemptId === a.id && e.result === 'APPLIED' && e.payload.type === 'PAYMENT_SUCCEEDED').length;
     const rejected = state.events.filter((e) => e.attemptId === a.id && e.result === 'REJECTED' && e.signatureValid).length;
     const paid = sum('PAYMENT', a.id, 'DUE_TO_PROVIDER', 'creditMinor');
@@ -244,9 +250,9 @@ export function reconcile(state: LedgerState, trancheStatus: (trancheId: string)
       ok && paid > 0 && paid !== a.amountMinor ? 'LEDGER_AMOUNT_MISMATCH' : null,
       ok && NOT_PAID_STATUSES.includes(st) ? 'TRANCHE_NOT_PAID' : null,
       !ok && PAID_STATUSES.includes(st) && !otherSuccess ? 'PAID_WITHOUT_ATTEMPT' : null,
-      ok && st === 'RELEASED' && released === 0 && a.amountMinor > requested ? 'RELEASED_NOT_IN_LEDGER' : null,
+      ok && (fundsState === 'RELEASED' || (st === 'PAID' && fundsState === 'NONE')) && released === 0 && a.amountMinor > requested ? 'RELEASED_NOT_IN_LEDGER' : null,
       ok && st === 'CANCELLED' && settled < a.amountMinor ? 'CANCELLED_NOT_REFUNDED' : null,
-      ok && settled >= a.amountMinor && !CLOSED_STATUSES.includes(st) ? 'REFUNDED_TRANCHE_OPEN' : null,
+      ok && settled > 0 && st !== 'REFUNDED' ? 'REFUNDED_TRANCHE_OPEN' : null,
       requested > a.amountMinor ? 'REFUND_EXCEEDS_PAID' : null,
       rejected > 0 ? 'EVENT_REJECTED' : null,
     ];
@@ -323,7 +329,7 @@ export class PaymentEngine {
     if (this.attempts.some((a) => a.trancheId === input.trancheId && a.status === 'PENDING')) {
       throw new DomainError('PAYMENT_IN_PROGRESS', 'Un paiement est déjà en cours pour cette tranche');
     }
-    if (input.trancheStatus !== 'AWAITING_PAYMENT') throw new DomainError('NOT_PAYABLE', 'Cette tranche n’est pas à payer');
+    if (input.trancheStatus !== 'SUBMITTED') throw new DomainError('NOT_PAYABLE', 'Cette demande n’est pas à payer');
     const method = input.method ?? 'SIMULATED';
     if (!PAYMENT_METHODS.includes(method)) throw new DomainError('VALIDATION', 'Moyen de paiement inconnu');
     const a: PaymentAttempt = {
@@ -370,12 +376,16 @@ export class PaymentEngine {
               { account: 'FEES', debitMinor: 0, creditMinor: fee },
             ]);
             const tr = ctx.tranche(a.trancheId);
-            if (tr.status === 'AWAITING_PAYMENT' && tr.active) ctx.onPaid({ ...a }); else stored.error = 'TRANCHE_NOT_AWAITING';
+            if (tr.status === 'ACCEPTED' && tr.active) ctx.onPaid({ ...a }); else stored.error = 'TRANCHE_NOT_AWAITING';
           }
         } else if (p.type === 'PAYMENT_FAILED') {
           if (a.status === 'FAILED') set('IGNORED', 'ALREADY_APPLIED');
           else if (a.status === 'SUCCEEDED') set('REJECTED', 'CONTRADICTS_FINAL_STATE');
-          else { a.status = 'FAILED'; a.errorCode = p.errorCode ?? 'DECLINED'; }
+          else {
+            a.status = 'FAILED'; a.errorCode = p.errorCode ?? 'DECLINED';
+            const others = this.attempts.some((x) => x.trancheId === a.trancheId && (x.status === 'PENDING' || x.status === 'SUCCEEDED'));
+            if (!others && ctx.tranche(a.trancheId).status === 'ACCEPTED') ctx.onRetryAllowed?.({ ...a });
+          }
         } else set('REJECTED', 'UNKNOWN_TYPE');
       }
     } else if (p.type === 'REFUND_SUCCEEDED' || p.type === 'REFUND_FAILED') {
@@ -393,6 +403,7 @@ export class PaymentEngine {
             { account: 'REFUNDS_PAYABLE', debitMinor: r.amountMinor, creditMinor: 0 },
             { account: 'PARTNER_CASH', debitMinor: 0, creditMinor: r.amountMinor },
           ], r.id);
+          ctx.onRefunded?.({ ...r });
         } else {
           r.status = 'FAILED';
           this.post('REFUND_REVERSED', a, [
@@ -406,7 +417,7 @@ export class PaymentEngine {
   }
 
   /** Remboursement (miroir de request_refund, après le contrôle « administrateur non partie » de l’appelant). */
-  requestRefund(input: { trancheId: string; amountMinor: number; idempotencyKey: string; reason: string; trancheStatus: TrancheStatus }): Refund {
+  requestRefund(input: { trancheId: string; amountMinor: number; idempotencyKey: string; reason: string; fundsState: FundsState }): Refund {
     const key = input.idempotencyKey.trim();
     if (!keyOk(key)) throw new DomainError('VALIDATION', 'Clé d’idempotence invalide (8 à 200 caractères)');
     const known = this.refundsList.find((r) => r.idempotencyKey === key);
@@ -419,7 +430,7 @@ export class PaymentEngine {
     if (input.reason.trim().length < 3) throw new DomainError('REASON_REQUIRED', 'Motif du remboursement obligatoire');
     const a = this.attempts.find((x) => x.trancheId === input.trancheId && x.status === 'SUCCEEDED');
     if (!a) throw new DomainError('NOT_REFUNDABLE', 'Aucun paiement réussi pour cette tranche');
-    if (input.trancheStatus === 'RELEASED') throw new DomainError('NOT_REFUNDABLE', 'Tranche débloquée : les fonds ont été versés au prestataire');
+    if (input.fundsState === 'RELEASED') throw new DomainError('NOT_REFUNDABLE', 'Fonds libérés au prestataire : remboursement impossible par cette voie');
     if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0) throw new DomainError('AMOUNT_INVALID', 'Montant invalide');
     if (this.refunded(a.id) + input.amountMinor > a.amountMinor) throw new DomainError('REFUND_EXCEEDS_PAID', 'Remboursement au-delà du montant payé');
     const r: Refund = {
@@ -457,7 +468,7 @@ export class PaymentEngine {
     return out;
   }
 
-  reconciliation(trancheStatus: (trancheId: string) => TrancheStatus): ReconciliationRow[] {
-    return reconcile(this.state(), trancheStatus);
+  reconciliation(requestOf: (trancheId: string) => RequestView): ReconciliationRow[] {
+    return reconcile(this.state(), requestOf);
   }
 }

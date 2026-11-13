@@ -8,12 +8,13 @@ import { useI18n, verticalLabel } from '@/i18n';
 import type { Key } from '@/i18n';
 import { api } from '@/state/api';
 import { useDisputeQuery, useTransactions, useDemo } from '@/state/queries';
-import { canViewReceipt, disputeStatus, disputeSteps, isResolved, reasonKey } from '@/features/dispute/state';
+import { demoOutcomes, disputeStatus, disputeSteps, isResolved, reasonKey, resolutionAmount, suspendsTranche } from '@/features/dispute/state';
+import { receiptAvailable } from '@/features/receipt/receipt';
 import { Banner, Button, Field, Icon, Row, Screen, StatusLabel, TopBar } from '@/ui';
 import { Dialog } from '@/ui/Dialog';
 import { Text } from '@/ui/text';
 
-/** H10 — Suivi d’un litige : en cours d’examen ou résolu (remboursement ou fonds remis). */
+/** H10 — Suivi d’un litige : en cours d’examen ou résolu (sans suite, remboursement, fonds remis ou rendus). */
 export default function DisputeTracking() {
   const { trancheId } = useLocalSearchParams<{ trancheId: string }>();
   const { t, locale, money, dateTime, date, errorText } = useI18n();
@@ -36,6 +37,9 @@ export default function DisputeTracking() {
   const status = disputeStatus(dispute);
   const resolved = isResolved(dispute);
   const amount = money({ amountMinor: tr.amountMinor, currency: tx.amount.currency });
+  const decided = resolutionAmount(dispute, tr.amountMinor);
+  const choices = demoOutcomes(tr);
+  const label = (o: DisputeOutcome) => (o === 'FUNDS_RELEASED' ? t('simRelease') : o === 'NO_ACTION' ? t('simNoAction') : t('simRefund'));
   const opener = dispute.openedBy === 'PAYER'
     ? t('openedByPayer', { name: tx.payerName || t('payerWord') })
     : t('openedByProvider', { name: tx.providerName || t('providerWord') });
@@ -44,7 +48,7 @@ export default function DisputeTracking() {
   const fullDate = (iso: string) => `${date(iso)}, ${new Intl.DateTimeFormat(locale === 'fr' ? 'fr-FR' : 'en-GB', { hour: '2-digit', minute: '2-digit' }).format(new Date(iso))}`;
 
   const footer = resolved
-    ? (canViewReceipt(dispute) ? <Button tone="secondary" label={t('viewReceipt')} onPress={() => router.push(`/receipt/${tr.id}`)} /> : undefined)
+    ? (receiptAvailable(tx, tr) ? <Button tone="secondary" label={t('viewReceipt')} onPress={() => router.push(`/receipt/${tr.id}`)} /> : undefined)
     : <Button tone="secondary" disabled label={`${t('addPiece')} · ${t('soon')}`} />;
 
   return (
@@ -55,7 +59,7 @@ export default function DisputeTracking() {
         <Row label={t('openedOn')} value={fullDate(dispute.openedAt)} />
         {resolved && dispute.resolvedAt ? <Row label={t('resolvedOn')} value={fullDate(dispute.resolvedAt)} /> : null}
         {resolved
-          ? <Row label={dispute.status === 'REFUNDED_TO_PAYER' ? t('refundedAmount') : t('releasedAmount')} value={amount} />
+          ? (decided ? <Row label={t(decided.key)} value={money({ amountMinor: decided.amountMinor, currency: tx.amount.currency })} /> : null)
           : (
             <>
               <Row label={t('openedBy')} value={opener} />
@@ -90,16 +94,18 @@ export default function DisputeTracking() {
           </View>
         ))}
       </View>
-      {!resolved ? <Banner text={t('disputeSuspended')} /> : null}
+      {/* Avant paiement : tranche suspendue ; après paiement : le paiement reste exécuté (K7). */}
+      {!resolved ? <Banner text={suspendsTranche(dispute) ? t('disputeSuspended') : t('disputePaidNote')} /> : null}
       {demo && !resolved ? (
         <View style={{ gap: spacing.sm }}>
-          <Button tone="secondary" label={t('simRelease')} onPress={() => { setNote(''); setDeciding('RELEASED'); }} />
-          <Button tone="danger" label={t('simRefund')} onPress={() => { setNote(''); setDeciding('REFUNDED'); }} />
+          {choices.release ? <Button tone="secondary" label={t('simRelease')} onPress={() => { setNote(''); setDeciding(choices.release ?? null); }} /> : null}
+          {choices.refund ? <Button tone="danger" label={t('simRefund')} onPress={() => { setNote(''); setDeciding(choices.refund ?? null); }} /> : null}
+          <Button tone="secondary" label={t('simNoAction')} onPress={() => { setNote(''); setDeciding(choices.noAction); }} />
         </View>
       ) : null}
       {error ? <Banner tone="error" text={error} /> : null}
-      <Dialog visible={deciding !== null} title={deciding === 'RELEASED' ? t('simRelease') : t('simRefund')} confirmLabel={t('decide')} cancelLabel={t('cancel')}
-        danger={deciding === 'REFUNDED'} confirmDisabled={note.trim().length < 3} onCancel={() => setDeciding(null)}
+      <Dialog visible={deciding !== null} title={deciding ? label(deciding) : ''} confirmLabel={t('decide')} cancelLabel={t('cancel')}
+        danger={deciding === choices.refund} confirmDisabled={note.trim().length < 3} onCancel={() => setDeciding(null)}
         onConfirm={() => {
           const outcome = deciding; setDeciding(null);
           if (outcome) void api.simulateDisputeResolution(tr.id, { outcome, note }).catch((e) => setError(errorText(e)));

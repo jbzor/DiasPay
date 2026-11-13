@@ -2,9 +2,9 @@
  * Conversion entre les lignes du serveur (snake_case, bigint, NULL) et les types du domaine.
  * Aucune valeur inattendue ne traverse : un statut ou un montant hors domaine lève UNEXPECTED.
  */
-import { MODULE_CODE_RE, PLATFORM_REVIEWS, TRANCHE_STATUSES, TX_STATUSES } from '@diaspay/domain';
+import { DISPUTE_OUTCOMES, DISPUTE_STATUSES, MODULE_CODE_RE, PLATFORM_REVIEWS, TRANCHE_STATUSES, TX_STATUSES } from '@diaspay/domain';
 import type {
-  Currency, DocumentKind, DraftDocument, ModuleCode, ModuleDocument, NeedDraft, PlanType, PlatformReview, ReleaseMode, RequestMessageKind, RequestModule, TrancheStatus,
+  Currency, DisputeOutcome, DisputeStatus, DocumentKind, DraftDocument, FundsState, ModuleCode, ModuleDocument, SettlementMode, NeedDraft, PlanType, PlatformReview, ReleaseMode, RequestMessageKind, RequestModule, TrancheStatus,
   TxStatus,
 } from '@diaspay/domain';
 import { ApiError } from '../need';
@@ -33,7 +33,9 @@ export type TxWithRelations = TxRow & {
 export const TX_SELECT = '*, tranches(*, tranche_tokens(reference, revoked_at)), documents(id, tranche_id, deleted_at)';
 
 const CURRENCIES: readonly string[] = ['EUR', 'USD', 'XAF'];
-const RELEASE_MODES: readonly string[] = ['PROVIDER_CONFIRM', 'PAYER_CONFIRM', 'EVIDENCE_REVIEW', 'AUTO', 'IMMEDIATE'];
+const RELEASE_MODES: readonly string[] = ['PROVIDER_CONFIRM', 'PAYER_CONFIRM', 'EVIDENCE_REVIEW', 'AUTO'];
+const SETTLEMENT_MODES: readonly string[] = ['DIRECT', 'CONDITIONAL'];
+const FUNDS_STATES: readonly string[] = ['NONE', 'HELD', 'RELEASED', 'RETURNED'];
 const PLAN_TYPES: readonly string[] = ['SINGLE', 'PARTIAL', 'INSTALLMENTS', 'RECURRING'];
 
 function bad(what: string, value: unknown): never {
@@ -58,6 +60,8 @@ export function toModule(row: ModuleRow): RequestModule {
     enabled: row.enabled, wave: row.wave,
     releaseMode: oneOf<ReleaseMode>(row.release_mode, RELEASE_MODES, 'mode de déblocage'),
     contestHours: row.contest_hours, dualValidation: row.dual_validation,
+    settlementMode: oneOf<SettlementMode>(row.settlement_mode, SETTLEMENT_MODES, 'mode de règlement'),
+    ...(row.request_expiry_days === null ? {} : { requestExpiryDays: row.request_expiry_days }),
     platformReview: oneOf<PlatformReview>(row.platform_review, PLATFORM_REVIEWS, 'platform_review'),
     multiplePayers: row.multiple_payers,
     requiredDocuments: docs.map((d): ModuleDocument => {
@@ -106,6 +110,12 @@ export function toTranche(row: TxWithRelations['tranches'][number], documents: D
     reference: tok?.reference ?? undefined,
     evidenceCount: documents.filter((d) => d.tranche_id === row.id && !d.deleted_at).length,
     releasedAt: toIso(row.released_at),
+    paidAt: toIso(row.paid_at),
+    fundsState: oneOf<FundsState>(row.funds_state, FUNDS_STATES, 'état des fonds'),
+    onHold: row.on_hold,
+    refundedMinor: toMinor(row.refunded_minor, 'montant remboursé'),
+    expiresAt: toIso(row.expires_at),
+    confirmedAt: toIso(row.confirmed_at),
   };
 }
 
@@ -114,6 +124,8 @@ export function toTransaction(row: TxWithRelations): Transaction {
   return {
     id: row.id,
     vertical: moduleCode(row.vertical),
+    settlementMode: oneOf<SettlementMode>(row.settlement_mode, SETTLEMENT_MODES, 'mode de règlement'),
+    acceptedAt: toIso(row.accepted_at),
     purpose: row.purpose ?? '',
     amount: {
       amountMinor: row.amount_minor === null ? 0 : toMinor(row.amount_minor),
@@ -140,7 +152,7 @@ export function toToken(row: TokenRow): TrancheToken {
 
 const NOTIFICATION_TYPES = [
   'TX_VALIDATED', 'TX_REJECTED', 'PAYMENT_READY', 'TRANCHE_CONFIRMED', 'TRANCHE_RELEASED', 'DISPUTE_OPENED', 'DISPUTE_RESOLVED',
-  'PAYMENT_REQUEST_RECEIVED', 'INFO_REQUESTED', 'INFO_ANSWERED', 'REQUEST_REJECTED',
+  'PAYMENT_REQUEST_RECEIVED', 'INFO_REQUESTED', 'INFO_ANSWERED', 'REQUEST_REJECTED', 'REQUEST_PAID', 'PLAN_ACCEPTED',
 ];
 
 /** Le serveur écrit l’événement dans payload (déclencheur sur audit_log) ; jamais de texte affiché. */
@@ -202,7 +214,10 @@ export function toDispute(v: Json): DisputeView | null {
     id: String(o.id), txId: String(o.txId), trancheId: String(o.trancheId), reason: String(o.reason ?? 'OTHER'),
     description: String(o.description ?? ''), openedBy: o.openedBy === 'PROVIDER' ? 'PROVIDER' : 'PAYER',
     openedAt: toIso(String(o.openedAt)),
-    status: oneOf<DisputeView['status']>(o.status, ['OPEN', 'RELEASED_TO_PROVIDER', 'REFUNDED_TO_PAYER'], 'statut de litige'),
+    status: oneOf<DisputeStatus>(o.status, DISPUTE_STATUSES, 'statut de litige'),
+    outcome: o.outcome === undefined || o.outcome === null ? undefined : oneOf<DisputeOutcome>(o.outcome, DISPUTE_OUTCOMES, 'issue de litige'),
+    beforePayment: o.beforePayment === true,
+    refundAmountMinor: o.refundAmountMinor === undefined || o.refundAmountMinor === null ? undefined : toMinor(o.refundAmountMinor),
     resolvedAt: typeof o.resolvedAt === 'string' ? toIso(o.resolvedAt) : undefined,
     resolutionNote: typeof o.resolutionNote === 'string' ? o.resolutionNote : undefined,
   };

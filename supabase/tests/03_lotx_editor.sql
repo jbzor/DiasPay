@@ -1,8 +1,10 @@
 -- VARIANTE POUR L’ÉDITEUR SQL DE SUPABASE, générée depuis 03_lotx.sql par scripts/sql-editor-variant.mjs : ne pas modifier.
 -- Coller tout le fichier dans l’éditeur et exécuter : lire le message d’erreur final (RESULTAT ou ECHEC).
--- Test des migrations 0007 et 0008 (lot X, passe 1). Même format que 01_lot4.sql : utilisateurs fictifs, rôles réels
--- (authenticated, anon), tout est annulé à la fin (ROLLBACK), le résumé échoue au moindre FAIL.
--- Prérequis : 0001 à 0008 appliquées, app_config.mock_mode = 'true' (projet de développement).
+-- Test des migrations 0007 et 0008 (lot X, passe 1), mis à jour pour le noyau du lot X version 2 (0014 à 0016) :
+-- soumission → ACTIVE (platform_review = NEVER), statuts de demande v2, règlement DIRECT par défaut, jetons en CONDITIONAL.
+-- Même format que 01_lot4.sql : utilisateurs fictifs, rôles réels (authenticated, anon), tout est annulé à la fin (ROLLBACK),
+-- le résumé échoue au moindre FAIL.
+-- Prérequis : 0001 à 0016 appliquées, app_config.mock_mode = 'true' (projet de développement).
 begin;
 create schema t;
 create table t.results (n serial primary key, ok boolean not null, label text not null);
@@ -54,8 +56,9 @@ update profiles set platform_role = 'ADMIN' where id = 'f9000000-0000-4000-8000-
 update profiles set primary_role = 'REQUESTER' where id = 'f9000000-0000-4000-8000-000000000002';
 update profiles set primary_role = 'PROVIDER', full_name = 'École Les Manguiers (test)' where id = 'f9000000-0000-4000-8000-000000000007';
 update profiles set primary_role = 'PROVIDER' where id in ('f9000000-0000-4000-8000-000000000003', 'f9000000-0000-4000-8000-000000000008');
--- Émission simulée du jeton à la validation (développement), comme l’application de démonstration.
-update app_config set value = 'true' where key = 'auto_issue_token';
+-- Jetons (TrustLink) : émis à la soumission d’une demande, en CONDITIONAL seulement. Le dossier A utilise le module AGRO
+-- (CONDITIONAL), ouvert ici et réglé en confirmation par scan du prestataire (annulé à la fin).
+update request_modules set enabled = true, release_mode = 'PROVIDER_CONFIRM' where code = 'AGRO';
 
 -- ===================== X1 : sécurité du TrustLink =====================
 -- ---------- Structure et droits ----------
@@ -65,41 +68,43 @@ select t.check(not exists (
   where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute')
     and p.proname in ('revoke_token','reissue_token','mark_received','request_info','answer_info','reject_request',
       'resolve_reference_info','resolve_tranche_reference','confirm_by_reference','get_receipt','transition_tranche',
-      'simulate_tranche_system','transition_tx','save_draft','_revoke_active_token','_check_token_manager','_reference_failures',
+      'simulate_tranche_system','transition_tx','submit_operation','approve_release','save_draft','_revoke_active_token','_check_token_manager','_reference_failures',
       '_reference_guard','_reference_failed','_party_token','_check_message','_request_tranche')),
   'aucune fonction de 0008 (ni redéfinie) exécutable par anon');
 select t.check(not exists (
   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and has_function_privilege('authenticated', p.oid, 'execute')
     and p.proname in ('_revoke_active_token','_check_token_manager','_reference_failures','_reference_guard','_reference_failed',
-      '_party_token','_check_message','_request_tranche','_issue_tranche_token','_set_tranche_status','_notify_from_audit')),
-  'fonctions internes de 0008 non exécutables par authenticated');
+      '_party_token','_check_message','_request_tranche','_issue_tranche_token','_set_tranche_status','_notify_from_audit',
+      '_submit_request','_activate_operation','_set_tx_status','_set_funds_state','_close_operation_if_done')),
+  'fonctions internes de 0008 et du noyau v2 non exécutables par authenticated');
 select t.check(not has_table_privilege('authenticated', 'security_events', 'INSERT') and not has_table_privilege('authenticated', 'security_events', 'UPDATE')
            and not has_table_privilege('authenticated', 'security_events', 'DELETE') and not has_table_privilege('anon', 'security_events', 'SELECT'),
   'security_events : aucune écriture par le client, rien pour anon');
-select t.check((select value from app_config where key = 'eqr_image_enabled') = 'true', 'eqr_image_enabled : true par défaut');
+select t.check((select value from app_config where key = 'eqr_image_enabled') = 'false', 'eqr_image_enabled : false par défaut (QR hors du parcours direct, 0015)');
 select t.check(exists (select 1 from pg_indexes where tablename = 'tranche_tokens' and indexname = 'tranche_tokens_one_active'),
   'un seul jeton actif par tranche (index unique partiel)');
--- ---------- Dossier A : demandeur initiateur, payeur, prestataire ----------
+-- ---------- Dossier A : demandeur initiateur, payeur, prestataire (CONDITIONAL, pour les jetons) ----------
 select t.login('f9000000-0000-4000-8000-000000000002');
-select save_draft(jsonb_build_object('id','f9300000-0000-4000-8000-00000000000a','vertical','EDUCATION','amountMinor','900000','currency','XAF',
-  'purpose','Scolarité (lot X)','beneficiaryName','Awa','counterpartyPhone','+33 6 22 22 00 01',
+select save_draft(jsonb_build_object('id','f9300000-0000-4000-8000-00000000000a','vertical','AGRO','amountMinor','900000','currency','XAF',
+  'purpose','Intrants (lot X)','beneficiaryName','Awa','counterpartyPhone','+33 6 22 22 00 01',
   'provider', jsonb_build_object('name','Lycée (lot X)','invitedPhone','+237 6 2222 0003'),'planType','PARTIAL',
   'tranches', jsonb_build_array(jsonb_build_object('label','Inscription','amountMinor','300000','dueDate',(current_date + 2)::text),
                                 jsonb_build_object('label','Solde','amountMinor','600000','dueDate',(current_date + 60)::text))));
-select add_document('f9300000-0000-4000-8000-00000000000a', 'ENROLMENT_CERTIFICATE', 'f9300000-0000-4000-8000-00000000000a/ENROLMENT_CERTIFICATE/a.pdf', 'a.pdf', 'application/pdf', 1000);
-select transition_tx('f9300000-0000-4000-8000-00000000000a', 'SUBMITTED');
-select t.admin();
-select t.login('f9000000-0000-4000-8000-000000000004');
-select transition_tx('f9300000-0000-4000-8000-00000000000a', 'IN_REVIEW');
-select decide_tx('f9300000-0000-4000-8000-00000000000a', true, true);
+select add_document('f9300000-0000-4000-8000-00000000000a', 'SUPPORTING_DOCUMENT', 'f9300000-0000-4000-8000-00000000000a/SUPPORTING_DOCUMENT/a.pdf', 'a.pdf', 'application/pdf', 1000);
+select transition_tx('f9300000-0000-4000-8000-00000000000a', 'SUBMITTED');   -- platform_review = NEVER : ACTIVE directement
 select t.admin();
 insert into t.ids select 'a1', id from tranches where tx_id = 'f9300000-0000-4000-8000-00000000000a' and seq = 1;
 insert into t.ids select 'a2', id from tranches where tx_id = 'f9300000-0000-4000-8000-00000000000a' and seq = 2;
 insert into t.refs select 'a1', reference from tranche_tokens where tranche_id = (select v from t.ids where k = 'a1') and revoked_at is null;
-select t.check((select status from transactions where id = 'f9300000-0000-4000-8000-00000000000a') = 'IN_PROGRESS'
-           and (select status from tranches where id = (select v from t.ids where k = 'a1')) = 'AWAITING_PAYMENT'
-           and (select length(v) from t.refs where k = 'a1') = 18, 'dossier A en cours, tranche 1 à payer, jeton émis');
+select t.check((select status from transactions where id = 'f9300000-0000-4000-8000-00000000000a') = 'ACTIVE'
+           and (select settlement_mode from transactions where id = 'f9300000-0000-4000-8000-00000000000a') = 'CONDITIONAL'
+           and exists (select 1 from audit_log where tx_id = 'f9300000-0000-4000-8000-00000000000a' and event = 'AUTO_ACTIVATED')
+           and (select status from tranches where id = (select v from t.ids where k = 'a1')) = 'SUBMITTED'
+           and (select status from tranches where id = (select v from t.ids where k = 'a2')) = 'DRAFT'
+           and (select length(v) from t.refs where k = 'a1') = 18
+           and not exists (select 1 from tranche_tokens where tranche_id = (select v from t.ids where k = 'a2')),
+  'dossier A actif dès la soumission (AUTO_ACTIVATED, CONDITIONAL), demande 1 soumise avec son jeton, demande 2 programmée sans jeton');
 
 -- ---------- X1 : jeton lisible par le payeur seulement ----------
 select t.login('f9000000-0000-4000-8000-000000000001');
@@ -141,6 +146,9 @@ select t.check((select count(*) from security_events where user_id = 'f9000000-0
 select t.fails($$delete from security_events$$, 'security_events en ajout seul (même pour le propriétaire)');
 select t.login('f9000000-0000-4000-8000-000000000001');
 select t.check((t.j($$select resolve_reference_info((select v from t.refs where k = 'a1'))$$)->>'label') = 'Inscription', 'le payeur résout sa référence');
+select t.admin();
+select t.login('f9000000-0000-4000-8000-000000000002');
+select t.check((t.j($$select resolve_reference_info((select v from t.refs where k = 'a1'))$$)->>'label') = 'Inscription', 'l’initiateur résout la référence de sa demande (0015)');
 select t.admin();
 
 -- ---------- X1 : ouverture de la demande par le payeur ----------
@@ -188,9 +196,10 @@ select t.check(exists (select 1 from audit_log where tranche_id = (select v from
 
 -- Paiement : ensuite seul un administrateur non partie révoque.
 select t.login('f9000000-0000-4000-8000-000000000001');
-select simulate_tranche_system((select v from t.ids where k = 'a1'), 'PAID_LOCKED');
+select simulate_tranche_system((select v from t.ids where k = 'a1'), 'PAID');
 select t.admin();
-select t.check((select status from tranches where id = (select v from t.ids where k = 'a1')) = 'PAID_LOCKED', 'mode PROVIDER_CONFIRM : le paiement verrouille (inchangé)');
+select t.check((select status = 'PAID' and funds_state = 'HELD' from tranches where id = (select v from t.ids where k = 'a1')),
+  'CONDITIONAL, mode PROVIDER_CONFIRM : le paiement bloque les fonds (PAID, fonds HELD)');
 select t.login('f9000000-0000-4000-8000-000000000002');
 select t.hint($$select revoke_token((select v from t.ids where k = 'a1'), 'Trop tard')$$, 'NOT_REVOCABLE', 'tranche payée : l’initiateur ne révoque plus');
 select t.admin();
@@ -201,7 +210,8 @@ select t.admin();
 insert into t.refs select 'a1c', reference from tranche_tokens where tranche_id = (select v from t.ids where k = 'a1') and revoked_at is null;
 select t.login('f9000000-0000-4000-8000-000000000003');
 select t.hint($$select confirm_by_reference((select v from t.refs where k = 'a1b'))$$, 'TOKEN_REVOKED', 'le prestataire ne confirme pas avec un jeton révoqué');
-select t.check((select status from confirm_by_reference((select v from t.refs where k = 'a1c'))) = 'CONFIRMED', 'le prestataire confirme avec le jeton actif');
+select t.check((select status = 'PAID' and funds_state = 'HELD' and confirmed_at is not null from confirm_by_reference((select v from t.refs where k = 'a1c'))),
+  'le prestataire confirme avec le jeton actif (confirmation enregistrée, fonds encore bloqués)');
 select t.admin();
 
 -- ===================== X2 : décisions du payeur =====================
@@ -211,16 +221,17 @@ select t.check(not has_table_privilege('authenticated', 'request_messages', 'INS
   'request_messages : aucune écriture par le client');
 select t.check(not exists (select 1 from release_rules where release_mode = 'IMMEDIATE'), 'aucun type de besoin n’utilise IMMEDIATE (K1)');
 select t.check((select count(*) from tranche_transitions where (from_status, to_status) in
-   (('AWAITING_PAYMENT','INFO_REQUESTED'),('INFO_REQUESTED','AWAITING_PAYMENT'),('AWAITING_PAYMENT','REJECTED'),('INFO_REQUESTED','REJECTED'),('AWAITING_PAYMENT','RELEASED'))) = 6,
-  'transitions de tranche du lot X (miroir de transitionTranche)');
+   (('SUBMITTED','INFO_REQUESTED'),('INFO_REQUESTED','SUBMITTED'),('SUBMITTED','REJECTED'),('INFO_REQUESTED','REJECTED'),('ACCEPTED','PAID'))) = 5
+           and not exists (select 1 from tranche_transitions where to_status::text in ('RELEASED','AWAITING_PAYMENT','PAID_LOCKED','CONFIRMED')),
+  'transitions de demande du lot X en statuts v2 (décisions du payeur, paiement ACCEPTED → PAID, plus de déblocage direct)');
 select t.check(exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'dossiers_insert_info')
            and exists (select 1 from pg_policies where tablename = 'documents' and policyname = 'docs_insert_info'),
   'pièces d’une réponse : politiques d’insertion (table et bucket)');
 
 -- ---------- X2 : décisions du payeur (tranche 2) ----------
 select t.login('f9000000-0000-4000-8000-000000000001');
-select simulate_tranche_system((select v from t.ids where k = 'a2'), 'AWAITING_PAYMENT');
-select t.hint($$select simulate_tranche_system((select v from t.ids where k = 'a2'), 'RELEASED')$$, 'NOT_PAID', 'pas de déblocage direct sans paiement (mode non IMMEDIATE)');
+select simulate_tranche_system((select v from t.ids where k = 'a2'), 'SUBMITTED');
+select t.hint($$select approve_release((select v from t.ids where k = 'a2'))$$, 'NOT_PAID', 'pas de libération sans paiement (CONDITIONAL)');
 select t.admin();
 select t.login('f9000000-0000-4000-8000-000000000002');
 select t.hint($$select request_info((select v from t.ids where k = 'a2'), 'Pouvez-vous préciser ?')$$, 'PAYER_ONLY', 'request_info réservé au payeur');
@@ -231,7 +242,7 @@ select t.hint($$select transition_tranche((select v from t.ids where k = 'a2'), 
 select t.hint($$select transition_tranche((select v from t.ids where k = 'a2'), 'REJECTED')$$, 'TRANSITION_FORBIDDEN', 'pas de rejet sans motif (fonction dédiée)');
 select t.check((select status from request_info((select v from t.ids where k = 'a2'), 'Pouvez-vous joindre le relevé de notes ?')) = 'INFO_REQUESTED',
   'le payeur demande des informations : INFO_REQUESTED');
-select t.hint($$select simulate_tranche_system((select v from t.ids where k = 'a2'), 'PAID_LOCKED')$$, 'NOT_PAYABLE', 'pas de paiement pendant la demande d’informations');
+select t.hint($$select simulate_tranche_system((select v from t.ids where k = 'a2'), 'PAID')$$, 'NOT_PAYABLE', 'pas de paiement pendant la demande d’informations');
 select t.admin();
 select t.check((select count(*) from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000a' and event = 'INFO_REQUESTED') = 2
            and not exists (select 1 from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000a' and event = 'INFO_REQUESTED'
@@ -256,7 +267,7 @@ select t.login('f9000000-0000-4000-8000-000000000003');
 select t.hint($$select answer_info((select v from t.ids where k = 'a2'), 'Voici le relevé')$$, 'INITIATOR_ONLY', 'le prestataire non initiateur ne répond pas');
 select t.admin();
 select t.login('f9000000-0000-4000-8000-000000000002');
-select t.check((select status from answer_info((select v from t.ids where k = 'a2'), 'Relevé de notes joint.')) = 'AWAITING_PAYMENT', 'l’initiateur répond : à payer de nouveau');
+select t.check((select status from answer_info((select v from t.ids where k = 'a2'), 'Relevé de notes joint.')) = 'SUBMITTED', 'l’initiateur répond : à payer de nouveau (SUBMITTED)');
 select t.hint($$select answer_info((select v from t.ids where k = 'a2'), 'Encore')$$, 'TRANSITION_UNKNOWN', 'pas de réponse sans demande en cours');
 select t.fails($$insert into documents(tx_id, tranche_id, kind, storage_path, mime_type, size_bytes, uploaded_by) values ('f9300000-0000-4000-8000-00000000000a', (select v from t.ids where k = 'a2'), 'SUPPORTING_DOCUMENT', 'f9300000-0000-4000-8000-00000000000a/info/y.pdf', 'application/pdf', 100, auth.uid())$$,
   'plus de pièce de réponse hors demande d’informations');
@@ -265,9 +276,11 @@ select t.check((select count(*) from notifications where tx_id = 'f9300000-0000-
            and not exists (select 1 from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000a' and event = 'INFO_ANSWERED'
                            and user_id = 'f9000000-0000-4000-8000-000000000002'),
   'INFO_ANSWERED notifié au payeur et au prestataire');
-select t.check((select count(*) from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000a' and event = 'PAYMENT_READY'
-                and payload->>'trancheId' = (select v from t.ids where k = 'a2')::text) = 3,
-  'retour à payer après réponse : pas de nouvelle alerte PAYMENT_READY (seulement celle de l’ouverture)');
+select t.check((select count(*) from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000a' and event = 'PAYMENT_REQUEST_RECEIVED'
+                and payload->>'trancheId' = (select v from t.ids where k = 'a2')::text and user_id = 'f9000000-0000-4000-8000-000000000001') = 1
+           and not exists (select 1 from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000a' and event in ('PAYMENT_READY','PAYMENT_REQUEST_RECEIVED')
+                           and payload->>'trancheId' = (select v from t.ids where k = 'a2')::text and user_id <> 'f9000000-0000-4000-8000-000000000001'),
+  'retour à payer après réponse : pas de nouvelle alerte (seulement PAYMENT_REQUEST_RECEIVED au payeur à la soumission)');
 select t.login('f9000000-0000-4000-8000-000000000003');
 select t.hint($$select reject_request((select v from t.ids where k = 'a2'), 'Non')$$, 'PAYER_ONLY', 'rejet réservé au payeur');
 select t.admin();
@@ -291,11 +304,14 @@ select t.check(not exists (select 1 from tranche_tokens where tranche_id = (sele
   'rejet : jeton de la tranche révoqué');
 select t.check((select count(*) from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000a' and event = 'REQUEST_REJECTED') = 2,
   'REQUEST_REJECTED notifié aux autres parties');
-select t.check((select status from transactions where id = 'f9300000-0000-4000-8000-00000000000a') = 'IN_PROGRESS', 'une tranche confirmée reste ouverte : dossier en cours');
+select t.check((select status from transactions where id = 'f9300000-0000-4000-8000-00000000000a') = 'ACTIVE', 'une demande confirmée aux fonds bloqués reste ouverte : opération active');
 select t.login('f9000000-0000-4000-8000-000000000001');
-select transition_tranche((select v from t.ids where k = 'a1'), 'RELEASED');
+select approve_release((select v from t.ids where k = 'a1'));
 select t.admin();
-select t.check((select status from transactions where id = 'f9300000-0000-4000-8000-00000000000a') = 'CLOSED', 'clôture avec une tranche débloquée et une tranche rejetée');
+select t.check((select status from transactions where id = 'f9300000-0000-4000-8000-00000000000a') = 'CLOSED', 'clôture avec une demande aux fonds libérés et une demande rejetée');
+select t.login('f9000000-0000-4000-8000-000000000001');
+select t.hint($$select request_info((select v from t.ids where k = 'a2'), 'Une dernière question')$$, 'TX_NOT_ACTIVE', 'opération close : plus de décision du payeur');
+select t.admin();
 select t.check(verify_audit('f9300000-0000-4000-8000-00000000000a'), 'journal chaîné intact après révocations et décisions');
 select t.check((select reference from tranche_tokens where id = (select k.id from tranche_tokens k where k.tranche_id = (select v from t.ids where k = 'a1') and k.revoked_at is null))
                = (select v from t.refs where k = 'a1c'), 'reçu : jeton actif');
@@ -303,8 +319,9 @@ select t.login('f9000000-0000-4000-8000-000000000001');
 select t.check((t.j($$select get_receipt((select v from t.ids where k = 'a1'))$$)->>'reference') = (select v from t.refs where k = 'a1c'), 'le reçu porte la référence du jeton actif');
 select t.admin();
 
--- ---------- X2.6 Mode IMMEDIATE (type de besoin de test, annulé à la fin) ----------
-update release_rules set release_mode = 'IMMEDIATE', contest_hours = 0 where vertical = 'RENT';
+-- ---------- X2.6 Règlement DIRECT (remplace le mode IMMEDIATE, retiré) ----------
+select t.fails($$update request_modules set release_mode = 'IMMEDIATE' where code = 'RENT'$$, 'IMMEDIATE refusé par contrainte (remplacé par settlement_mode = DIRECT)');
+select t.check((select settlement_mode from request_modules where code = 'RENT') = 'DIRECT', 'RENT en règlement DIRECT par défaut');
 select t.login('f9000000-0000-4000-8000-000000000001');
 select save_draft(jsonb_build_object('id','f9300000-0000-4000-8000-00000000000b','vertical','RENT','amountMinor','150000','currency','XAF',
   'purpose','Loyer (paiement direct)','beneficiaryName','Moi','provider', jsonb_build_object('name','Bailleur (lot X)','invitedPhone','+237 6 2222 0003'),
@@ -312,18 +329,18 @@ select save_draft(jsonb_build_object('id','f9300000-0000-4000-8000-00000000000b'
 select add_document('f9300000-0000-4000-8000-00000000000b', 'LEASE', 'f9300000-0000-4000-8000-00000000000b/LEASE/bail.pdf', 'bail.pdf', 'application/pdf', 1000);
 select transition_tx('f9300000-0000-4000-8000-00000000000b', 'SUBMITTED');
 select t.admin();
-select t.login('f9000000-0000-4000-8000-000000000004');
-select transition_tx('f9300000-0000-4000-8000-00000000000b', 'IN_REVIEW');
-select decide_tx('f9300000-0000-4000-8000-00000000000b', true, true);
-select t.admin();
 insert into t.ids select 'b1', id from tranches where tx_id = 'f9300000-0000-4000-8000-00000000000b' and seq = 1;
-select t.check((select release_mode from tranches where id = (select v from t.ids where k = 'b1')) = 'IMMEDIATE', 'tranche du type de test en mode IMMEDIATE');
+select t.check((select settlement_mode from transactions where id = 'f9300000-0000-4000-8000-00000000000b') = 'DIRECT'
+           and (select status from tranches where id = (select v from t.ids where k = 'b1')) = 'SUBMITTED'
+           and not exists (select 1 from tranche_tokens where tranche_id = (select v from t.ids where k = 'b1')),
+  'opération RENT en règlement DIRECT, demande soumise, aucun jeton émis');
 select t.login('f9000000-0000-4000-8000-000000000001');
-select t.check((select status from simulate_tranche_system((select v from t.ids where k = 'b1'), 'PAID_LOCKED')) = 'RELEASED', 'paiement direct : débloquée sans verrouillage');
+select t.check((select status = 'PAID' and funds_state = 'NONE' from simulate_tranche_system((select v from t.ids where k = 'b1'), 'PAID')),
+  'paiement direct : payée sans blocage des fonds');
 select t.admin();
-select t.check(exists (select 1 from audit_log where tranche_id = (select v from t.ids where k = 'b1') and event = 'DIRECT_PAYMENT')
-           and not exists (select 1 from audit_log where tranche_id = (select v from t.ids where k = 'b1') and payload->>'tranche_to' = 'PAID_LOCKED'),
-  'événement DIRECT_PAYMENT, aucun passage par PAID_LOCKED');
+select t.check(exists (select 1 from audit_log where tranche_id = (select v from t.ids where k = 'b1') and event = 'REQUEST_PAID' and payload->>'tranche_to' = 'PAID')
+           and not exists (select 1 from audit_log where tranche_id = (select v from t.ids where k = 'b1') and (payload->>'funds' = 'HELD' or payload->>'funds_to' = 'HELD')),
+  'événement REQUEST_PAID, aucun blocage des fonds');
 select t.check((select trigger from release_events where tranche_id = (select v from t.ids where k = 'b1')) = 'DIRECT_PAYMENT'
            and (select count(*) from payments where tranche_id = (select v from t.ids where k = 'b1') and status = 'SUCCEEDED') = 1,
   'paiement enregistré, déblocage DIRECT_PAYMENT');
@@ -356,7 +373,7 @@ select add_document('f9300000-0000-4000-8000-00000000000c', 'ENROLMENT_CERTIFICA
 select t.check((select role from transaction_parties where tx_id = 'f9300000-0000-4000-8000-00000000000c' and user_id = auth.uid()) = 'PROVIDER',
   'le créateur est partie PROVIDER');
 select t.check((select provider_name from transactions where id = 'f9300000-0000-4000-8000-00000000000c') = 'École Les Manguiers (test)', 'prestataire de la demande : le créateur');
-select t.check((select status from transition_tx('f9300000-0000-4000-8000-00000000000c', 'SUBMITTED')) = 'SUBMITTED', 'le prestataire autorisé soumet sa demande');
+select t.check((select status from transition_tx('f9300000-0000-4000-8000-00000000000c', 'SUBMITTED')) = 'ACTIVE', 'le prestataire autorisé soumet sa demande (ACTIVE directement)');
 select t.admin();
 select t.check((select invited_phone from transaction_parties where tx_id = 'f9300000-0000-4000-8000-00000000000c' and role = 'PAYER' and user_id is null) = '+33622220009',
   'payeur invité par son numéro');
@@ -371,37 +388,42 @@ select save_draft(jsonb_build_object('id','f9300000-0000-4000-8000-00000000000e'
   'provider', jsonb_build_object('name','Lycée (lot X)','invitedPhone','+237 6 2222 0003')));
 select t.admin();
 select t.login('f9000000-0000-4000-8000-000000000003');
-select t.hint($$select transition_tx('f9300000-0000-4000-8000-00000000000e', 'SUBMITTED')$$, 'TRANSITION_FORBIDDEN', 'le prestataire ne soumet pas le brouillon d’un autre');
+select t.hint($$select transition_tx('f9300000-0000-4000-8000-00000000000e', 'SUBMITTED')$$, 'INITIATOR_ONLY', 'le prestataire ne soumet pas le brouillon d’un autre');
 select t.admin();
 -- Payeur existant : alerte PAYMENT_REQUEST_RECEIVED, sans donnée sensible.
 select t.login('f9000000-0000-4000-8000-000000000007');
-select save_draft(jsonb_build_object('id','f9300000-0000-4000-8000-00000000000f','vertical','EDUCATION','creatorRole','PROVIDER','amountMinor','50000',
-  'currency','XAF','purpose','Cantine','beneficiaryName','Élève','counterpartyPhone','+33622220001','planType','SINGLE',
-  'tranches', jsonb_build_array(jsonb_build_object('label','Cantine','amountMinor','50000','dueDate',(current_date + 2)::text))));
-select add_document('f9300000-0000-4000-8000-00000000000f', 'ENROLMENT_CERTIFICATE', 'f9300000-0000-4000-8000-00000000000f/ENROLMENT_CERTIFICATE/f.pdf', 'f.pdf', 'application/pdf', 1000);
+-- Module AGRO (CONDITIONAL) : la demande porte un jeton, que le prestataire initiateur peut révoquer.
+select save_draft(jsonb_build_object('id','f9300000-0000-4000-8000-00000000000f','vertical','AGRO','creatorRole','PROVIDER','amountMinor','50000',
+  'currency','XAF','purpose','Semences','beneficiaryName','Élève','counterpartyPhone','+33622220001','planType','SINGLE',
+  'tranches', jsonb_build_array(jsonb_build_object('label','Semences','amountMinor','50000','dueDate',(current_date + 2)::text))));
+select add_document('f9300000-0000-4000-8000-00000000000f', 'SUPPORTING_DOCUMENT', 'f9300000-0000-4000-8000-00000000000f/SUPPORTING_DOCUMENT/f.pdf', 'f.pdf', 'application/pdf', 1000);
 select transition_tx('f9300000-0000-4000-8000-00000000000f', 'SUBMITTED');
 select t.admin();
 select t.check((select count(*) from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000f' and event = 'PAYMENT_REQUEST_RECEIVED'
                 and user_id = 'f9000000-0000-4000-8000-000000000001') = 1
            and (select count(*) from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000f') = 1,
   'PAYMENT_REQUEST_RECEIVED au payeur seulement');
-select t.check((select payload - 'type' - 'txId' = '{}'::jsonb from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000f'),
-  'alerte de demande reçue : ni montant, ni nom, ni texte');
-select t.check(not exists (select 1 from notifications n join transactions x on x.id = n.tx_id where n.event = 'PAYMENT_REQUEST_RECEIVED'
-                           and not exists (select 1 from transaction_parties p where p.tx_id = x.id and p.role = 'PROVIDER' and p.user_id = x.created_by)
-                           and n.tx_id::text like 'f93%'),
-  'pas d’alerte de demande reçue pour un dossier créé par le payeur ou un demandeur');
--- La demande du prestataire suit le circuit existant ; le payeur peut demander des informations, le prestataire initiateur répond.
-select t.login('f9000000-0000-4000-8000-000000000004');
-select transition_tx('f9300000-0000-4000-8000-00000000000f', 'IN_REVIEW');
-select t.check((select status from decide_tx('f9300000-0000-4000-8000-00000000000f', true, true)) = 'IN_PROGRESS', 'validation par le bureau de contrôle (inchangée)');
-select t.admin();
+select t.check((select payload - 'type' - 'txId' - 'trancheId' = '{}'::jsonb from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000f'),
+  'alerte de demande reçue : ni montant, ni nom, ni texte (type, dossier, demande)');
+select t.check(not exists (select 1 from notifications n where n.event = 'PAYMENT_REQUEST_RECEIVED' and n.tx_id = 'f9300000-0000-4000-8000-00000000000b')
+           and (select count(*) from notifications where tx_id = 'f9300000-0000-4000-8000-00000000000b' and event = 'PAYMENT_READY'
+                and user_id = 'f9000000-0000-4000-8000-000000000001') = 1
+           and not exists (select 1 from notifications n join transactions x on x.id = n.tx_id where n.event = 'PAYMENT_REQUEST_RECEIVED' and n.tx_id::text like 'f93%'
+                           and not exists (select 1 from transaction_parties p where p.tx_id = x.id and p.role = 'PAYER' and p.user_id = n.user_id
+                                           and p.user_id <> coalesce(x.initiator_id, x.created_by))),
+  'dossier créé par le payeur : PAYMENT_READY, pas d’alerte de demande reçue ; celle-ci ne va qu’au payeur non initiateur');
+-- La demande du prestataire suit le circuit commun (platform_review = NEVER : ACTIVE dès la soumission, sans le bureau) ;
+-- le payeur peut demander des informations, le prestataire initiateur répond.
 insert into t.ids select 'f1', id from tranches where tx_id = 'f9300000-0000-4000-8000-00000000000f' and seq = 1;
+select t.check((select status from transactions where id = 'f9300000-0000-4000-8000-00000000000f') = 'ACTIVE'
+           and exists (select 1 from audit_log where tx_id = 'f9300000-0000-4000-8000-00000000000f' and event = 'AUTO_ACTIVATED')
+           and (select status from tranches where id = (select v from t.ids where k = 'f1')) = 'SUBMITTED',
+  'circuit commun : opération du prestataire active dès la soumission (AUTO_ACTIVATED), demande soumise');
 select t.login('f9000000-0000-4000-8000-000000000001');
-select request_info((select v from t.ids where k = 'f1'), 'Quel trimestre ?');
+select request_info((select v from t.ids where k = 'f1'), 'Quelle variété ?');
 select t.admin();
 select t.login('f9000000-0000-4000-8000-000000000007');
-select t.check((select status from answer_info((select v from t.ids where k = 'f1'), 'Premier trimestre.')) = 'AWAITING_PAYMENT', 'le prestataire initiateur répond');
+select t.check((select status from answer_info((select v from t.ids where k = 'f1'), 'Maïs hybride.')) = 'SUBMITTED', 'le prestataire initiateur répond');
 select t.check((t.j($$select revoke_token((select v from t.ids where k = 'f1'), 'Erreur de montant')$$)->>'revoked') = 'true', 'le prestataire initiateur révoque avant paiement');
 select t.admin();
 

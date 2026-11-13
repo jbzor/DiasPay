@@ -44,7 +44,7 @@ if (URL && KEY) {
     as: (who) => { if (!sessions.has(who)) sessions.set(who, signIn(who)); return sessions.get(who)!; },
     provider: { query: 'clinique sainte', vertical: 'HEALTH', expectName: /Clinique Sainte-Élise/ },
     file: (kind) => ({ kind: kind as never, name: `${kind}.pdf`, mimeType: 'application/pdf', sizeBytes: Math.floor(PDF.length * 3 / 4), uri: `data:application/pdf;base64,${PDF}` }),
-    submittedStatuses: ['SUBMITTED'],
+    refundSettlement: 'AWAITING_PARTNER_EVENT',   // remboursement PENDING jusqu’à l’événement du partenaire (voir Harness.refundSettlement)
     partyIsolation: true,
     phones: { PAYER: PHONES.PAYER.phone, REQUESTER: PHONES.REQUESTER.phone, OTHER: PHONES.OTHER.phone },
     timeout: 30_000,

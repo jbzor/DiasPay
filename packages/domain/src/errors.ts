@@ -87,6 +87,12 @@ export const ERROR_CODES = {
   LEDGER_IMMUTABLE: 'S — journal financier et événements reçus en ajout seul (correction par contrepassation)',
   // Plusieurs payeurs (lot X, X7)
   MULTIPLE_PAYERS_NOT_ALLOWED: 'D S — un seul payeur pour ce type de besoin (request_modules.multiple_payers)',
+  // Lot X version 2 : noyau (X2), jeton de présentation (X3)
+  REQUEST_ON_HOLD: 'D S — demande suspendue par un litige ouvert avant paiement',
+  DISPUTE_OPEN: 'D S — un litige est en cours : la libération des fonds attend son issue',
+  ALREADY_CONFIRMED: 'D S — prestation déjà confirmée (CONDITIONAL)',
+  NOT_CONFIRMED: 'D S — prestation pas encore confirmée : libération anticipée impossible (CONDITIONAL)',
+  NOT_CONFIGURED: 'S — réglage non configuré (point ouvert, docs/open-parameters.md) : refus prudent',
   // Litiges
   DISPUTE_NOT_ALLOWED: 'D S — litige impossible dans cet état ou après le délai',
   NO_OPEN_DISPUTE: 'D S C — aucun litige en cours',

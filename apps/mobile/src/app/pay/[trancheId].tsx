@@ -65,7 +65,7 @@ export default function Pay() {
           </Card>
         ))}
       </View>
-      <View style={st.lock}><Icon name="lock" size={18} color={palette.greenDark} /><Text style={st.lockText}>{t('lockedNote')}</Text></View>
+      <View style={st.lock}><Icon name="lock" size={18} color={palette.greenDark} /><Text style={st.lockText}>{t(tx.settlementMode === 'CONDITIONAL' ? 'lockedNote' : 'directNote')}</Text></View>
       {error ? <Banner text={error} tone="error" /> : null}
     </Screen>
   );

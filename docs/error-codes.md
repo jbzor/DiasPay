@@ -126,6 +126,16 @@ Les résultats de `apply_payment_event` (`APPLIED`, `IGNORED`, `REJECTED`, `INVA
 |---|---|---|
 | `MULTIPLE_PAYERS_NOT_ALLOWED` | D, S | Un second payeur n’est accepté que si le type de besoin l’autorise (`request_modules.multiple_payers`, faux partout) |
 
+## Noyau v2 (lot X version 2)
+
+| Code | Origine | Signification |
+|---|---|---|
+| `REQUEST_ON_HOLD` | D, S | Demande suspendue par un litige ouvert avant paiement : ni demande d’informations ni paiement |
+| `DISPUTE_OPEN` | D, S | Un litige est en cours : confirmation et libération des fonds attendent son issue (CONDITIONAL) |
+| `ALREADY_CONFIRMED` | D, S | Prestation déjà confirmée (CONDITIONAL) |
+| `NOT_CONFIRMED` | D, S | Prestation pas encore confirmée : libération anticipée impossible (CONDITIONAL) |
+| `NOT_CONFIGURED` | S | Réglage non configuré (point ouvert, voir `docs/open-parameters.md`) : la fonction refuse par prudence |
+
 ## Litiges
 
 | Code | Origine | Signification |

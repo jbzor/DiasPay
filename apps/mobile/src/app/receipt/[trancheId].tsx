@@ -12,7 +12,7 @@ import type { ReceiptFormat, ReceiptLabels } from '@/features/receipt/receipt';
 import { Banner, Button, Icon, Row, Screen, TopBar } from '@/ui';
 import { Text } from '@/ui/text';
 
-/** H7 — Reçu d’une tranche débloquée : vérification réelle du journal chaîné, export PDF et partage. */
+/** H7 — Reçu d’une tranche payée (règlement direct) ou débloquée (conditionnel) : vérification réelle du journal chaîné, export PDF et partage. */
 export default function ReceiptScreen() {
   const { trancheId } = useLocalSearchParams<{ trancheId: string }>();
   const { t, locale, money, date, errorText } = useI18n();
@@ -26,7 +26,9 @@ export default function ReceiptScreen() {
   const tr = tx?.tranches.find((r) => r.id === trancheId);
   const subtitle = tx && tr ? t('receiptSubtitle', { n: tr.seq, type: verticalLabel(tx.vertical, locale) }) : '';
   const labels: ReceiptLabels = {
-    title: t('trancheReleased'), date: t('receiptDate'), payer: t('payerWord'), provider: t('providerLabel'), purpose: t('purpose'),
+    // Règlement direct : reçu dès le paiement ; conditionnel : à la libération des fonds.
+    title: tx?.settlementMode === 'CONDITIONAL' ? t('trancheReleased') : t('tranchePaid'),
+    date: t('receiptDate'), payer: t('payerWord'), provider: t('providerLabel'), purpose: t('purpose'),
     reference: t('reference'), fingerprint: t('fingerprint'), verified: t('auditVerified'), notVerified: t('auditNotVerified'),
     heading: t('receiptTitle'), subtitle, footer: t('receiptFooter'),
   };

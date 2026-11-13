@@ -39,12 +39,15 @@ export const unreadCount = (list: readonly AppNotification[]): number => list.fi
 /** Clés i18n du titre et du texte, et paramètres, d’une alerte. La langue courante fait le libellé. */
 export interface AlertKeys { title: string; body: string; params: Record<string, string | number> }
 
+/** Issue portée par l’alerte DISPUTE_RESOLVED. */
+export type DisputeResolvedOutcome = Extract<AppNotification['event'], { type: 'DISPUTE_RESOLVED' }>['outcome'];
+
 export interface AlertFormat {
   vertical: (tx: Transaction) => string;
   date: (iso: string) => string;
   dateTime: (iso: string) => string;
-  /** Libellé traduit de l’issue d’un litige. */
-  outcome: (o: 'RELEASED' | 'REFUNDED') => string;
+  /** Libellé traduit de l’issue d’un litige (lot X version 2 : « sans suite » possible). */
+  outcome: (o: DisputeResolvedOutcome) => string;
 }
 
 export function alertKeys(n: AppNotification, txs: readonly Transaction[], f: AlertFormat): AlertKeys {
@@ -75,11 +78,17 @@ export function alertKeys(n: AppNotification, txs: readonly Transaction[], f: Al
     case 'INFO_REQUESTED': return { title: 'alert_INFO_REQUESTED_title', body: 'alert_INFO_REQUESTED_body', params: base };
     case 'INFO_ANSWERED': return { title: 'alert_INFO_ANSWERED_title', body: 'alert_INFO_ANSWERED_body', params: base };
     case 'REQUEST_REJECTED': return { title: 'alert_REQUEST_REJECTED_title', body: 'alert_REQUEST_REJECTED_body', params: base };
+    // Lot X version 2 : paiement exécuté (règlement direct ou fonds bloqués), plan accepté par le payeur.
+    case 'REQUEST_PAID': return { title: 'alert_REQUEST_PAID_title', body: 'alert_REQUEST_PAID_body', params: base };
+    case 'PLAN_ACCEPTED': return { title: 'alert_PLAN_ACCEPTED_title', body: 'alert_PLAN_ACCEPTED_body', params: base };
   }
 }
 
 /** Tous les types d’événement (parité des libellés). */
 export const ALERT_TYPES = [
   'TX_VALIDATED', 'TX_REJECTED', 'PAYMENT_READY', 'TRANCHE_CONFIRMED', 'TRANCHE_RELEASED', 'DISPUTE_OPENED', 'DISPUTE_RESOLVED',
-  'PAYMENT_REQUEST_RECEIVED', 'INFO_REQUESTED', 'INFO_ANSWERED', 'REQUEST_REJECTED',
-] as const;
+  'PAYMENT_REQUEST_RECEIVED', 'INFO_REQUESTED', 'INFO_ANSWERED', 'REQUEST_REJECTED', 'REQUEST_PAID', 'PLAN_ACCEPTED',
+] as const satisfies ReadonlyArray<AppNotification['event']['type']>;
+
+/** Toutes les issues d’un litige portées par une alerte (parité des libellés outcome_*). */
+export const ALERT_OUTCOMES = ['RELEASED', 'REFUNDED', 'NO_ACTION'] as const satisfies ReadonlyArray<DisputeResolvedOutcome>;

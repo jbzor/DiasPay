@@ -17,12 +17,13 @@ describe('garde de production du mode démonstration', () => {
   });
 });
 
-describe('« Clôturées » inclut les dossiers abandonnés', () => {
+describe('« Clôturées » inclut les opérations annulées (lot X v2)', () => {
   const tx = (id: string, status: Transaction['status']) => ({ id, status, tranches: [] }) as unknown as Transaction;
   it('filtre', () => {
-    const list = [tx('a', 'CLOSED'), tx('b', 'CANCELLED'), tx('c', 'IN_PROGRESS'), tx('d', 'REJECTED')];
+    const list = [tx('a', 'CLOSED'), tx('b', 'CANCELLED'), tx('c', 'ACTIVE'), tx('d', 'PENDING_REVIEW'), tx('e', 'SUSPENDED')];
     expect(filterTransactions(list, 'CLOSED').map((t) => t.id)).toEqual(['a', 'b']);
-    expect(filterTransactions(list, 'ACTIVE').map((t) => t.id)).toEqual(['c']);
+    expect(filterTransactions(list, 'ACTIVE').map((t) => t.id)).toEqual(['c', 'e']);   // suspendue (litige avant paiement) : toujours en cours
+    expect(filterTransactions(list, 'REVIEW').map((t) => t.id)).toEqual(['d']);
   });
 });
 

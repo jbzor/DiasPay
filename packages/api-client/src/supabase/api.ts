@@ -130,9 +130,20 @@ export class SupabaseApi implements TransactionApi {
     return this.getTransaction(tr.tx_id);
   }
 
+  /** Lot X v2 : libération anticipée par le payeur (CONDITIONAL, après confirmation). */
   async approveRelease(trancheId: string): Promise<Transaction> {
-    const tr = unwrap(await this.sb.rpc('transition_tranche', { p_tranche: trancheId, p_to: 'RELEASED' }), 'approveRelease');
+    const tr = unwrap(await this.sb.rpc('approve_release', { p_tranche: trancheId }), 'approveRelease');
     return this.getTransaction(tr.tx_id);
+  }
+
+  async confirmService(trancheId: string): Promise<Transaction> {
+    const tr = unwrap(await this.sb.rpc('confirm_service', { p_tranche: trancheId }), 'confirmService');
+    return this.getTransaction(tr.tx_id);
+  }
+
+  async acceptPlan(txId: string): Promise<Transaction> {
+    unwrap(await this.sb.rpc('accept_plan', { p_operation: txId }), 'acceptPlan');
+    return this.getTransaction(txId);
   }
 
   /** Même convention que le simulateur : `reason` est le code du motif quand une description est fournie. */
@@ -270,20 +281,18 @@ export class SupabaseApi implements TransactionApi {
     return { reused: o.reused === true, count: Number(o.count ?? 0) };
   }
 
-  /** Le brouillon a été synchronisé par save_draft ; le serveur revérifie tout (codes D2, plan, verticale). */
+  /**
+   * Soumission (lot X v2, submit_operation) : le serveur revérifie tout (codes D2, plan, type), puis active l’opération
+   * (platform_review NEVER, défaut) ou la place en revue (PENDING_REVIEW).
+   */
   async submitNeed(draftId: string): Promise<Transaction> {
-    unwrap(await this.sb.rpc('transition_tx', { p_tx: draftId, p_to: 'SUBMITTED' }), 'submitNeed');
+    unwrap(await this.sb.rpc('submit_operation', { p_tx: draftId }), 'submitNeed');
     return this.getTransaction(draftId);
   }
 
-  /** REJECTED → DRAFT : la correction garde l’identifiant du dossier (correctionOf = id). */
-  async reopenForCorrection(txId: string): Promise<NeedDraft> {
-    unwrap(await this.sb.rpc('transition_tx', { p_tx: txId, p_to: 'DRAFT' }), 'reopenForCorrection');
-    return this.getDraft(txId);
-  }
-
-  async abandonRejected(txId: string): Promise<Transaction> {
-    unwrap(await this.sb.rpc('transition_tx', { p_tx: txId, p_to: 'CANCELLED' }), 'abandonRejected');
+  /** Initiateur : annule l’opération (DRAFT ou ACTIVE ; en ACTIVE, les demandes non payées seulement). */
+  async cancelOperation(txId: string, reason?: string): Promise<Transaction> {
+    unwrap(await this.sb.rpc('transition_tx', { p_tx: txId, p_to: 'CANCELLED', ...(reason ? { p_reason: reason } : {}) }), 'cancelOperation');
     return this.getTransaction(txId);
   }
 

@@ -3,7 +3,7 @@ import type { ReleaseMode, Vertical } from './types';
 import { MAX_FILES_PER_KIND, REQUIRED_DOCUMENTS } from './documents';
 import type { DocumentKind } from './documents';
 import { DUAL_THRESHOLDS, RELEASE_RULES, VERTICALS, WAVE1_VERTICALS } from './rules';
-import type { Currency } from './types';
+import type { Currency, SettlementMode } from './types';
 
 // Lot X (X6) : types de besoin configurables. Un noyau transactionnel commun, des modules décrits par des données
 // (table request_modules, migration 0011). Les constantes du code (RELEASE_RULES, REQUIRED_DOCUMENTS, VERTICALS) restent
@@ -23,10 +23,15 @@ export interface RequestModule {
   descriptions?: Partial<Labels>;
   enabled: boolean;
   wave: number;
+  /** Mode de règlement par défaut des opérations de ce type (K1) : DIRECT en vague 1. */
+  settlementMode: SettlementMode;
+  /** Règle de libération (CONDITIONAL). */
   releaseMode: ReleaseMode;
   contestHours: number;
   dualValidation: boolean;
   platformReview: PlatformReview;
+  /** Expiration d’une demande soumise, en jours (point ouvert 3 : absente = pas d’expiration). */
+  requestExpiryDays?: number;
   multiplePayers: boolean;
   requiredDocuments: ModuleDocument[];
   displayOrder: number;
@@ -53,17 +58,18 @@ export const DOCUMENT_LABELS: Record<DocumentKind, Labels> = {
   SUPPORTING_DOCUMENT: { fr: 'Pièce justificative', en: 'Supporting document' },
 };
 
-/** Modules par défaut : les valeurs actuelles du code (miroir de l’amorçage de request_modules, vérifié par test). */
+/** Modules par défaut (miroir de l’amorçage de request_modules et des mises à jour de 0014, vérifié par test). */
 export const DEFAULT_MODULES: readonly RequestModule[] = VERTICALS.map((v, i) => ({
   code: v,
   labels: VERTICAL_TEXT[v].labels,
   descriptions: VERTICAL_TEXT[v].descriptions,
   enabled: WAVE1_VERTICALS.includes(v),
   wave: WAVE1_VERTICALS.includes(v) ? 1 : 2,
+  settlementMode: WAVE1_VERTICALS.includes(v) ? 'DIRECT' : 'CONDITIONAL',
   releaseMode: RELEASE_RULES[v].releaseMode,
   contestHours: RELEASE_RULES[v].contestHours,
   dualValidation: RELEASE_RULES[v].dualValidation,
-  platformReview: 'ALWAYS',
+  platformReview: 'NEVER',   // K2 : le bureau ne valide plus chaque demande
   multiplePayers: false,
   requiredDocuments: REQUIRED_DOCUMENTS[v].map((d) => ({ kind: d.kind, required: d.required, maxFiles: MAX_FILES_PER_KIND, labels: DOCUMENT_LABELS[d.kind] })),
   displayOrder: i + 1,
@@ -102,19 +108,23 @@ export function requiredValidationsFor(module: RequestModule | undefined, curren
   return amountMinor >= DUAL_THRESHOLDS[currency] ? 2 : 1;
 }
 
-export type ReviewReason = 'ALWAYS' | 'DUAL_VALIDATION' | 'FIRST_REQUEST' | 'DUPLICATE';
+export type ReviewReason = 'ALWAYS' | 'DUAL_VALIDATION' | 'THRESHOLD_NOT_CONFIGURED' | 'AMOUNT_THRESHOLD' | 'FIRST_REQUEST' | 'DUPLICATE';
 
 /**
- * Le dossier passe-t-il par le bureau de contrôle (miroir de _platform_review, 0011) ? ALWAYS : oui ; NEVER : non ;
- * RISK_BASED : oui pour une première demande ou un doublon. Dans tous les cas, deux validateurs exigés (module ou seuil de
- * montant) : oui — la double validation est toujours appliquée.
+ * L’opération passe-t-elle par le bureau de contrôle (miroir de _platform_review, 0014) ? NEVER (défaut, K2) : non ;
+ * ALWAYS : oui ; RISK_BASED : oui si le montant atteint le seuil (réglage risk_review_threshold, point ouvert 4 ; absent :
+ * revue par prudence), pour une première demande de l’initiateur, ou pour un doublon. Dans tous les cas, deux validateurs
+ * exigés (module ou seuil de montant) : oui — la double validation est toujours appliquée.
  */
-export function platformReviewDecision(module: RequestModule | undefined, ctx: { requiredValidations: 1 | 2; firstRequest: boolean; duplicate: boolean }):
-  { review: boolean; reasons: ReviewReason[] } {
+export function platformReviewDecision(module: RequestModule | undefined, ctx: {
+  requiredValidations: 1 | 2; firstRequest: boolean; duplicate: boolean; amountMinor?: number; riskThresholdMinor?: number;
+}): { review: boolean; reasons: ReviewReason[] } {
   const reasons: ReviewReason[] = [];
   if (!module || module.platformReview === 'ALWAYS') reasons.push('ALWAYS');
   if (ctx.requiredValidations >= 2) reasons.push('DUAL_VALIDATION');
   if (module?.platformReview === 'RISK_BASED') {
+    if (ctx.riskThresholdMinor === undefined) reasons.push('THRESHOLD_NOT_CONFIGURED');
+    else if ((ctx.amountMinor ?? 0) >= ctx.riskThresholdMinor) reasons.push('AMOUNT_THRESHOLD');
     if (ctx.firstRequest) reasons.push('FIRST_REQUEST');
     if (ctx.duplicate) reasons.push('DUPLICATE');
   }

@@ -364,3 +364,10 @@ silence, un `UPDATE` interdit est vérifié par le nombre de lignes touchées (`
 - Soumission d’un brouillon falsifié (données posées hors RLS, comme avant 0024) : nom sur un module à référence seule
   refusé (`BENEFICIARY_NAME_NOT_ALLOWED`) ; mode de règlement recalculé depuis `request_modules` ; `initiator_id`
   différent du créateur refusé (`INITIATOR_MISMATCH`, nouveau code) — et le créateur dépossédé reçoit `INITIATOR_ONLY`.
+
+### T4 (0025) : profils et numéro de téléphone — 7 vérifications
+- `phone` rejoint les colonnes protégées de `guard_profile` (`PROFILE_PROTECTED`) : changer son propre numéro est
+  refusé, la valeur est relue inchangée ; `full_name`, `country` et `push_enabled` restent modifiables (1 ligne).
+- Unicité du numéro **normalisé** (`profiles_phone_norm_key`) : une autre graphie d’un numéro existant est refusée,
+  même hors RLS ; une inscription en doublon normalisé échoue à la création du profil.
+- Le numéro vérifié de `auth.users` est recopié dans `profiles` (`on_auth_user_phone_changed`) : seul flux légitime.

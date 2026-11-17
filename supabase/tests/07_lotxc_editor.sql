@@ -52,7 +52,8 @@ grant execute on all functions in schema t to anon, authenticated;
 
 insert into auth.users(id, phone) values
  ('fdc00000-0000-4000-8000-000000000001','33625560001'),   -- payeur, créateur des brouillons
- ('fdc00000-0000-4000-8000-000000000002','237625560002');  -- prestataire (partie aux dossiers, complice des falsifications T3)
+ ('fdc00000-0000-4000-8000-000000000002','237625560002'),  -- prestataire (partie aux dossiers, complice des falsifications T3)
+ ('fdc00000-0000-4000-8000-000000000003','33625560003');   -- témoin T4 (changement de numéro par le flux d’authentification)
 update profiles set primary_role = 'PROVIDER', full_name = 'Clinique X-C (test)' where id = 'fdc00000-0000-4000-8000-000000000002';
 select t.check((select value from app_config where key = 'mock_mode') = 'true', 'prérequis : mock_mode = true');
 
@@ -129,6 +130,31 @@ update transactions set initiator_id = created_by where id = 'fdc10000-0000-4000
 select t.login('fdc00000-0000-4000-8000-000000000001');
 select t.ok($$select submit_operation('fdc10000-0000-4000-8000-000000000002')$$, 'T3 : initiateur rétabli : la soumission passe (le brouillon était sain par ailleurs)');
 select t.admin();
+
+-- ===================== T4 : profils et numéro de téléphone (R3) =====================
+-- ---------- Le titulaire ne modifie pas son numéro ----------
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select t.hint($$update profiles set phone = '33625560002' where id = auth.uid()$$, 'PROFILE_PROTECTED',
+  'T4 : changer son propre numéro refusé');
+select t.check((select phone from profiles where id = 'fdc00000-0000-4000-8000-000000000001') = '33625560001', 'T4 : numéro inchangé');
+-- Les colonnes du profil restent modifiables (auth.saveProfile : full_name, country, primary_role ; préférences : push_enabled).
+select t.check(t.n_updated($$update profiles set full_name = 'Payeur X-C', country = 'FR', push_enabled = false where id = auth.uid()$$) = 1,
+  'T4 : nom, pays et préférences toujours modifiables par le titulaire');
+
+-- ---------- Unicité du numéro normalisé ----------
+select t.admin();
+select t.check((select count(*) from pg_indexes where tablename = 'profiles' and indexname = 'profiles_phone_norm_key') = 1,
+  'T4 : index d’unicité du numéro normalisé présent');
+-- Une autre graphie du numéro d’un profil existant est refusée, même hors RLS (contrainte de la base).
+select t.fails($$update profiles set phone = '+237 6 25 56 00 02' where id = 'fdc00000-0000-4000-8000-000000000003'$$,
+  'T4 : deux profils ne partagent pas un même numéro normalisé');
+select t.fails($$insert into auth.users(id, phone) values ('fdc00000-0000-4000-8000-000000000004', '+33625560001')$$,
+  'T4 : inscription avec la graphie « + » d’un numéro déjà pris refusée (profil en doublon normalisé)');
+
+-- ---------- Seul le flux d’authentification change le numéro (auth.users → profiles) ----------
+update auth.users set phone = '33625560099' where id = 'fdc00000-0000-4000-8000-000000000003';
+select t.check((select phone from profiles where id = 'fdc00000-0000-4000-8000-000000000003') = '33625560099',
+  'T4 : numéro vérifié recopié depuis auth.users (on_auth_user_phone_changed)');
 
 -- ===================== Fin =====================
 -- ---------- Résumé (éditeur SQL) ----------

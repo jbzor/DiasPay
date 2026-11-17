@@ -371,3 +371,12 @@ silence, un `UPDATE` interdit est vérifié par le nombre de lignes touchées (`
 - Unicité du numéro **normalisé** (`profiles_phone_norm_key`) : une autre graphie d’un numéro existant est refusée,
   même hors RLS ; une inscription en doublon normalisé échoue à la création du profil.
 - Le numéro vérifié de `auth.users` est recopié dans `profiles` (`on_auth_user_phone_changed`) : seul flux légitime.
+
+### T5 (0026) : prise en charge du jeton de présentation — 10 vérifications
+- Payeur invité par un numéro sans compte : un porteur du jeton au mauvais numéro reçoit la **même réponse nulle**
+  qu’une référence inconnue, l’échec est compté (`security_events`, lisible par le personnel seulement), le payeur et
+  le jeton restent inchangés.
+- Le titulaire du numéro invité (ici après un changement de numéro vérifié, T4) prend la demande en charge et devient
+  le payeur.
+- Aucun payeur désigné (cas du commerçant, K4) : comportement de 0016 conservé, l’utilisateur connecté devient payeur
+  — état posé hors RLS, les flux actuels exigeant un payeur à la soumission.

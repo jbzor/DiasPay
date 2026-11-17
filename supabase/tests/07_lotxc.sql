@@ -51,7 +51,9 @@ grant execute on all functions in schema t to anon, authenticated;
 insert into auth.users(id, phone) values
  ('fdc00000-0000-4000-8000-000000000001','33625560001'),   -- payeur, créateur des brouillons
  ('fdc00000-0000-4000-8000-000000000002','237625560002'),  -- prestataire (partie aux dossiers, complice des falsifications T3)
- ('fdc00000-0000-4000-8000-000000000003','33625560003');   -- témoin T4 (changement de numéro par le flux d’authentification)
+ ('fdc00000-0000-4000-8000-000000000003','33625560003'),   -- témoin T4 (changement de numéro par le flux d’authentification), payeur invité T5
+ ('fdc00000-0000-4000-8000-000000000006','33625560006');   -- demandeur N1 (initiateur des demandes présentées, T5)
+update profiles set primary_role = 'REQUESTER', enrolment_level = 'N1', full_name = 'Demandeur X-C (test)' where id = 'fdc00000-0000-4000-8000-000000000006';
 update profiles set primary_role = 'PROVIDER', full_name = 'Clinique X-C (test)' where id = 'fdc00000-0000-4000-8000-000000000002';
 select t.check((select value from app_config where key = 'mock_mode') = 'true', 'prérequis : mock_mode = true');
 
@@ -153,6 +155,58 @@ select t.fails($$insert into auth.users(id, phone) values ('fdc00000-0000-4000-8
 update auth.users set phone = '33625560099' where id = 'fdc00000-0000-4000-8000-000000000003';
 select t.check((select phone from profiles where id = 'fdc00000-0000-4000-8000-000000000003') = '33625560099',
   'T4 : numéro vérifié recopié depuis auth.users (on_auth_user_phone_changed)');
+
+-- ===================== T5 : jeton de présentation (R5, prise en charge) =====================
+-- Demande d’un demandeur N1, payeur invité par un numéro sans compte (+33625560777).
+select t.login('fdc00000-0000-4000-8000-000000000006');
+select t.ok($$select save_draft(t.health_draft('fdc10000-0000-4000-8000-000000000003') || '{"creatorRole":"REQUESTER","counterpartyPhone":"+33625560777"}')$$,
+  'T5 : demande créée, payeur invité par téléphone (numéro sans compte)');
+select add_document('fdc10000-0000-4000-8000-000000000003', 'QUOTE', 'fdc10000-0000-4000-8000-000000000003/QUOTE/q.pdf', 'q.pdf', 'application/pdf', 1000);
+select submit_operation('fdc10000-0000-4000-8000-000000000003');
+select t.check((select user_id from transaction_parties where tx_id = 'fdc10000-0000-4000-8000-000000000003' and role = 'PAYER') is null,
+  'T5 : payeur connu par son seul numéro (user_id vide)');
+insert into t.res(k, v) select 'ref3', issue_presentation_token(id) from tranches where tx_id = 'fdc10000-0000-4000-8000-000000000003';
+
+-- Autre numéro : même réponse nulle qu’une référence inconnue, échec compté.
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select t.check(claim_presentation_token((select v->>'reference' from t.res where k = 'ref3')) is null,
+  'T5 : porteur au mauvais numéro : réponse nulle (comme une référence inconnue)');
+select t.admin();   -- security_events n’est lisible que par le personnel
+select t.check((select count(*) from security_events where user_id = 'fdc00000-0000-4000-8000-000000000001'
+                 and kind = 'REFERENCE_FAILED' and detail->>'via' = 'claim_presentation_token') = 1,
+  'T5 : l’échec compte pour la limitation (security_events)');
+select t.check((select user_id from transaction_parties where tx_id = 'fdc10000-0000-4000-8000-000000000003' and role = 'PAYER') is null
+           and (select claimed_at from presentation_tokens pt join tranches tr on tr.id = pt.tranche_id
+                 where tr.tx_id = 'fdc10000-0000-4000-8000-000000000003') is null,
+  'T5 : payeur et jeton inchangés après l’échec (lecture hors rôle)');
+
+-- Bon numéro : l’utilisateur dont le numéro vérifié est celui de l’invitation (ici changé par le flux d’authentification, T4).
+select t.admin();
+update auth.users set phone = '33625560777' where id = 'fdc00000-0000-4000-8000-000000000003';
+select t.login('fdc00000-0000-4000-8000-000000000003');
+select t.check(claim_presentation_token((select v->>'reference' from t.res where k = 'ref3')) ->> 'txId' = 'fdc10000-0000-4000-8000-000000000003',
+  'T5 : titulaire du numéro invité : prise en charge acceptée (résumé minimal)');
+select t.check((select user_id from transaction_parties where tx_id = 'fdc10000-0000-4000-8000-000000000003' and role = 'PAYER')
+             = 'fdc00000-0000-4000-8000-000000000003',
+  'T5 : le titulaire du numéro devient le payeur du dossier');
+
+-- Aucun payeur désigné (cas du commerçant, K4) : comportement conservé — l’utilisateur connecté devient payeur.
+-- Les flux actuels exigent un payeur à la soumission : l’état est posé hors RLS pour couvrir le cas prévu par 0016.
+select t.login('fdc00000-0000-4000-8000-000000000006');
+select t.ok($$select save_draft(t.health_draft('fdc10000-0000-4000-8000-000000000004') || '{"creatorRole":"REQUESTER","counterpartyPhone":"+33625560888"}')$$,
+  'T5 : seconde demande créée');
+select add_document('fdc10000-0000-4000-8000-000000000004', 'QUOTE', 'fdc10000-0000-4000-8000-000000000004/QUOTE/q.pdf', 'q.pdf', 'application/pdf', 1000);
+select submit_operation('fdc10000-0000-4000-8000-000000000004');
+insert into t.res(k, v) select 'ref4', issue_presentation_token(id) from tranches where tx_id = 'fdc10000-0000-4000-8000-000000000004';
+select t.admin();
+delete from transaction_parties where tx_id = 'fdc10000-0000-4000-8000-000000000004' and role = 'PAYER';
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select t.check(claim_presentation_token((select v->>'reference' from t.res where k = 'ref4')) is not null,
+  'T5 : aucun payeur désigné : l’utilisateur connecté prend la demande en charge');
+select t.check((select user_id from transaction_parties where tx_id = 'fdc10000-0000-4000-8000-000000000004' and role = 'PAYER')
+             = 'fdc00000-0000-4000-8000-000000000001',
+  'T5 : il devient le payeur (comportement 0016 conservé)');
+select t.admin();
 
 -- ===================== Fin =====================
 -- ---------- Résumé ----------

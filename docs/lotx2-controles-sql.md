@@ -395,3 +395,26 @@ silence, un `UPDATE` interdit est vérifié par le nombre de lignes touchées (`
   `EXPIRED` et les codes d’aujourd’hui restent (ici `TX_NOT_ACTIVE` : seule demande du dossier, opération close).
 - Parité : domaine (`isAutoReleasable` refuse `txSuspended` ; test lotx2) et simulateur (`checkNotExpired` dans
   `getQuote` et `acceptAndPay`, `expiresAt` posée à la soumission depuis `requestExpiryDays` ; 2 tests MockApi).
+
+### T7 (0028) : un TrustToken pour chaque demande, en DIRECT aussi — 21 vérifications
+- Émission à la soumission en `DIRECT` (jeton actif, `TOKEN_ISSUED` au journal) ; expiration héritée de la demande
+  (vide sans durée fixée, égale à `expires_at` quand le module en fixe une) ; `CONDITIONAL` inchangé (`token_ttl_days`).
+- Résolution : payeur et initiateur seulement en `DIRECT` ; le prestataire, partie au dossier, et un étranger reçoivent
+  une réponse nulle.
+- Réémission (ancien jeton révoqué, nouvelle référence), révocation, paiement refusé avec un jeton révoqué
+  (`TOKEN_REVOKED`) ; après réémission le paiement passe, et la demande payée n’a plus de jeton actif ; le reçu porte la
+  référence ; l’annulation de l’opération révoque les jetons de ses demandes ; aucune demande `DIRECT` soumise et non
+  finale sans jeton actif ; image du QR toujours désactivée.
+- **Contrôles modifiés** (« aucun jeton en DIRECT » était le comportement que T7 corrige, exigence 5.1 du cahier) :
+
+| Test | Avant | Après |
+|---|---|---|
+| `00_smoke.sql` | règlement direct : aucun jeton émis pour la demande soumise | un jeton pour la seule demande soumise, aucun pour les demandes programmées |
+| `01_lot4.sql` | AUTO_ACTIVATED : demande due soumise, aucun jeton en DIRECT | demande due soumise, avec son jeton |
+| `02_lot5.sql` | `bo_audit` : une étape du système sans acteur (`REQUEST_SUBMITTED`) | deux étapes sans acteur (`TOKEN_ISSUED`, `REQUEST_SUBMITTED`) |
+| `03_lotx.sql` | RENT en DIRECT : aucun jeton émis | la demande a son jeton |
+| `05_lotx2_p1.sql` | DIRECT : aucun jeton ; réémission refusée (`NO_TOKEN`, 0018) ; jeton fabriqué à la main | jeton présent ; réémission par l’initiateur ; la référence active n’est toujours pas résolue par le prestataire |
+
+  Hors SQL : contrat X1 réécrit (jeton émis, réémission, révocation, paiement refusé puis accepté, étranger sans
+  information), contrôle de la soumission ; simulateur (`mockApi`, `need`, `lot3b` : jeton et référence en DIRECT,
+  `TOKEN_ISSUED` dans la chronologie, référence sur le reçu).

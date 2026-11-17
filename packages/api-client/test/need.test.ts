@@ -101,7 +101,8 @@ describe('soumission', () => {
     expect(tx.documentCount).toBe(1);   // santé : le devis seul (K13)
     expect(await api.listDrafts()).toEqual([]);
     expect((await api.listTransactions()).some((t) => t.id === tx.id)).toBe(true);
-    expect((await api.timeline(tx.id)).map((e) => e.event)).toEqual(['NEED_SUBMITTED', 'AUTO_ACTIVATED', 'REQUEST_SUBMITTED', 'PAYMENT_READY']);
+    // Lot X-C (T7) : « TrustToken généré » juste avant la soumission de la demande, comme le serveur (_submit_request).
+    expect((await api.timeline(tx.id)).map((e) => e.event)).toEqual(['NEED_SUBMITTED', 'AUTO_ACTIVATED', 'TOKEN_ISSUED', 'REQUEST_SUBMITTED', 'PAYMENT_READY']);
   });
   it('refuse un écart de plan', async () => {
     const { api } = make();
@@ -169,7 +170,7 @@ describe('bureau de contrôle simulé (platform_review ALWAYS)', () => {
     const done = await api.simulateReview(tx.id, { approved: true });
     expect(done.status).toBe('ACTIVE');
     expect(done.tranches[0]?.status).toBe('SUBMITTED');
-    expect(await code(api.getToken(done.tranches[0]!.id))).toBe('NO_TOKEN');   // règlement direct : aucun QR
+    expect((await api.getToken(done.tranches[0]!.id)).reference).toMatch(/^[0-9a-f]{18}$/);   // lot X-C (T7) : jeton en DIRECT aussi
     const types = (await api.listNotifications()).filter((n) => n.event.txId === tx.id).map((n) => n.event.type);
     expect(types.sort()).toEqual(['PAYMENT_READY', 'TX_VALIDATED']);
     expect((await api.payTranche(done.tranches[0]!.id)).tranches[0]).toMatchObject({ status: 'PAID', fundsState: 'NONE' });

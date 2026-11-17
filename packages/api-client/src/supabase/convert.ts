@@ -233,7 +233,7 @@ export function toReferenceInfo(v: Json): ReferenceInfo {
     trancheId: String(o.trancheId), txId: String(o.txId), label: String(o.label ?? ''), amountMinor: toMinor(o.amountMinor),
     currency: oneOf<Currency>(o.currency, CURRENCIES, 'devise'),
     status: oneOf<TrancheStatus>(o.status, TRANCHE_STATUSES, 'statut de tranche'),
-    expiresAt: toIso(String(o.expiresAt)), used: o.used === true, providerName: String(o.providerName ?? ''),
+    expiresAt: o.expiresAt == null ? undefined : toIso(String(o.expiresAt)), used: o.used === true, providerName: String(o.providerName ?? ''),
     beneficiaryName: String(o.beneficiaryName ?? ''), purpose: String(o.purpose ?? ''), seq: Number(o.seq ?? 1),
     contestHours: Number(o.contestHours ?? 0),
   };

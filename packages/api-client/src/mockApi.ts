@@ -268,7 +268,7 @@ export class MockApi implements TransactionApi {
     for (const tx of this.txs) {
       this.record(tx.id, 'DEMO_SEED', undefined, tx.status);
       for (const tr of tx.tranches) {
-        if (tr.status !== 'DRAFT') { if (tx.settlementMode === 'CONDITIONAL') this.ensureToken(tr); this.record(tx.id, 'DEMO_SEED', tr.id, tr.status); }
+        if (tr.status !== 'DRAFT') { this.ensureToken(tr); this.record(tx.id, 'DEMO_SEED', tr.id, tr.status); }   // lot X-C (T7) : tous modes
       }
     }
     if (!withNotifications || !this.seedNotifs) return;
@@ -296,13 +296,24 @@ export class MockApi implements TransactionApi {
     for (let n = 0; !reference || (!tr.reference && taken.has(reference)); n++) reference = hexDigest(`${tr.id}#${n}`, 18);
     tr.reference = reference;
     const now = this.clock();
+    // Lot X-C (T7) : en DIRECT, le jeton suit la demande (expiresAt de la demande, absente tant que la durée n’est pas fixée).
+    const direct = this.txs.find((x) => x.tranches.includes(tr))?.settlementMode !== 'CONDITIONAL';
     const token: TrancheToken = {
       trancheId: tr.id, reference, kid: SIMULATED_KID, signature: `SIMULATED.${hexDigest(`sig:${reference}`, 32)}`, simulated: true,
-      expiresAt: new Date(now.getTime() + this.validityMs).toISOString(),
+      expiresAt: direct ? tr.expiresAt : new Date(now.getTime() + this.validityMs).toISOString(),
       usedAt: tr.confirmedAt || tr.fundsState === 'RELEASED' ? now.toISOString() : undefined,
     };
     this.tokens.set(tr.id, token);
     return token;
+  }
+
+  /**
+   * Lot X-C (T7) : jeton révoqué par le statut final de la demande (miroir du déclencheur de 0028) : refusée, annulée, échue ;
+   * en DIRECT aussi payée et remboursée. En CONDITIONAL, le jeton payé reste actif (QR présenté au prestataire).
+   */
+  private tokenSpent(tx: Transaction, tr: Tranche): boolean {
+    return tr.status === 'REJECTED' || tr.status === 'CANCELLED' || tr.status === 'EXPIRED'
+      || (tx.settlementMode !== 'CONDITIONAL' && (tr.status === 'PAID' || tr.status === 'REFUNDED'));
   }
 
   private isParty(tx: Transaction): boolean { return !tx.parties || tx.parties.includes(this.persona); }
@@ -323,9 +334,9 @@ export class MockApi implements TransactionApi {
     try { ref = normalizeReference(reference); } catch { return null; }
     for (const tx of this.txs) {
       for (const tr of tx.tranches) {
-        if (tr.status === 'DRAFT' || tx.settlementMode !== 'CONDITIONAL') continue;
+        if (tr.status === 'DRAFT') continue;
         const token = this.ensureToken(tr);
-        if (token?.reference === ref) return { tx, tr, token, revoked: false };
+        if (token?.reference === ref) return { tx, tr, token, revoked: this.tokenSpent(tx, tr) };
         const old = this.revoked.find((k) => k.trancheId === tr.id && k.reference === ref);
         if (old) return { tx, tr, token: old, revoked: true };
       }
@@ -348,7 +359,9 @@ export class MockApi implements TransactionApi {
   private partyReference(reference: string, record: boolean): { tx: Transaction; tr: Tranche; token: TrancheToken } {
     this.guardAttempts();
     const hit = this.byReference(reference);
-    if (!hit || !this.isParty(hit.tx)) {
+    // Miroir de _party_token (0015) : en DIRECT, seuls le payeur et l’initiateur résolvent la référence.
+    const directOutsider = !!hit && hit.tx.settlementMode !== 'CONDITIONAL' && !this.rolesFor(hit.tx).includes('PAYER') && !this.isCreatorOf(hit.tx);
+    if (!hit || !this.isParty(hit.tx) || directOutsider) {
       if (record) this.recordFailure();
       throw new DomainError('UNKNOWN_REFERENCE', 'Référence inconnue');
     }
@@ -496,7 +509,9 @@ export class MockApi implements TransactionApi {
     // Lot X-C (T6) : expiration posée à la soumission, comme _submit_request (durée par module, point ouvert 3).
     const expiryDays = findModule(tx.vertical, this.modules)?.requestExpiryDays;
     if (expiryDays) tr.expiresAt = new Date(this.clock().getTime() + expiryDays * 86_400_000).toISOString();
-    if (tx.settlementMode === 'CONDITIONAL') this.ensureToken(tr);
+    // Lot X-C (T7) : un TrustToken pour chaque demande soumise, quel que soit le mode (« TrustToken généré »).
+    this.ensureToken(tr);
+    this.record(tx.id, 'TOKEN_ISSUED', tr.id);
     this.record(tx.id, 'REQUEST_SUBMITTED', tr.id);
     const payerIsInitiator = (this.creators[tx.id] ?? 'PAYER') === 'PAYER';
     this.notify(payerIsInitiator ? { type: 'PAYMENT_READY', txId: tx.id, trancheId: tr.id } : { type: 'PAYMENT_REQUEST_RECEIVED', txId: tx.id });
@@ -588,6 +603,8 @@ export class MockApi implements TransactionApi {
     if (known) throw new DomainError('PAYMENT_IN_PROGRESS', 'Un paiement est déjà en cours pour cette tranche');
     this.checkNotExpired(tr);   // lot X-C (T6) : même ordre que accept_and_pay
     if (tr.status !== 'SUBMITTED') throw new DomainError('NOT_PAYABLE', 'Cette demande n’est pas à payer');
+    // Lot X-C (T7) : tout paiement est associé au TrustToken actif de la demande (exigence 5.1).
+    if (!this.ensureToken(tr)) throw new DomainError('TOKEN_REVOKED', 'Jeton de la demande révoqué : paiement impossible');
     const q = this.payments.quote(quoteId);
     if (!q || q.trancheId !== trancheId || q.payerId !== this.payerKey() || q.requestAmountMinor !== tr.amountMinor) {
       throw new DomainError('QUOTE_INVALID', 'Devis inconnu ou d’une autre demande');
@@ -655,8 +672,8 @@ export class MockApi implements TransactionApi {
   /** Lot X : jeton actif, lisible par le payeur seulement (miroir de la RLS de tranche_tokens). */
   async getToken(trancheId: string): Promise<TrancheToken> {
     const { tx, tr } = this.find(trancheId);
-    if (tr.status === 'DRAFT' || tx.settlementMode !== 'CONDITIONAL' || !this.rolesFor(tx).includes('PAYER')) {
-      throw new DomainError('NO_TOKEN', 'Aucun jeton : demande non soumise, ou règlement direct (aucun QR)');
+    if (tr.status === 'DRAFT' || this.tokenSpent(tx, tr) || !this.rolesFor(tx).includes('PAYER')) {
+      throw new DomainError('NO_TOKEN', 'Aucun jeton actif : demande non soumise, ou statut final');
     }
     const token = this.ensureToken(tr);
     if (!token) throw new DomainError('NO_TOKEN', 'Aucun jeton actif');
@@ -681,7 +698,7 @@ export class MockApi implements TransactionApi {
     if (Number.isNaN(device.getTime()) || device.getTime() > now.getTime() + MAX_DEVICE_SKEW_MS) {
       throw new DomainError('DEVICE_TIME_INVALID', 'L’heure de l’appareil est incorrecte');
     }
-    if (device.getTime() > new Date(token.expiresAt).getTime()) throw new DomainError('TOKEN_EXPIRED', 'Ce jeton a expiré');
+    if (token.expiresAt && device.getTime() > new Date(token.expiresAt).getTime()) throw new DomainError('TOKEN_EXPIRED', 'Ce jeton a expiré');
     // Lot X v2 : confirmation par scan en CONDITIONAL seulement (miroir de confirm_by_reference, 0014).
     const ends = confirmServiceRule(this.conditionalState(tx, tr), { roles: ['PROVIDER'], via: 'SCAN' }, now);
     tr.confirmedAt = now.toISOString();
@@ -813,9 +830,8 @@ export class MockApi implements TransactionApi {
     if ((tr.status !== 'PAID' && tr.status !== 'REFUNDED') || !at) throw new ApiError('NOT_RELEASED', 'Le reçu n’existe que pour une demande payée');
     const chain = this.chains[tx.id] ?? [];
     const check = verifyChain(chain, this.anchors[tx.id]);
-    // Référence du QR : seulement en CONDITIONAL (aucun jeton de demande en règlement direct).
-    const token = tx.settlementMode !== 'CONDITIONAL' ? undefined
-      : this.ensureToken(tr) ?? [...this.revoked].reverse().find((k) => k.trancheId === tr.id);
+    // Lot X-C (T7) : référence du TrustToken de la demande, quel que soit le mode (dernier jeton, même révoqué, comme get_receipt).
+    const token = this.ensureToken(tr) ?? [...this.revoked].reverse().find((k) => k.trancheId === tr.id);
     return {
       trancheId: tr.id, txId: tx.id, label: tr.label, amountMinor: tr.amountMinor, currency: tx.amount.currency,
       releasedAt: at, payerName: tx.payerName ?? '', providerName: tx.providerName, purpose: tx.purpose,
@@ -1082,8 +1098,8 @@ export class MockApi implements TransactionApi {
   }
   /** Retire le jeton actif (conservé comme révoqué) ; false s’il n’y en avait pas. */
   private withdrawToken(tx: Transaction, tr: Tranche, reason: string): boolean {
-    // Jetons en CONDITIONAL seulement : en règlement direct, rien à retirer (NO_TOKEN), comme le serveur.
-    const active = tr.status === 'DRAFT' || tx.settlementMode !== 'CONDITIONAL' ? null : this.ensureToken(tr);
+    // Lot X-C (T7) : tous modes ; rien à retirer pour une demande non soumise ou au statut final (NO_TOKEN), comme le serveur.
+    const active = tr.status === 'DRAFT' || this.tokenSpent(tx, tr) ? null : this.ensureToken(tr);
     if (!active) return false;
     this.revoked.push({ ...active, revokedAt: this.clock().toISOString(), reason: reason.trim() });
     this.tokens.delete(tr.id);
@@ -1101,7 +1117,6 @@ export class MockApi implements TransactionApi {
   async reissueToken(trancheId: string, reason = 'Réémission du jeton'): Promise<void> {
     const { tx, tr } = this.manageToken(trancheId);
     if (tr.status === 'DRAFT') throw new DomainError('NO_TOKEN', 'Demande pas encore soumise : aucun jeton');
-    if (tx.settlementMode !== 'CONDITIONAL') throw new DomainError('NO_TOKEN', 'Règlement direct : aucun jeton de demande');   // 0018
     if (messageError(reason) === 'REASON_REQUIRED') throw new DomainError('REASON_REQUIRED', 'Motif de réémission obligatoire');
     this.withdrawToken(tx, tr, reason);
     this.withdrawn.delete(tr.id);

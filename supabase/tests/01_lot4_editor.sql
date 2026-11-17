@@ -429,8 +429,8 @@ insert into t.ids select 'tr7', id from tranches where tx_id = 'e3000000-0000-40
 select t.admin();
 select t.check(exists (select 1 from audit_log where tx_id = 'e3000000-0000-4000-8000-000000000007' and event = 'AUTO_ACTIVATED' and to_status = 'ACTIVE')
            and (select status from tranches where id = (select v from t.ids where k = 'tr7')) = 'SUBMITTED'
-           and not exists (select 1 from tranche_tokens where tranche_id = (select v from t.ids where k = 'tr7')),
-  'AUTO_ACTIVATED : demande due soumise, aucun jeton en DIRECT');
+           and exists (select 1 from tranche_tokens where tranche_id = (select v from t.ids where k = 'tr7') and revoked_at is null),
+  'AUTO_ACTIVATED : demande due soumise, avec son jeton en DIRECT (lot X-C, T7)');
 select t.check(not exists (select 1 from notifications where tx_id = 'e3000000-0000-4000-8000-000000000007' and event in ('TX_VALIDATED','TX_REJECTED'))
            and (select array_agg(user_id)::text from notifications where tx_id = 'e3000000-0000-4000-8000-000000000007' and event = 'PAYMENT_REQUEST_RECEIVED')
                = '{e1000000-0000-4000-8000-000000000001}',

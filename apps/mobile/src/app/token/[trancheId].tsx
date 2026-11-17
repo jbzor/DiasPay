@@ -124,7 +124,7 @@ export default function TokenScreen() {
         </View>
       ) : <Banner tone="pending" text={t('tokenImageOff')} />}
       <Text style={st.ref}>{t('refPrefix', { ref })}</Text>
-      <Text style={st.valid}>{t('tokenValidUntil', { date: dateTime(token.expiresAt) })}</Text>
+      {token.expiresAt ? <Text style={st.valid}>{t('tokenValidUntil', { date: dateTime(token.expiresAt) })}</Text> : null}
       {validity ? <Text style={st.countdown} accessibilityLiveRegion="polite">{validity}</Text> : null}
 
       <Divider />

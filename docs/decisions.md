@@ -325,3 +325,20 @@ Le prompt « Lot X (version 2) » remplace le premier lot X. Modèle cible : `do
   - Un type de besoin s’ajoute par une ligne de données (test : module `TEST_ANON`, sans bénéficiaire, de bout en bout). Un type de la vague 2 désactivé est refusé.
 - **Contrôles modifiés** : 00, 01 et 04 (santé sans pièce d’identité, référence au lieu du nom, type de pièce non prévu) ; tests du domaine, du client, de l’application et de bout en bout du bureau (`fixtures.ts`). Détail dans `docs/lotx2-controles-sql.md`.
 - **Reste à décider** : les durées de conservation (point ouvert 6) et la purge, le format exact de la référence du patient avec les établissements de santé, et la sensibilité des autres pièces (le bail et l’attestation d’inscription contiennent aussi des données personnelles).
+
+## Xc-7 — Un TrustToken pour chaque demande, y compris en règlement direct
+
+- **Date** : 17 novembre 2026
+- **Source** : cahier d’extension du client, section 1 (tout paiement est associé à un TrustToken et à un TrustLink), cas 3 et 8 (chaque demande et chaque échéance a son propre TrustToken), section 3.C (« TrustToken généré » juste après la soumission), **exigence 5.1**. Le lot X v2 avait supprimé le jeton en `DIRECT` (0014, `NO_TOKEN` en 0018) en même temps que le lien partageable et le QR : c’était un écart avec le client, corrigé ici. Le lien partageable et l’image du QR restent supprimés (`eqr_image_enabled` faux).
+- **Choisi** (migration `0028_lotxc_t7.sql`, test `07_lotxc.sql`, section T7) :
+  - **Émission** : `_submit_request` émet le jeton à la soumission, quel que soit le mode, et journalise `TOKEN_ISSUED` (« TrustToken généré » dans la chronologie). `reissue_token` et `revoke_token` fonctionnent en `DIRECT` ; `NO_TOKEN` ne vaut plus que pour une demande non soumise (ou au statut final).
+  - **Validité en `DIRECT`** : elle est contrôlée par le **cycle de vie de la demande**, pas par une durée propre au jeton :
+    - expiration : `tranche_tokens.expires_at` = `expires_at` de la demande. Tant que la durée d’expiration des demandes n’est pas fixée (point ouvert 3), ni la demande ni le jeton n’expirent ; **quand une durée sera fixée, le jeton en héritera** sans autre changement ;
+    - révocation à chaque statut final de la demande (payée, refusée, annulée, échue, remboursée) et à l’annulation de l’opération (déclencheur `tranches_revoke_token_on_final` ; `transition_tx` ne révoquait rien jusque-là).
+  
+    `token_ttl_days` ne s’applique qu’au jeton `CONDITIONAL` (confirmation par scan), qui reste actif après le paiement. Aucune durée n’est inventée.
+  - **Résolution** inchangée (`_party_token`, 0015) : en `DIRECT`, seuls le payeur et l’initiateur résolvent la référence ; le prestataire seulement en `CONDITIONAL`. Même réponse nulle pour une référence inconnue ou étrangère, limitation inchangée.
+  - **Paiement** : `accept_and_pay` refuse une demande sans jeton actif (`TOKEN_REVOKED`). Le simulateur fait de même.
+  - **Écrans** : aucun changement visible en `DIRECT` (pas de QR ni de lien). L’affichage du TrustToken et du DiasPay Link dans l’espace de vérification du payeur viendra au lot Y. Le reçu porte désormais la référence du jeton en `DIRECT` aussi.
+  - **Données de développement** : un jeton est émis pour chaque demande `DIRECT` déjà soumise et non finale, dans la migration.
+- **Contrôles modifiés** : 00, 01, 02, 03 et 05 (« aucun jeton en DIRECT » devient « un jeton par demande soumise ») ; contrat X1 réécrit ; tests du simulateur. Détail dans `docs/lotx2-controles-sql.md`.

@@ -125,7 +125,8 @@ export interface TrancheToken {
   kid: string;
   signature: string;
   simulated: boolean;
-  expiresAt: string;       // ISO
+  /** ISO. Lot X-C (T7) : absente en règlement direct tant que la durée des demandes n’est pas fixée (le jeton suit la demande). */
+  expiresAt?: string;
   usedAt?: string;
 }
 
@@ -161,7 +162,8 @@ export interface ReferenceInfo {
   amountMinor: number;
   currency: Currency;
   status: TrancheStatus;
-  expiresAt: string;
+  /** Lot X-C (T7) : absente en règlement direct tant que la durée des demandes n’est pas fixée. */
+  expiresAt?: string;
   used: boolean;
   providerName: string;
   beneficiaryName: string;

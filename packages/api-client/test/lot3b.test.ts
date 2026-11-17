@@ -225,13 +225,14 @@ describe('reçu et journal chaîné', () => {
     expect(r.lastHash).toMatch(/^[0-9a-f]{64}$/);
     expect(r.entryCount).toBe((await api.timeline(tx.id)).length);
   });
-  it('reçu d’un paiement direct : dès le paiement, sans référence de QR', async () => {
+  it('reçu d’un paiement direct : dès le paiement, avec la référence du TrustToken (lot X-C, T7)', async () => {
     const { api } = make({ seedNotifications: false });
     const { tx, trId } = await directFlow(api);
     const paid = (await api.getTransaction(tx.id)).tranches[0]!;
     const r = await api.getReceipt(trId);
-    expect(r).toMatchObject({ trancheId: trId, amountMinor: 180_000, payerName: 'Marie N.', releasedAt: paid.paidAt, chainValid: true, reference: '' });
-    expect(paid.reference).toBeUndefined();
+    expect(r).toMatchObject({ trancheId: trId, amountMinor: 180_000, payerName: 'Marie N.', releasedAt: paid.paidAt, chainValid: true });
+    expect(paid.reference).toMatch(/^[0-9a-f]{18}$/);
+    expect(r.reference.replace(/-/g, '').toLowerCase()).toBe(paid.reference);
     expect(r.entryCount).toBe((await api.timeline(tx.id)).length);
   });
   it('une modification volontaire du journal est détectée', async () => {

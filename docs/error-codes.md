@@ -89,10 +89,10 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 
 | Code | Origine | Signification |
 |---|---|---|
-| `NO_TOKEN` | C | Jeton pas encore émis pour cette tranche |
+| `NO_TOKEN` | C, S | Aucun jeton actif : demande pas encore soumise, ou au statut final (lot X-C, T7 : un jeton par demande soumise, en `DIRECT` comme en `CONDITIONAL`) |
 | `EQR_MALFORMED` | D | QR illisible ou étranger à DiasPay |
 | `UNKNOWN_REFERENCE` | D, S | Référence d’eQR inconnue, ou d’un dossier dont l’utilisateur n’est pas partie : même réponse, pour ne pas révéler l’existence de la référence (lot X). `resolve_reference_info` renvoie `null` dans ces deux cas, que le client traduit par ce code |
-| `TOKEN_REVOKED` | D, S | eQR révoqué par l’initiateur ou un administrateur, ou après rejet de la demande (lot X) |
+| `TOKEN_REVOKED` | D, S | eQR révoqué par l’initiateur ou un administrateur, ou après rejet de la demande (lot X) ; lot X-C (T7) : paiement refusé quand la demande n’a pas de jeton actif |
 | `NOT_REVOCABLE` | D, S | Tranche déjà payée : seul un administrateur non partie révoque ou réémet son jeton (lot X) |
 | `TOO_MANY_ATTEMPTS` | D, S | Plus de 10 résolutions de référence échouées par l’utilisateur dans l’heure ; événement `SUSPICIOUS_ACTIVITY` dans `security_events` (lot X) |
 | `TOKEN_USED` | D, S | EQR déjà utilisé |

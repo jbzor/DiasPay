@@ -332,8 +332,8 @@ select t.admin();
 insert into t.ids select 'b1', id from tranches where tx_id = 'f9300000-0000-4000-8000-00000000000b' and seq = 1;
 select t.check((select settlement_mode from transactions where id = 'f9300000-0000-4000-8000-00000000000b') = 'DIRECT'
            and (select status from tranches where id = (select v from t.ids where k = 'b1')) = 'SUBMITTED'
-           and not exists (select 1 from tranche_tokens where tranche_id = (select v from t.ids where k = 'b1')),
-  'opération RENT en règlement DIRECT, demande soumise, aucun jeton émis');
+           and exists (select 1 from tranche_tokens where tranche_id = (select v from t.ids where k = 'b1') and revoked_at is null),
+  'opération RENT en règlement DIRECT, demande soumise, avec son jeton (lot X-C, T7)');
 select t.login('f9000000-0000-4000-8000-000000000001');
 select t.check((select status = 'PAID' and funds_state = 'NONE' from simulate_tranche_system((select v from t.ids where k = 'b1'), 'PAID')),
   'paiement direct : payée sans blocage des fonds');

@@ -130,9 +130,9 @@ export function contractSuite(h: Harness): void {
       expect(alerts.some((n) => n.event.type === 'PAYMENT_READY' && n.event.txId === tx.id && n.event.trancheId === tx.tranches[0]!.id)).toBe(true);
       expect(alerts.some((n) => n.event.type === 'PAYMENT_REQUEST_RECEIVED' && n.event.txId === tx.id)).toBe(false);
 
-      // Règlement direct : ni jeton ni eQR ; pas de reçu avant paiement ; un tiers n’y a pas accès.
+      // Règlement direct : un TrustToken dès la soumission (lot X-C, T7), aucun eQR ; pas de reçu avant paiement ; un tiers n’y a pas accès.
       const tr = tx.tranches[0]!;
-      expect(await code(api.getToken(tr.id))).toBe('NO_TOKEN');
+      expect((await api.getToken(tr.id)).reference).toMatch(/^[0-9a-f]{18}$/);
       expect(await code(api.getReceipt(tr.id))).toBe('NOT_RELEASED');
       if (h.partyIsolation) {
         const other = await h.as('OTHER');
@@ -187,22 +187,33 @@ export function contractSuite(h: Harness): void {
 
     // ——— Lot X ———
 
-    it('X1 : règlement direct, aucun jeton de demande (lecture, réémission, révocation)', async () => {
+    it('X1 (lot X-C, T7) : règlement direct, un TrustToken par demande (lecture, réémission, révocation, paiement)', async () => {
       const api = await h.as('PAYER');
       const tx = await submitHealth(api);
       const tr = tx.tranches[0]!;
       expect(tx.settlementMode).toBe('DIRECT');
       expect(await api.eqrImageEnabled()).toBe(false);   // lot X v2 (0015) : image du QR hors du parcours par défaut
+      const first = await api.getToken(tr.id);
+      expect(first.reference).toMatch(/^[0-9a-f]{18}$/);
+      expect(first.expiresAt).toBeUndefined();            // le jeton suit la demande : aucune durée fixée pour la santé
+      expect((await api.timeline(tx.id)).map((e) => e.event)).toContain('TOKEN_ISSUED');
+      // Le payeur est ici l’initiateur : il réémet (nouvelle référence) puis révoque.
+      await api.reissueToken(tr.id, 'Nouveau QR');
+      const second = await api.getToken(tr.id);
+      expect(second.reference).not.toBe(first.reference);
+      await api.revokeToken(tr.id, 'Lien compromis');
       expect(await code(api.getToken(tr.id))).toBe('NO_TOKEN');
-      // Le payeur est ici l’initiateur : réémission et révocation n’ont pas de jeton sur lequel agir.
-      expect(await code(api.reissueToken(tr.id, 'Nouveau QR'))).toBe('NO_TOKEN');
-      expect(await code(api.revokeToken(tr.id, 'Lien compromis'))).toBe('NO_TOKEN');
-      expect(await code(api.getToken(tr.id))).toBe('NO_TOKEN');
+      expect(await code(api.payTranche(tr.id, newUuid()))).toBe('TOKEN_REVOKED');   // un jeton révoqué bloque le paiement
       if (h.partyIsolation) {
         const other = await h.as('OTHER');
         expect(await code(other.reissueToken(tr.id, 'Intrus'))).toBe('TRANCHE_NOT_FOUND');
         expect(await code(other.revokeToken(tr.id, 'Intrus'))).toBe('TRANCHE_NOT_FOUND');
+        expect(await code(other.resolveReference(second.reference))).toBe('UNKNOWN_REFERENCE');   // étranger : aucune information
       }
+      // Nouveau jeton : le paiement passe ; payée en DIRECT, la demande n’a plus de jeton actif.
+      await api.reissueToken(tr.id, 'Nouveau QR après révocation');
+      expect((await api.payTranche(tr.id, newUuid())).tranches[0]!.status).toBe('PAID');
+      expect(await code(api.getToken(tr.id))).toBe('NO_TOKEN');
     }, t * 2);
 
     it('X2 : le payeur ouvre, demande des informations, l’initiateur répond, le payeur rejette ; clôture', async () => {

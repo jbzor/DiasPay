@@ -288,6 +288,92 @@ select t.hint($$select get_quote((select v from t.ids where k = 'tr7'))$$, 'TX_N
   'T6 : après le passage, codes d’aujourd’hui inchangés (opération close)');
 select t.admin();
 
+-- ===================== T7 : un TrustToken pour chaque demande, y compris en DIRECT =====================
+-- ---------- Émission à la soumission, en DIRECT ----------
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select t.ok($$select save_draft(t.health_draft('fdc10000-0000-4000-8000-000000000008'))$$, 'T7 : demande santé (DIRECT) créée');
+select add_document('fdc10000-0000-4000-8000-000000000008', 'QUOTE', 'fdc10000-0000-4000-8000-000000000008/QUOTE/q.pdf', 'q.pdf', 'application/pdf', 1000);
+select submit_operation('fdc10000-0000-4000-8000-000000000008');
+select t.admin();
+insert into t.ids select 'tr8', id from tranches where tx_id = 'fdc10000-0000-4000-8000-000000000008';
+select t.check((select count(*) from tranche_tokens where tranche_id = (select v from t.ids where k = 'tr8') and revoked_at is null) = 1,
+  'T7 : DIRECT : jeton actif émis à la soumission');
+select t.check(exists (select 1 from audit_log where tranche_id = (select v from t.ids where k = 'tr8') and event = 'TOKEN_ISSUED'),
+  'T7 : « TrustToken généré » dans la chronologie (TOKEN_ISSUED)');
+select t.check((select expires_at from tranche_tokens where tranche_id = (select v from t.ids where k = 'tr8') and revoked_at is null) is null
+           and (select expires_at from tranches where id = (select v from t.ids where k = 'tr8')) is null,
+  'T7 : DIRECT : le jeton suit la demande (aucune durée fixée : ni la demande ni le jeton n’expirent)');
+insert into t.res select 'ref8', to_jsonb(reference) from tranche_tokens where tranche_id = (select v from t.ids where k = 'tr8') and revoked_at is null;
+-- Durée des demandes fixée pour le module : le jeton en hérite.
+update request_modules set request_expiry_days = 5 where code = 'HEALTH';
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select save_draft(t.health_draft('fdc10000-0000-4000-8000-000000000009'));
+select add_document('fdc10000-0000-4000-8000-000000000009', 'QUOTE', 'fdc10000-0000-4000-8000-000000000009/QUOTE/q.pdf', 'q.pdf', 'application/pdf', 1000);
+select submit_operation('fdc10000-0000-4000-8000-000000000009');
+select t.admin();
+select t.check((select k.expires_at = tr.expires_at and tr.expires_at is not null from tranche_tokens k join tranches tr on tr.id = k.tranche_id
+                 where tr.tx_id = 'fdc10000-0000-4000-8000-000000000009' and k.revoked_at is null),
+  'T7 : DIRECT : expiration du jeton = expiration de la demande (héritée du module)');
+update request_modules set request_expiry_days = null where code = 'HEALTH';
+-- CONDITIONAL inchangé : token_ttl_days (dossier AGRO de T6).
+select t.check((select bool_and(k.expires_at is not null) from tranche_tokens k join tranches tr on tr.id = k.tranche_id
+                 where tr.tx_id = 'fdc10000-0000-4000-8000-000000000006'),
+  'T7 : CONDITIONAL : jetons émis avec la durée token_ttl_days');
+
+-- ---------- Résolution : payeur et initiateur seulement en DIRECT ----------
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select t.check(resolve_reference_info((select v #>> '{}' from t.res where k = 'ref8')) ->> 'trancheId' = (select v::text from t.ids where k = 'tr8'),
+  'T7 : DIRECT : le payeur (initiateur) résout la référence');
+select t.login('fdc00000-0000-4000-8000-000000000002');
+select t.check(exists (select 1 from transaction_parties where tx_id = 'fdc10000-0000-4000-8000-000000000008' and role = 'PROVIDER' and user_id = auth.uid())
+           and resolve_reference_info((select v #>> '{}' from t.res where k = 'ref8')) is null,
+  'T7 : DIRECT : le prestataire, partie au dossier, ne résout pas la référence (réponse nulle)');
+select t.login('fdc00000-0000-4000-8000-000000000006');
+select t.check(resolve_reference_info((select v #>> '{}' from t.res where k = 'ref8')) is null,
+  'T7 : étranger au dossier : réponse nulle, aucune information');
+
+-- ---------- Réémission, révocation, paiement bloqué ----------
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select t.check(reissue_token((select v from t.ids where k = 'tr8'), 'Nouveau jeton') ->> 'tokenId' is not null, 'T7 : DIRECT : réémission');
+select t.admin();
+select t.check((select count(*) from tranche_tokens where tranche_id = (select v from t.ids where k = 'tr8')) = 2
+           and (select count(*) from tranche_tokens where tranche_id = (select v from t.ids where k = 'tr8') and revoked_at is null) = 1
+           and not exists (select 1 from tranche_tokens where tranche_id = (select v from t.ids where k = 'tr8') and revoked_at is null
+                            and reference = (select v #>> '{}' from t.res where k = 'ref8')),
+  'T7 : DIRECT : l’ancien jeton est révoqué, un nouveau (autre référence) est actif');
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select t.check((revoke_token((select v from t.ids where k = 'tr8'), 'Jeton compromis') ->> 'revoked')::boolean, 'T7 : DIRECT : révocation');
+insert into t.res select 'q8', get_quote((select v from t.ids where k = 'tr8'));
+select t.hint($$select accept_and_pay((select v from t.ids where k = 'tr8'), 'xc-t7-revoked-1', (select (v->>'id')::uuid from t.res where k = 'q8'))$$,
+  'TOKEN_REVOKED', 'T7 : paiement refusé avec un jeton révoqué');
+select t.hint($$select reissue_token(null, 'x')$$, 'TRANCHE_NOT_FOUND', 'T7 : réémission d’une demande inconnue refusée');
+-- Nouveau jeton : le paiement passe ; payé en DIRECT, le jeton a servi et est révoqué.
+select t.check(reissue_token((select v from t.ids where k = 'tr8'), 'Nouveau jeton après révocation') ->> 'tokenId' is not null, 'T7 : réémission après révocation');
+insert into t.res select 'a8', start_payment((select v from t.ids where k = 'tr8'), 'xc-t7-pay-0001');
+select demo_settle_payment((select (v->>'id')::uuid from t.res where k = 'a8'));
+select t.admin();
+select t.check((select status from tranches where id = (select v from t.ids where k = 'tr8')) = 'PAID'
+           and not exists (select 1 from tranche_tokens where tranche_id = (select v from t.ids where k = 'tr8') and revoked_at is null),
+  'T7 : DIRECT : demande payée, jeton révoqué (statut final)');
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select t.check(length(get_receipt((select v from t.ids where k = 'tr8')) ->> 'reference') = 18, 'T7 : DIRECT : le reçu porte la référence du jeton');
+
+-- ---------- Révocation à l’annulation de l’opération (transition_tx ne révoquait rien) ----------
+select t.check((select status from transition_tx('fdc10000-0000-4000-8000-000000000009', 'CANCELLED')) = 'CANCELLED',
+  'T7 : opération annulée par l’initiateur');
+select t.admin();
+select t.check(not exists (select 1 from tranche_tokens k join tranches tr on tr.id = k.tranche_id
+                           where tr.tx_id = 'fdc10000-0000-4000-8000-000000000009' and k.revoked_at is null)
+           and exists (select 1 from audit_log where tx_id = 'fdc10000-0000-4000-8000-000000000009' and event = 'TOKEN_REVOKED'),
+  'T7 : annulation de l’opération : jetons de ses demandes révoqués et journalisés');
+-- Données : aucune demande DIRECT soumise et non finale sans jeton actif (rattrapage de 0028, et nouvelles demandes).
+select t.check(not exists (select 1 from tranches tr join transactions x on x.id = tr.tx_id
+                           where x.settlement_mode = 'DIRECT' and tr.status in ('SUBMITTED','INFO_REQUESTED','ACCEPTED')
+                             and not exists (select 1 from tranche_tokens k where k.tranche_id = tr.id and k.revoked_at is null)),
+  'T7 : toute demande DIRECT soumise et non finale a un jeton actif');
+-- Aucun lien, aucune image : le réglage d’image reste faux.
+select t.check((select value from app_config where key = 'eqr_image_enabled') = 'false', 'T7 : image du QR toujours désactivée');
+
 -- ===================== Fin =====================
 -- ---------- Résumé ----------
 do $$

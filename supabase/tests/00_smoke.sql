@@ -135,8 +135,11 @@ select t.check((select status from tranches where id=current_setting('t.t1')::uu
   'tranche 1 activée : demande soumise à l’activation (échéance dans les 7 jours)');
 select t.check((select array_agg(status::text order by seq)::text from tranches where tx_id='10000000-0000-0000-0000-000000000001')='{SUBMITTED,DRAFT,DRAFT}',
   'opération active : demandes 2 et 3 programmées (DRAFT)');
-select t.check(not exists (select 1 from tranche_tokens k join tranches tr on tr.id = k.tranche_id where tr.tx_id='10000000-0000-0000-0000-000000000001'),
-  'règlement direct : aucun jeton émis pour la demande soumise');
+-- Lot X-C (T7) : un TrustToken par demande soumise, en DIRECT aussi ; aucun pour les demandes programmées.
+select t.check((select count(*) from tranche_tokens k join tranches tr on tr.id = k.tranche_id
+                 where tr.tx_id='10000000-0000-0000-0000-000000000001' and k.revoked_at is null) = 1
+           and exists (select 1 from tranche_tokens where tranche_id = current_setting('t.t1')::uuid and revoked_at is null),
+  'règlement direct : un jeton émis pour la seule demande soumise (lot X-C, T7)');
 select t.check((select count(distinct user_id) from notifications where tx_id='10000000-0000-0000-0000-000000000001' and event='TX_VALIDATED')=3,
   'alerte TX_VALIDATED aux trois parties après la décision du bureau');
 select t.check(exists (select 1 from notifications where tx_id='10000000-0000-0000-0000-000000000001' and event='PAYMENT_REQUEST_RECEIVED'

@@ -1042,14 +1042,14 @@ isOneToOne: false
                   ]
                 },"tranche_tokens": {
                   Row: {
-                    "created_at": string,"expires_at": string,"id": string,"kid": string,"reference": string,"revoke_reason": string | null,"revoked_at": string | null,"revoked_by": string | null,"signature": string,"simulated": boolean,"tranche_id": string,"used_at": string | null
+                    "created_at": string,"expires_at": string | null,"id": string,"kid": string,"reference": string,"revoke_reason": string | null,"revoked_at": string | null,"revoked_by": string | null,"signature": string,"simulated": boolean,"tranche_id": string,"used_at": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"expires_at": string,"id"?: string,"kid": string,"reference"?: string,"revoke_reason"?: string | null,"revoked_at"?: string | null,"revoked_by"?: string | null,"signature": string,"simulated"?: boolean,"tranche_id": string,"used_at"?: string | null
+                    "created_at"?: string,"expires_at"?: string | null,"id"?: string,"kid": string,"reference"?: string,"revoke_reason"?: string | null,"revoked_at"?: string | null,"revoked_by"?: string | null,"signature": string,"simulated"?: boolean,"tranche_id": string,"used_at"?: string | null
                   }
                   Update: {
-                    "created_at"?: string,"expires_at"?: string,"id"?: string,"kid"?: string,"reference"?: string,"revoke_reason"?: string | null,"revoked_at"?: string | null,"revoked_by"?: string | null,"signature"?: string,"simulated"?: boolean,"tranche_id"?: string,"used_at"?: string | null
+                    "created_at"?: string,"expires_at"?: string | null,"id"?: string,"kid"?: string,"reference"?: string,"revoke_reason"?: string | null,"revoked_at"?: string | null,"revoked_by"?: string | null,"signature"?: string,"simulated"?: boolean,"tranche_id"?: string,"used_at"?: string | null
                   }
                   Relationships: [
                     {
@@ -1790,7 +1790,7 @@ isOneToOne: false
 "_party_token":
 { Args: { "p_ref": string }; Returns: {
               "created_at": string,
-"expires_at": string,
+"expires_at": string | null,
 "id": string,
 "kid": string,
 "reference": string,

@@ -446,8 +446,9 @@ select t.check((select status from tranches where tx_id = 'f3000000-0000-4000-80
                        and user_id = 'f1000000-0000-4000-8000-000000000001'),
   'première demande due soumise (RG-12) et alerte PAYMENT_REQUEST_RECEIVED au payeur (non initiateur)');
 select t.login('f1000000-0000-4000-8000-000000000005');
-select t.check((select count(*) = 1 and bool_and(actor_name is null and actor_role is null and event = 'REQUEST_SUBMITTED') from bo_audit('f3000000-0000-4000-8000-000000000006') where actor_id is null),
-  'bo_audit : étape du système (soumission de la demande) sans acteur');
+select t.check((select array_agg(event order by event) = array['REQUEST_SUBMITTED','TOKEN_ISSUED'] and bool_and(actor_name is null and actor_role is null)
+                 from bo_audit('f3000000-0000-4000-8000-000000000006') where actor_id is null),
+  'bo_audit : étapes du système (jeton émis puis demande soumise, lot X-C T7) sans acteur');
 select t.admin();
 -- Hors mock_mode (production) : même parcours, aucune simulation (l’approbation active l’opération).
 update app_config set value = 'false' where key = 'mock_mode';

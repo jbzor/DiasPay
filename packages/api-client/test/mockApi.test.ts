@@ -185,24 +185,29 @@ describe('MockApi — TrustToken et eQR (CONDITIONAL seulement)', () => {
     expect(await code(api.getToken(tx.tranches[2]!.id))).toBe('NO_TOKEN');
     expect(await code(api.getToken('inconnu'))).toBe('TRANCHE_NOT_FOUND');
   });
-  it('règlement direct : aucun jeton ni référence (NO_TOKEN), le scan ne trouve rien', async () => {
+  it('règlement direct (lot X-C, T7) : un jeton par demande soumise ; le prestataire ne résout pas la référence', async () => {
     const { api } = make();
     const tx = await school(api);
-    expect(await code(api.getToken(tx.tranches[1]!.id))).toBe('NO_TOKEN');
-    expect(await code(api.getToken(tx.tranches[0]!.id))).toBe('NO_TOKEN');
-    expect(tx.tranches.every((t) => t.reference === undefined)).toBe(true);
+    const tok = await api.getToken(tx.tranches[1]!.id);                 // demande soumise : jeton actif
+    expect(tok.reference).toMatch(/^[0-9a-f]{18}$/);
+    expect(tok.expiresAt).toBeUndefined();                              // le jeton suit la demande (aucune durée fixée)
+    expect(await code(api.getToken(tx.tranches[0]!.id))).toBe('NO_TOKEN');   // payée en DIRECT : jeton révoqué (statut final)
+    expect(await code(api.getToken(tx.tranches[2]!.id))).toBe('NO_TOKEN');   // programmée : aucun jeton
+    expect((await api.resolveReference(tok.reference)).trancheId).toBe(tx.tranches[1]!.id);   // payeur
     // Miroir de _party_token (0015) : en DIRECT, le prestataire ne résout aucune référence.
     api.setPersona('PROVIDER');
-    expect(await code(api.confirmByReference(REF2))).toBe('UNKNOWN_REFERENCE');
+    expect(await code(api.resolveReference(tok.reference))).toBe('UNKNOWN_REFERENCE');
+    expect(await code(api.confirmByReference(tok.reference))).toBe('UNKNOWN_REFERENCE');
   });
   it('toutes les références du jeu de démonstration sont uniques et en 18 hex', async () => {
     const { api } = make();
     const txs = await api.listTransactions();
-    const refs = txs.filter((t) => t.settlementMode === 'CONDITIONAL').flatMap((t) => t.tranches).filter((r) => r.status !== 'DRAFT').map((r) => r.reference);
+    // Lot X-C (T7) : toute demande soumise a sa référence, en DIRECT comme en CONDITIONAL ; aucune pour une demande programmée.
+    const refs = txs.flatMap((t) => t.tranches).filter((r) => r.status !== 'DRAFT').map((r) => r.reference);
     expect(refs.length).toBeGreaterThan(0);
     expect(refs.every((r) => /^[0-9a-f]{18}$/.test(r ?? ''))).toBe(true);
     expect(new Set(refs).size).toBe(refs.length);
-    expect(txs.filter((t) => t.settlementMode === 'DIRECT').flatMap((t) => t.tranches).every((r) => r.reference === undefined)).toBe(true);
+    expect(txs.flatMap((t) => t.tranches).filter((r) => r.status === 'DRAFT').every((r) => r.reference === undefined)).toBe(true);
   });
   it('getTranche renvoie la transaction et la tranche', async () => {
     const { api } = make();

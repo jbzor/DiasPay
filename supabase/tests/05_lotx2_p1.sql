@@ -132,19 +132,19 @@ select t.admin();
 select t.login('fc000000-0000-4000-8000-000000000006');
 select t.check(resolve_reference_info((select v from t.refs where k = 'a1')) is null, 'étranger : même réponse qu’une référence inconnue');
 select t.admin();
--- Règlement direct : aucun jeton ; la réémission est refusée (0018) ; un jeton fabriqué n’est pas résolu par le prestataire.
+-- Règlement direct (lot X-C, T7) : un jeton par demande ; la réémission fonctionne ; le prestataire ne résout pas la référence.
 select t.login('fc000000-0000-4000-8000-000000000002');
 select save_draft(t.op('fc300000-0000-4000-8000-00000000000b', 'EDUCATION', 60000, '+33624440001'));
 select t.admin();
 select t.submit('fc300000-0000-4000-8000-00000000000b', 'ENROLMENT_CERTIFICATE');
 insert into t.ids select 'b1', id from tranches where tx_id = 'fc300000-0000-4000-8000-00000000000b';
 select t.check((select settlement_mode from transactions where id = 'fc300000-0000-4000-8000-00000000000b') = 'DIRECT'
-           and not exists (select 1 from tranche_tokens where tranche_id = (select v from t.ids where k = 'b1')), 'DIRECT : aucun jeton de demande');
+           and exists (select 1 from tranche_tokens where tranche_id = (select v from t.ids where k = 'b1') and revoked_at is null),
+  'DIRECT : la demande soumise a son jeton (lot X-C, T7)');
 select t.login('fc000000-0000-4000-8000-000000000002');
-select t.hint($$select reissue_token((select v from t.ids where k = 'b1'), 'Réémission')$$, 'NO_TOKEN', 'DIRECT : réémission refusée (0018)');
+select t.check(reissue_token((select v from t.ids where k = 'b1'), 'Réémission') ->> 'tokenId' is not null, 'DIRECT : réémission par l’initiateur (lot X-C, T7)');
 select t.admin();
-select _issue_tranche_token((select v from t.ids where k = 'b1'));
-insert into t.refs select 'b1', reference from tranche_tokens where tranche_id = (select v from t.ids where k = 'b1');
+insert into t.refs select 'b1', reference from tranche_tokens where tranche_id = (select v from t.ids where k = 'b1') and revoked_at is null;
 select t.login('fc000000-0000-4000-8000-000000000003');
 select t.check(resolve_reference_info((select v from t.refs where k = 'b1')) is null, 'DIRECT : le prestataire ne résout pas une référence');
 select t.admin();

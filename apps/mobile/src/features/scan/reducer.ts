@@ -51,7 +51,7 @@ const fail = (s: ScanState, error: ScanErrorCode): ScanState => ({ phase: 'error
 export function precheck(info: ReferenceInfo, now: number, isProvider: boolean): ScanErrorCode | null {
   if (!isProvider) return 'PROVIDER_ONLY';
   if (info.used) return 'TOKEN_USED';
-  if (now > new Date(info.expiresAt).getTime()) return 'TOKEN_EXPIRED';
+  if (info.expiresAt && now > new Date(info.expiresAt).getTime()) return 'TOKEN_EXPIRED';
   // Lot X version 2 : seule une tranche payée (fonds bloqués, déblocage conditionnel) se confirme ; le serveur répond
   // WRONG_MODE en règlement direct et NOT_PAID si les fonds sont déjà traités.
   if (info.status !== 'PAID') return 'NOT_PAID';

@@ -16,6 +16,7 @@ export const ERROR_CODES = {
   PROVIDER_ONLY: 'D S — réservé au prestataire',
   PAYER_ONLY: 'D S — réservé au payeur (déblocage anticipé ; lot X : demande reçue, informations, rejet)',
   INITIATOR_ONLY: 'D S — réservé à l’initiateur de la demande (réponse, révocation du jeton ; lot X)',
+  INITIATOR_MISMATCH: 'S — brouillon falsifié : initiateur différent du créateur (lot X-C, T3)',
   ENROLMENT_REQUIRED: 'D S — niveau d’enrôlement insuffisant (N1 pour initier en demandeur, N2 en prestataire ; detail : required, current ; X4 v2)',
   VALIDATOR_ONLY: 'D S — réservé aux validateurs',
   VALIDATOR_IS_PARTY: 'D S — un validateur ou administrateur partie au dossier ne peut pas décider',

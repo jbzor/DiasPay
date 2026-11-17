@@ -350,3 +350,17 @@ Pourquoi : K13 (décision D2 corrigée). La santé ne demande plus que le devis,
 | `04_lotx_p2.sql` | pièce obligatoire du module manquante | une pièce `OTHER` (non prévue) déposée avant | le module de test prévoit une pièce facultative `PHOTO`, déposée à la place ; **ajout** : `OTHER` refusé [`DOCUMENT_KIND_NOT_ALLOWED`] (140 contrôles au lieu de 139) |
 
 `06_lotx2_p2.sql`, partie X6 : 20 vérifications (module santé, autres modules, sensibilité, mode inconnu, nom refusé, référence invalide, référence requise, référence enregistrée sans nom, pièce d’identité et certificat refusés, devis seul suffit, consultation d’une pièce sensible sans nom ni chemin, aucune donnée de santé dans le journal ni les alertes, pièce ordinaire inchangée, module ajouté par une ligne de données de bout en bout, vague 2 refusée, preuve de jalon acceptée (0023), type non prévu refusé).
+
+## Lot X-C : corrections avant la passe 3 (0024 et suivantes)
+
+Nouveau script `supabase/tests/07_lotxc.sql` (et sa variante éditeur), une section par tâche du lot. Aucun contrôle des
+scripts 00 à 06 n’est modifié par ce lot sauf mention contraire ci-dessous. Règle d’écriture : la RLS filtrant en
+silence, un `UPDATE` interdit est vérifié par le nombre de lignes touchées (`t.n_updated`) **et** par la valeur relue.
+
+### T3 (0024) : brouillons d’opération — 21 vérifications
+- La politique `tx_update_draft` n’existe plus : le créateur d’un brouillon ne modifie plus `beneficiary_name`,
+  `settlement_mode`, `initiator_id`, `status` ni `purpose` par écriture directe (0 ligne touchée, valeur inchangée) ;
+  `save_draft` reste le seul chemin.
+- Soumission d’un brouillon falsifié (données posées hors RLS, comme avant 0024) : nom sur un module à référence seule
+  refusé (`BENEFICIARY_NAME_NOT_ALLOWED`) ; mode de règlement recalculé depuis `request_modules` ; `initiator_id`
+  différent du créateur refusé (`INITIATOR_MISMATCH`, nouveau code) — et le créateur dépossédé reçoit `INITIATOR_ONLY`.

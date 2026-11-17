@@ -24,6 +24,7 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `PROVIDER_ONLY` | D, S | Réservé au prestataire |
 | `PAYER_ONLY` | D, S | Réservé au payeur : déblocage anticipé ; lot X : demande reçue (`mark_received`), demande d’informations, rejet |
 | `INITIATOR_ONLY` | D, S | Réservé à l’initiateur de la demande : réponse à une demande d’informations, révocation ou réémission du jeton (lot X) |
+| `INITIATOR_MISMATCH` | S | Soumission d’un brouillon dont `initiator_id` ne coïncide pas avec le créateur : falsification (aucun flux ne les distingue, 0014) — lot X-C, T3 |
 | `ENROLMENT_REQUIRED` | D, S | Niveau d’enrôlement insuffisant : N1 pour initier une demande en demandeur, N2 en prestataire, N1 avant N2 ou N3 (detail : `required`, `current` ; lot X v2, X4). Remplace `INITIATION_NOT_ALLOWED` (`can_initiate_requests`, supprimée par 0020) |
 | `VALIDATOR_ONLY` | D, S | Réservé aux validateurs |
 | `VALIDATOR_IS_PARTY` | D, S | Un validateur ou administrateur partie au dossier ne peut pas décider |

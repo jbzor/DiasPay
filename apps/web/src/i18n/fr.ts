@@ -497,6 +497,7 @@ export const frErrors: Record<ErrorCode, string> = {
   PROVIDER_ONLY: 'Réservé au prestataire.',
   PAYER_ONLY: 'Réservé au payeur.',
   INITIATOR_ONLY: 'Réservé à l’initiateur de la demande.',
+  INITIATOR_MISMATCH: 'Brouillon incohérent : initiateur différent du créateur.',
   ENROLMENT_REQUIRED: 'Votre compte doit d’abord être vérifié pour initier cette demande.',
   PROFILE_PROTECTED: 'Ce réglage du compte ne se modifie pas ici.',
   ENROLMENT_PENDING: 'Un dossier de vérification est déjà en cours.',

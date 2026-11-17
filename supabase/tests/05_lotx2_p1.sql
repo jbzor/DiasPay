@@ -233,6 +233,12 @@ select t.check((select v->>'reference' ~ '^[0-9a-f]{32}$' from t.res where k = '
 select t.login('fc000000-0000-4000-8000-000000000002');
 select t.check(claim_presentation_token((select v->>'reference' from t.res where k = 'k1')) is null, 'l’initiateur ne prend pas en charge sa propre demande');
 select t.admin();
+-- Lot X-C (T5, 0026) : payeur invité par téléphone : seul le titulaire du numéro vérifié prend la demande en charge.
+select t.login('fc000000-0000-4000-8000-000000000007');
+select t.check(claim_presentation_token((select v->>'reference' from t.res where k = 'k1')) is null,
+  'porteur au mauvais numéro refusé : même réponse nulle qu’une référence inconnue (lot X-C, T5)');
+select t.admin();
+update auth.users set phone = '33624449999' where id = 'fc000000-0000-4000-8000-000000000007';   -- numéro vérifié = celui de l’invitation
 select t.login('fc000000-0000-4000-8000-000000000007');
 insert into t.res values ('c1', claim_presentation_token((select v->>'reference' from t.res where k = 'k1')));
 select t.admin();

@@ -380,3 +380,7 @@ silence, un `UPDATE` interdit est vérifié par le nombre de lignes touchées (`
   le payeur.
 - Aucun payeur désigné (cas du commerçant, K4) : comportement de 0016 conservé, l’utilisateur connecté devient payeur
   — état posé hors RLS, les flux actuels exigeant un payeur à la soumission.
+- **Contrôle modifié** : `05_lotx2_p1.sql`, X3 (44 → 45 vérifications). « La demande est liée à l’utilisateur
+  connecté » supposait que n’importe quel porteur du jeton devenait le payeur invité par téléphone : c’est le défaut
+  corrigé par T5. Le test vérifie désormais d’abord le refus du porteur au mauvais numéro (réponse nulle), puis la
+  prise en charge après que son numéro vérifié (auth.users) devient celui de l’invitation.

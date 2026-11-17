@@ -50,7 +50,6 @@ insert into auth.users(id, phone) values
 update profiles set platform_role = 'VALIDATOR' where id in ('fa000000-0000-4000-8000-000000000004', 'fa000000-0000-4000-8000-000000000005');
 update profiles set primary_role = 'PROVIDER' where id = 'fa000000-0000-4000-8000-000000000003';
 update profiles set platform_role = 'ADMIN' where id = 'fa000000-0000-4000-8000-000000000007';
-update app_config set value = 'true' where key = 'auto_issue_token';
 select t.check((select value from app_config where key = 'mock_mode') = 'true', 'prérequis : mock_mode = true');
 
 -- Brouillon complet du payeur fa..01, prestataire invité fa..03 (inscrit : rattaché par son numéro).

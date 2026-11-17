@@ -75,9 +75,7 @@ where not exists (select 1 from providers p where p.name = v.name);
 update providers p set user_id = pr.id from profiles pr
 where p.user_id is null and p.phone is not null and _norm_phone(pr.phone) = _norm_phone(p.phone);
 
--- Lot 5 : dossier validé par le bureau de contrôle → jeton simulé, transaction en cours, première tranche (RG-12),
--- comme la validation de démonstration. Sans effet hors mock_mode ; en production le jeton relève du TrustEngine.
-insert into app_config(key, value) values ('auto_issue_token', 'true') on conflict (key) do update set value = 'true';
+-- Lot X-C (0031) : auto_issue_token supprimé — le TrustToken est émis à la soumission, sans réglage (Xc-7).
 
 -- Lot X version 2 (X4) : niveaux d’enrôlement des comptes de démonstration et de test, réglés ici comme après la revue
 -- d’un dossier (aucun dossier fictif) : demandeur de démonstration (+33 6 39 98 00 02) N1, prestataire de démonstration

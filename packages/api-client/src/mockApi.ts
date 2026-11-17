@@ -296,11 +296,12 @@ export class MockApi implements TransactionApi {
     for (let n = 0; !reference || (!tr.reference && taken.has(reference)); n++) reference = hexDigest(`${tr.id}#${n}`, 18);
     tr.reference = reference;
     const now = this.clock();
-    // Lot X-C (T7) : en DIRECT, le jeton suit la demande (expiresAt de la demande, absente tant que la durée n’est pas fixée).
-    const direct = this.txs.find((x) => x.tranches.includes(tr))?.settlementMode !== 'CONDITIONAL';
+    // Lot X-C (T7, 0031) : jusqu’au paiement, le jeton suit la demande (expiresAt de la demande, absente tant que la durée
+    // n’est pas fixée), dans les deux modes ; après le paiement en CONDITIONAL, la phase de confirmation dure validityMs.
+    const confirmation = this.txs.find((x) => x.tranches.includes(tr))?.settlementMode === 'CONDITIONAL' && tr.status === 'PAID';
     const token: TrancheToken = {
       trancheId: tr.id, reference, kid: SIMULATED_KID, signature: `SIMULATED.${hexDigest(`sig:${reference}`, 32)}`, simulated: true,
-      expiresAt: direct ? tr.expiresAt : new Date(now.getTime() + this.validityMs).toISOString(),
+      expiresAt: confirmation ? new Date(now.getTime() + this.validityMs).toISOString() : tr.expiresAt,
       usedAt: tr.confirmedAt || tr.fundsState === 'RELEASED' ? now.toISOString() : undefined,
     };
     this.tokens.set(tr.id, token);
@@ -651,6 +652,9 @@ export class MockApi implements TransactionApi {
         const { tx, tr } = this.find(a.trancheId);
         const outcome = paymentOutcome(tx.settlementMode);
         tr.fundsState = outcome.fundsState;
+        // Lot X-C (0031) : en CONDITIONAL, le paiement ouvre la phase de confirmation : le jeton prend la durée validityMs.
+        const live = this.tokens.get(tr.id);
+        if (live && tx.settlementMode === 'CONDITIONAL') live.expiresAt = new Date(this.clock().getTime() + this.validityMs).toISOString();
         this.apply(a.trancheId, 'PAID', SYSTEM, 'REQUEST_PAID');
         if (tx.settlementMode === 'DIRECT') this.payments.release(tr.id);
       },

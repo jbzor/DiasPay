@@ -59,7 +59,6 @@ insert into providers(id, name, city, verticals, verified, phone) values
  ('e2000000-0000-4000-8000-000000000002', 'Clinique de l’Espérance (test)', 'Douala', '{HEALTH}', true, null);
 
 -- Lot 5 : pas d’émission simulée du jeton à la validation dans ce test (étapes système jouées explicitement).
-update app_config set value = 'false' where key = 'auto_issue_token';
 -- Lot X v2 (0014) : platform_review vaut NEVER partout et EDUCATION, HEALTH, RENT sont en règlement DIRECT. Pour exercer
 -- ici la revue par le bureau (validation, rejet motivé) et la libération conditionnelle (confirmation par référence,
 -- déblocage, litige tranché par libération), EDUCATION passe en revue ALWAYS et en CONDITIONAL, HEALTH en revue ALWAYS.

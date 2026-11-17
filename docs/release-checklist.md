@@ -46,7 +46,7 @@
     - Vercel ne définit que `NEXT_PUBLIC_SUPABASE_URL` et `NEXT_PUBLIC_SUPABASE_ANON_KEY`, et cette dernière est la clé publique.
     - Après `pnpm --filter @diaspay/web build`, `pnpm --filter @diaspay/web test` inclut le contrôle de `.next/static` : ni `sb_secret_`, ni JWT `service_role`.
 20. **Aucun numéro de test actif** en production : `sms_test_otp` vide dans Supabase Auth (voir aussi le point 13). Les numéros +33 6 39 98 00 11 à 14 n’existent que sur le projet de développement.
-21. `auto_issue_token` absent ou `'false'` en production : sans `mock_mode`, il est sans effet, et le jeton relève du TrustEngine.
+21. ~~`auto_issue_token`~~ : réglage supprimé par 0031 (lot X-C). Le TrustToken est émis à la soumission de chaque demande, sans réglage.
 22. **Domaine du bureau de contrôle** déclaré dans Supabase Auth (Site URL et Redirect URLs, `…/auth/confirm`). En-têtes vérifiés : `curl -sI https://<domaine>/connexion` doit montrer la CSP à nonce, `X-Frame-Options: DENY` et `Referrer-Policy: no-referrer`.
 23. **`supabase/seed-evidence.sql` jamais exécuté** en production. Il refuse de toute façon si `mock_mode <> 'true'`.
 24. **Longueur minimale des mots de passe** : dans Supabase Auth, `password_min_length` est à 12 (6 par défaut). Le bureau de contrôle impose déjà 12 caractères lors d’une réinitialisation.

@@ -439,3 +439,13 @@ silence, un `UPDATE` interdit est vérifié par le nombre de lignes touchées (`
 ### T4b (0030) : nom figé à partir de N1 — 6 vérifications
 - Un compte N1 ne change pas son nom (`PROFILE_PROTECTED`, valeur relue inchangée) ; réécrire le même nom avec un autre
   pays reste permis (c’est ce que fait `saveProfile`) ; un compte N0 pose encore son nom.
+
+### T7b (0031) : échéance du jeton CONDITIONAL, `auto_issue_token` — 6 vérifications
+- Avant le paiement, le jeton `CONDITIONAL` suit l’échéance de la demande (30 jours fixés pour le test), pas
+  `token_ttl_days` ; après le paiement, échéance = paiement + `token_ttl_days` ; données reprises (aucun jeton non payé
+  avec une autre échéance que sa demande) ; réglage `auto_issue_token` et fonction `_simulate_token_issue` supprimés.
+- **Contrôle modifié** : `07_lotxc.sql`, T7, « CONDITIONAL : jetons émis avec la durée token_ttl_days » devient « payée =
+  `token_ttl_days`, non payée = échéance de la demande » (règle de 0031).
+- Retirés sans remplaçant (aucune vérification) : les lignes `update app_config … 'auto_issue_token'` de 00, 01 et 04,
+  sans effet depuis 0014.
+- Simulateur : deux tests `mockApi` (échéance du jeton avant et après paiement) suivent la même règle.

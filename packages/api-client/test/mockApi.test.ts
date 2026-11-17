@@ -181,8 +181,12 @@ describe('MockApi — TrustToken et eQR (CONDITIONAL seulement)', () => {
     expect(tok.kid).toBe('SIMULATED');
     expect(tok.signature).toMatch(/^SIMULATED\.[0-9a-f]+$/);
     expect(tok.simulated).toBe(true);
-    expect(tok.expiresAt).toBe('2026-11-15T10:00:00.000Z');
+    // Lot X-C (0031) : avant le paiement, le jeton suit l’échéance de la demande (aucune ici) ; le paiement ouvre la phase
+    // de confirmation : 7 jours (validityMs) à compter du paiement.
+    expect(tok.expiresAt).toBeUndefined();
     expect(await code(api.getToken(tx.tranches[2]!.id))).toBe('NO_TOKEN');
+    await api.payTranche(tx.tranches[1]!.id);
+    expect((await api.getToken(tx.tranches[1]!.id)).expiresAt).toBe('2026-11-15T10:00:00.000Z');
     expect(await code(api.getToken('inconnu'))).toBe('TRANCHE_NOT_FOUND');
   });
   it('règlement direct (lot X-C, T7) : un jeton par demande soumise ; le prestataire ne résout pas la référence', async () => {
@@ -306,9 +310,11 @@ describe('MockApi — TrustToken et eQR (CONDITIONAL seulement)', () => {
     api.setPersona('PAYER');
     expect((await api.getToken((await school(api)).tranches[1]!.id)).usedAt).toBeUndefined();
   });
-  it('durée de validité configurable', async () => {
+  it('durée de validité configurable (phase de confirmation, à compter du paiement — lot X-C, 0031)', async () => {
     const api = new MockApi(() => T0, conditionalSeed(), { tokenValidityHours: 2 });
     const tx = await api.getTransaction('tx-school');
+    expect((await api.getToken(tx.tranches[1]!.id)).expiresAt).toBeUndefined();   // avant paiement : échéance de la demande
+    await api.payTranche(tx.tranches[1]!.id);
     expect((await api.getToken(tx.tranches[1]!.id)).expiresAt).toBe('2026-11-08T12:00:00.000Z');
   });
 });

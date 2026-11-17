@@ -52,7 +52,6 @@ update profiles set enrolment_level = 'N1' where id = '00000000-0000-0000-0000-0
 select t.check((select count(*) from profiles where id::text like '00000000-0000-0000-0000-00000000000_')=7, 'profils créés automatiquement à l''inscription');
 
 -- Lot 5 : pas d’émission simulée du jeton à la validation dans ce test (étapes système jouées explicitement).
-update app_config set value = 'false' where key = 'auto_issue_token';
 -- Lot X v2 (0014) : platform_review vaut NEVER partout (opération active dès la soumission). Le parcours de revue du bureau
 -- est joué ici sur la scolarité et la santé ; le parcours sans revue, sur l’agro (règlement conditionnel).
 update request_modules set platform_review = 'ALWAYS' where code in ('EDUCATION','HEALTH');

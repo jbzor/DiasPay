@@ -316,9 +316,12 @@ select t.check((select k.expires_at = tr.expires_at and tr.expires_at is not nul
   'T7 : DIRECT : expiration du jeton = expiration de la demande (héritée du module)');
 update request_modules set request_expiry_days = null where code = 'HEALTH';
 -- CONDITIONAL inchangé : token_ttl_days (dossier AGRO de T6).
-select t.check((select bool_and(k.expires_at is not null) from tranche_tokens k join tranches tr on tr.id = k.tranche_id
-                 where tr.tx_id = 'fdc10000-0000-4000-8000-000000000006'),
-  'T7 : CONDITIONAL : jetons émis avec la durée token_ttl_days');
+-- CONDITIONAL (règle de 0031) : la demande payée a un jeton à échéance token_ttl_days ; la demande non payée suit la sienne.
+select t.check((select k.expires_at is not null from tranche_tokens k join tranches tr on tr.id = k.tranche_id
+                 where tr.tx_id = 'fdc10000-0000-4000-8000-000000000006' and tr.seq = 1 and k.revoked_at is null)
+           and (select k.expires_at is not distinct from tr.expires_at from tranche_tokens k join tranches tr on tr.id = k.tranche_id
+                 where tr.tx_id = 'fdc10000-0000-4000-8000-000000000006' and tr.seq = 2 and k.revoked_at is null),
+  'T7 : CONDITIONAL : payée = token_ttl_days ; non payée = échéance de la demande (0031)');
 
 -- ---------- Résolution : payeur et initiateur seulement en DIRECT ----------
 select t.login('fdc00000-0000-4000-8000-000000000001');
@@ -426,6 +429,42 @@ select t.login('fdc00000-0000-4000-8000-000000000003');
 select t.check(t.n_updated($$update profiles set full_name = 'Nom posé en N0' where id = auth.uid()$$) = 1, 'T4b : N0 : le titulaire pose encore son nom');
 select t.check((select full_name from profiles where id = auth.uid()) = 'Nom posé en N0', 'T4b : N0 : nom enregistré');   -- instruction suivante : nouvel instantané
 select t.admin();
+
+-- ===================== T7b : échéance du jeton CONDITIONAL, auto_issue_token (0031) =====================
+-- Échéance de la demande fixée pour AGRO le temps du test (30 jours) : avant le paiement, le jeton la suit.
+update request_modules set request_expiry_days = 30 where code = 'AGRO';
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select t.ok($$select save_draft(t.agro_draft('fdc10000-0000-4000-8000-00000000000a'))$$, 'T7b : dossier conditionnel créé');
+select add_document('fdc10000-0000-4000-8000-00000000000a', 'SUPPORTING_DOCUMENT', 'fdc10000-0000-4000-8000-00000000000a/SUPPORTING_DOCUMENT/a.pdf', 'a.pdf', 'application/pdf', 1000);
+select submit_operation('fdc10000-0000-4000-8000-00000000000a');
+select t.admin();
+insert into t.ids select 'tra', id from tranches where tx_id = 'fdc10000-0000-4000-8000-00000000000a' and seq = 1;
+select t.check((select k.expires_at = tr.expires_at and tr.expires_at > now() + interval '29 days'
+                  from tranche_tokens k join tranches tr on tr.id = k.tranche_id
+                 where tr.id = (select v from t.ids where k = 'tra') and k.revoked_at is null),
+  'T7b : CONDITIONAL avant paiement : le jeton suit l’échéance de la demande (30 jours), pas token_ttl_days');
+-- Paiement : la phase de confirmation commence, le jeton prend token_ttl_days à compter du paiement.
+select t.login('fdc00000-0000-4000-8000-000000000001');
+insert into t.res select 'aa', start_payment((select v from t.ids where k = 'tra'), 'xc-t7b-pay-0001');
+select demo_settle_payment((select (v->>'id')::uuid from t.res where k = 'aa'));
+select t.admin();
+select t.check((select tr.status = 'PAID' and tr.funds_state = 'HELD'
+                   and k.expires_at between now() + make_interval(days => (select value::int from app_config where key = 'token_ttl_days')) - interval '1 minute'
+                                        and now() + make_interval(days => (select value::int from app_config where key = 'token_ttl_days')) + interval '1 minute'
+                  from tranche_tokens k join tranches tr on tr.id = k.tranche_id
+                 where tr.id = (select v from t.ids where k = 'tra') and k.revoked_at is null),
+  'T7b : CONDITIONAL après paiement : jeton actif, échéance = paiement + token_ttl_days (phase de confirmation)');
+-- Réémission pendant la phase de confirmation : même règle (administrateur non partie, seul autorisé après paiement).
+-- Payé tard : un jeton émis il y a plus de token_ttl_days reste confirmable, puisque le délai part du paiement.
+select t.check(not exists (select 1 from tranche_tokens k join tranches tr on tr.id = k.tranche_id join transactions x on x.id = tr.tx_id
+                            where x.settlement_mode = 'CONDITIONAL' and tr.status <> 'PAID' and k.revoked_at is null
+                              and k.expires_at is distinct from tr.expires_at),
+  'T7b : aucun jeton CONDITIONAL non payé avec une autre échéance que celle de sa demande (données reprises)');
+update request_modules set request_expiry_days = null where code = 'AGRO';
+-- auto_issue_token : supprimé, l’émission à la soumission est inconditionnelle.
+select t.check(not exists (select 1 from app_config where key = 'auto_issue_token')
+           and not exists (select 1 from pg_proc where proname = '_simulate_token_issue'),
+  'T7b : réglage auto_issue_token et fonction morte _simulate_token_issue supprimés');
 
 -- ===================== Fin =====================
 -- ---------- Résumé ----------

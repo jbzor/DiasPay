@@ -357,10 +357,10 @@ export class SupabaseApi implements TransactionApi {
     unwrap(await this.sb.rpc('reissue_token', { p_tranche: trancheId, ...(reason ? { p_reason: reason } : {}) }), 'reissueToken');
   }
 
-  /** app_config.eqr_image_enabled (lisible par tout utilisateur connecté) ; absent = oui. */
+  /** app_config.eqr_image_enabled (lisible par tout utilisateur connecté). Lot X-C (T9) : absent = image masquée (X1.8). */
   async eqrImageEnabled(): Promise<boolean> {
     const row = unwrapMaybe(await this.sb.from('app_config').select('value').eq('key', 'eqr_image_enabled').maybeSingle(), 'eqrImageEnabled');
-    return row?.value !== 'false';
+    return row?.value === 'true';
   }
 
   async markReceived(trancheId: string): Promise<void> {

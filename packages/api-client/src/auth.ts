@@ -34,8 +34,6 @@ export const MOCK_OTP_CODE = '123456';
 export const OTP_LENGTH = 6;
 export const OTP_TTL_MS = 5 * 60_000;
 export const OTP_RESEND_MS = 60_000;
-export const OTP_MAX_ATTEMPTS = 3;
-export const OTP_LOCK_MS = 15 * 60_000;
 
 export type AuthErrorCode =
   | 'PHONE_INVALID' | 'OTP_FORMAT' | 'OTP_NOT_REQUESTED' | 'OTP_WRONG' | 'OTP_EXPIRED' | 'OTP_LOCKED'
@@ -55,12 +53,12 @@ export class AuthError extends DomainError {
 // Normalisation des numéros : déplacée dans @diaspay/domain (partagée avec la création d’un besoin).
 export { composePhone, isValidPhone, normalizePhone } from '@diaspay/domain';
 
+// Lot X-C (T9) : aligné sur D5 et sur Supabase Auth — un code erroné répond OTP_WRONG, sans nombre d’essais restants ni
+// verrouillage par numéro (Supabase limite le débit par IP : OTP_LOCKED sans heure, non simulé ici).
 interface OtpState {
   code?: string;
   expiresAt?: number;
   resendAt?: number;
-  failures: number;
-  lockedUntil?: number;
 }
 
 export interface MockAuthOptions {
@@ -92,24 +90,13 @@ export class MockAuth implements AuthApi {
 
   private stateFor(phone: string): OtpState {
     let st = this.otps.get(phone);
-    if (!st) { st = { failures: 0 }; this.otps.set(phone, st); }
-    if (st.lockedUntil !== undefined && this.now() >= st.lockedUntil) {
-      st.lockedUntil = undefined;
-      st.failures = 0;
-    }
+    if (!st) { st = {}; this.otps.set(phone, st); }
     return st;
-  }
-
-  private assertNotLocked(st: OtpState): void {
-    if (st.lockedUntil !== undefined) {
-      throw new AuthError('OTP_LOCKED', 'Trop de codes erronés', { lockedUntil: this.iso(st.lockedUntil) });
-    }
   }
 
   async requestOtp(raw: string) {
     const phone = normalizePhone(raw);
     const st = this.stateFor(phone);
-    this.assertNotLocked(st);
     const now = this.now();
     if (st.resendAt !== undefined && now < st.resendAt) {
       throw new AuthError('OTP_RESEND_TOO_SOON', 'Patientez avant de renvoyer un code', { resendAt: this.iso(st.resendAt) });
@@ -123,24 +110,13 @@ export class MockAuth implements AuthApi {
   async verifyOtp(raw: string, code: string) {
     const phone = normalizePhone(raw);
     const st = this.stateFor(phone);
-    this.assertNotLocked(st);
     if (!new RegExp(`^\\d{${OTP_LENGTH}}$`).test(code)) throw new AuthError('OTP_FORMAT', `Le code comporte ${OTP_LENGTH} chiffres`);
     if (st.code === undefined || st.expiresAt === undefined) throw new AuthError('OTP_NOT_REQUESTED', 'Aucun code envoyé à ce numéro');
     if (this.now() >= st.expiresAt) {
       st.code = undefined;
       throw new AuthError('OTP_EXPIRED', 'Le code a expiré');
     }
-    if (code !== st.code) {
-      st.failures += 1;
-      if (st.failures >= OTP_MAX_ATTEMPTS) {
-        st.lockedUntil = this.now() + OTP_LOCK_MS;
-        st.code = undefined;
-        st.expiresAt = undefined;
-        st.resendAt = undefined;
-        throw new AuthError('OTP_LOCKED', 'Trop de codes erronés', { lockedUntil: this.iso(st.lockedUntil) });
-      }
-      throw new AuthError('OTP_WRONG', 'Code incorrect', { remaining: OTP_MAX_ATTEMPTS - st.failures });
-    }
+    if (code !== st.code) throw new AuthError('OTP_WRONG', 'Code incorrect');   // D5 : ni compteur ni verrouillage
     this.otps.delete(phone);
     const known = this.users.get(phone);
     this.session = {

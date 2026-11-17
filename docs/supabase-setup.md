@@ -103,7 +103,6 @@ La même suite (`packages/api-client/test/contract/contract.ts`) s’exécute co
 | Identifiant du dossier soumis | nouvel identifiant `tx-…` | identifiant du brouillon conservé |
 | Correction d’un dossier rejeté | nouveau brouillon lié (`correctionOf`) | même identifiant (`correctionOf` = id) |
 | Isolation des dossiers | un profil de démonstration à la fois (payeur / prestataire) | RLS par utilisateur, invitations rattachées à l’inscription |
-| Verrouillage OTP | 3 essais, 15 minutes (US-01) | limite de débit Supabase, sans nombre d’essais (D5) |
 | Déblocage automatique | minuterie dans l’application (30 s) | pg_cron toutes les 10 minutes ; activation des tranches à 06:00 UTC |
 | Identifiant d’une pièce | celui choisi par l’application | attribué par le serveur (`add_document`) |
 | Annuaire des prestataires | jeu de démonstration intégré | table `providers` (seed : 15 prestataires fictifs à Yaoundé et Douala) |
@@ -124,6 +123,17 @@ La même suite (`packages/api-client/test/contract/contract.ts`) s’exécute co
 | Types de besoin (X6) | `DEFAULT_MODULES` (ou l’option `modules`) ; aucun administrateur pour en ajouter | table `request_modules`, écriture par un administrateur |
 | Revue par le bureau (X6) | même décision (`platformReviewDecision`) ; doublon : même créateur, même montant, même prestataire (par son nom), 30 jours | `_platform_review` : même payeur (compte ou numéro invité), même prestataire (annuaire ou nom), 30 jours |
 | Plusieurs payeurs (X7) | non modélisé (un profil de démonstration à la fois) ; règle du domaine `checkAddPayer` testée seule | déclencheur `_check_multiple_payers` sur `transaction_parties` |
+
+> **Paiement hors démonstration sur le projet de développement (lot X-C).** Sans `EXPO_PUBLIC_DEMO=1`, l’application ne
+> demande plus au partenaire simulé de confirmer : un paiement reste **en cours** (tentative `INITIATED`, demande
+> `ACCEPTED`) tant qu’aucun événement du partenaire n’arrive. Sur le projet de développement, rien n’envoie cet événement
+> tant que le simulateur de scénarios (X9, passe 3) n’existe pas : pour voir un paiement aboutir, lancer l’application en
+> démonstration (`EXPO_PUBLIC_DEMO=1`, serveur en `mock_mode`). Ce n’est pas un défaut : c’est le chemin réel, en attente
+> de TrustPayWay.
+>
+> **Saisie du code SMS (D5, lot X-C T9).** Le simulateur suit désormais Supabase : un code erroné répond `OTP_WRONG`, sans
+> nombre d’essais restants ni verrouillage par numéro. L’écart avec le cahier (US-01 : 3 essais, 15 minutes) est
+> commun aux deux implémentations et reste décrit par D5.
 
 | Noyau v2 : soumission (lot X v2) | `submitNeed` : ACTIVE directement (NEVER), ou PENDING_REVIEW selon l’option `modules` | `submit_operation` : idem, selon `request_modules.platform_review` |
 | Remboursement après un litige (lot X v2) | versé aussitôt par le partenaire simulé : la demande passe en REFUNDED | remboursement PENDING jusqu’à l’événement du partenaire (`demo_settle_refund` ou TrustPayWay) : la demande reste PAID (drapeau de contrat `refundSettlement`) |

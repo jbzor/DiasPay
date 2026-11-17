@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { filterTransactions } from '@diaspay/api-client';
 import type { Transaction } from '@diaspay/api-client';
 import type { DraftDocument } from '@diaspay/domain';
-import { demoReleaseViolation } from '../src/lib/releaseGuard';
+import { apiReleaseViolation, demoReleaseViolation } from '../src/lib/releaseGuard';
 import { filesForKind, occupiedSlots } from '../src/features/need/documents';
 
 describe('garde de production du mode démonstration', () => {
@@ -14,6 +14,19 @@ describe('garde de production du mode démonstration', () => {
     expect(demoReleaseViolation({ dev: false })).toBe(false);
     expect(demoReleaseViolation({ dev: false, demo: '0' })).toBe(false);
     expect(demoReleaseViolation({ dev: false, demo: '1', allow: '1' })).toBe(false);
+  });
+});
+
+describe('garde de production du serveur (lot X-C, T9)', () => {
+  it('bloque un build de production sans EXPO_PUBLIC_API=supabase (simulateur)', () => {
+    expect(apiReleaseViolation({ dev: false })).toBe(true);                    // valeur absente
+    expect(apiReleaseViolation({ dev: false, api: 'mock' })).toBe(true);
+    expect(apiReleaseViolation({ dev: false, api: '' })).toBe(true);
+  });
+  it('laisse passer le développement, un build relié au serveur, ou un build interne déclaré', () => {
+    expect(apiReleaseViolation({ dev: true })).toBe(false);
+    expect(apiReleaseViolation({ dev: false, api: 'supabase' })).toBe(false);
+    expect(apiReleaseViolation({ dev: false, allow: '1' })).toBe(false);
   });
 });
 

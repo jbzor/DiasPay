@@ -97,6 +97,30 @@ describe('MockApi', () => {
     advance(100);
     expect(api.runTimers()).toBe(0);
   });
+  it('opération suspendue : aucune libération automatique, même délai écoulé (lot X-C, T6)', async () => {
+    const { api, advance } = makeConditional();
+    const tx = await school(api);
+    // Litige avant paiement sur la tranche 2 : l’opération est suspendue ; la tranche 1 (payée, confirmée) reste bloquée.
+    await api.openDispute(tx.tranches[1]!.id, 'Montant différent du devis convenu');
+    expect((await school(api)).status).toBe('SUSPENDED');
+    advance(49);
+    expect(api.runTimers()).toBe(0);
+    expect((await school(api)).tranches[0]!.fundsState).toBe('HELD');
+    // Litige levé sans suite : l’opération redevient active, la libération automatique reprend.
+    await api.simulateDisputeResolution(tx.tranches[1]!.id, { outcome: 'NO_ACTION', note: 'Levée sans suite (test)' });
+    expect((await school(api)).status).toBe('ACTIVE');
+    expect(api.runTimers()).toBe(1);
+    expect((await school(api)).tranches[0]!.fundsState).toBe('RELEASED');
+  });
+  it('demande échue : plus payable, même avant le passage d’expiration (lot X-C, T6)', async () => {
+    const { api, advance } = make();
+    const tx = await school(api);
+    (await school(api)).tranches[1]!.expiresAt = iso(1 * HOUR);   // posée comme _submit_request (durée du module)
+    advance(2);
+    expect(await code(api.getQuote(tx.tranches[1]!.id))).toBe('REQUEST_EXPIRED');
+    expect(await code(api.payTranche(tx.tranches[1]!.id))).toBe('REQUEST_EXPIRED');
+    expect((await school(api)).tranches[1]!.status).toBe('SUBMITTED');   // le passage d’expiration n’a pas encore eu lieu
+  });
   it('litige avant paiement : demande suspendue, opération SUSPENDED, paiement refusé', async () => {
     const { api } = make();
     const tx = await school(api);

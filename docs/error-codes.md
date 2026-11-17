@@ -121,6 +121,7 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `QUOTE_INVALID` | D, S | Devis inconnu, d’un autre payeur, d’une autre demande, ou montant de la demande changé depuis |
 | `QUOTE_USED` | D, S | Devis déjà utilisé pour un paiement (un devis ne sert qu’une fois) |
 | `QUOTE_EXPIRED` | D, S | Devis expiré (réglage `fx_quote_ttl_seconds`, point ouvert 8) : en demander un nouveau |
+| `REQUEST_EXPIRED` | D, S | Demande échue (`expires_at` passée, durée par module : point ouvert 3) : `get_quote` et `accept_and_pay` la refusent même avant le passage horaire d’`expire_due_requests` ; après ce passage (statut `EXPIRED`), le code reste `NOT_PAYABLE`. Même nom que l’événement de journal — lot X-C, T6 |
 | `QUOTE_FROZEN` | S | Un devis ne se modifie ni ne se supprime : il est conservé avec le paiement |
 | `REFUND_NOT_PENDING` | D, S | Remboursement déjà exécuté ou refusé (`mark_refund_executed` avec une autre référence) |
 | `LEDGER_IMMUTABLE` | S | Journal financier et événements reçus en ajout seul : une correction est une contrepassation |

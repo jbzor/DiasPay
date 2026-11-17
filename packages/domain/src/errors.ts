@@ -89,6 +89,7 @@ export const ERROR_CODES = {
   QUOTE_INVALID: 'D S — devis inconnu, d’un autre payeur, d’une autre demande ou d’un autre montant',
   QUOTE_USED: 'D S — devis déjà utilisé pour un paiement',
   QUOTE_EXPIRED: 'D S — devis expiré : en demander un nouveau',
+  REQUEST_EXPIRED: 'D S — demande échue (expires_at passée) : plus payable, même avant le passage horaire d’expiration (lot X-C, T6)',
   QUOTE_FROZEN: 'S — un devis ne se modifie ni ne se supprime (conservé avec le paiement)',
   REFUND_NOT_PENDING: 'D S — remboursement déjà exécuté ou refusé',
   LEDGER_IMMUTABLE: 'S — journal financier et événements reçus en ajout seul (correction par contrepassation)',

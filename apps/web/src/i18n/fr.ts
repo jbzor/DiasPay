@@ -518,6 +518,7 @@ export const frErrors: Record<ErrorCode, string> = {
   QUOTE_INVALID: 'Ce devis ne correspond pas à cette demande.',
   QUOTE_USED: 'Ce devis a déjà servi : demandez-en un nouveau.',
   QUOTE_EXPIRED: 'Ce devis a expiré : demandez-en un nouveau.',
+  REQUEST_EXPIRED: 'Demande expirée : elle ne peut plus être payée.',
   QUOTE_FROZEN: 'Un devis ne se modifie pas.',
   REFUND_NOT_PENDING: 'Ce remboursement a déjà été traité.',
   VALIDATOR_ONLY: 'Réservé aux validateurs (second facteur requis le cas échéant).',

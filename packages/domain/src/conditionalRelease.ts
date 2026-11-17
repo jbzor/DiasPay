@@ -17,6 +17,8 @@ export interface ConditionalState {
   hasEvidence?: boolean;
   /** Litige en cours (non résolu). */
   disputeOpen?: boolean;
+  /** Lot X-C (T6) : opération suspendue (litige avant paiement sur une autre demande du dossier). */
+  txSuspended?: boolean;
 }
 
 /** Issue d’un paiement confirmé par le partenaire : PAID ; fonds bloqués en CONDITIONAL, aucun en DIRECT. */
@@ -59,8 +61,11 @@ export function checkApproveRelease(s: ConditionalState, roles: readonly TxRole[
   if (!s.confirmedAt) throw new DomainError('NOT_CONFIRMED', 'La prestation n’est pas encore confirmée');
 }
 
-/** Libération automatique à la fin du délai de contestation (jamais en mode preuve, jamais pendant un litige). */
+/**
+ * Libération automatique à la fin du délai de contestation (jamais en mode preuve, jamais pendant un litige,
+ * jamais pour une opération suspendue — lot X-C, T6 ; miroir de release_due_tranches, 0027).
+ */
 export function isAutoReleasable(s: ConditionalState, now: Date): boolean {
   return s.settlementMode === 'CONDITIONAL' && s.status === 'PAID' && s.fundsState === 'HELD' && s.releaseMode !== 'EVIDENCE_REVIEW'
-    && !!s.confirmedAt && !!s.contestEndsAt && s.contestEndsAt.getTime() <= now.getTime() && !s.disputeOpen;
+    && !!s.confirmedAt && !!s.contestEndsAt && s.contestEndsAt.getTime() <= now.getTime() && !s.disputeOpen && !s.txSuspended;
 }

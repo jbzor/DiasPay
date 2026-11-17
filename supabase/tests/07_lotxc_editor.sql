@@ -210,6 +210,86 @@ select t.check((select user_id from transaction_parties where tx_id = 'fdc10000-
   'T5 : il devient le payeur (comportement 0016 conservé)');
 select t.admin();
 
+-- ===================== T6 : libération automatique et demande échue (R6, J1) =====================
+-- AGRO (CONDITIONAL, PAYER_CONFIRM) activé le temps du test (vague 2, désactivé en développement) ; tout est annulé.
+select t.admin();
+update request_modules set enabled = true where code = 'AGRO';
+create function t.agro_draft(p_id uuid) returns jsonb language sql as $$
+  select jsonb_build_object('id', p_id, 'vertical', 'AGRO', 'creatorRole', 'PAYER',
+    'amountMinor', '100000', 'currency', 'XAF', 'purpose', 'Intrants (test X-C)', 'planType', 'INSTALLMENTS',
+    'provider', jsonb_build_object('name', 'Coopérative X-C (test)', 'invitedPhone', '+237625560002'),
+    'tranches', jsonb_build_array(
+      jsonb_build_object('label', 'Avance', 'amountMinor', '60000', 'dueDate', to_char(current_date + 2, 'YYYY-MM-DD')),
+      jsonb_build_object('label', 'Solde', 'amountMinor', '40000', 'dueDate', to_char(current_date + 3, 'YYYY-MM-DD'))))
+$$;
+grant execute on function t.agro_draft(uuid) to authenticated;
+-- Paye la demande seq 1 du dossier, la confirme (PAYER_CONFIRM) ; le délai de contestation est mis au passé hors rôle.
+create function t.pay_and_confirm(p_tx uuid) returns void language plpgsql security definer as $$
+declare v_tr uuid; a jsonb;
+begin
+  select id into v_tr from tranches where tx_id = p_tx and seq = 1;
+  a := start_payment(v_tr, 'xc-t6-' || p_tx::text);
+  perform demo_settle_payment((a->>'id')::uuid);
+  perform confirm_service(v_tr);
+end $$;
+grant execute on function t.pay_and_confirm(uuid) to authenticated;
+
+-- Dossier 1 : payé, confirmé, délai écoulé… puis opération suspendue par un litige avant paiement sur la demande 2.
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select t.ok($$select save_draft(t.agro_draft('fdc10000-0000-4000-8000-000000000005'))$$, 'T6 : dossier conditionnel créé');
+select add_document('fdc10000-0000-4000-8000-000000000005', 'SUPPORTING_DOCUMENT', 'fdc10000-0000-4000-8000-000000000005/SUPPORTING_DOCUMENT/a.pdf', 'a.pdf', 'application/pdf', 1000);
+select submit_operation('fdc10000-0000-4000-8000-000000000005');
+select t.check((select count(*) from tranches where tx_id = 'fdc10000-0000-4000-8000-000000000005' and status = 'SUBMITTED') = 2,
+  'T6 : les deux demandes dues sont soumises');
+select t.pay_and_confirm('fdc10000-0000-4000-8000-000000000005');
+select t.admin();
+update tranches set contest_ends_at = now() - interval '1 hour' where tx_id = 'fdc10000-0000-4000-8000-000000000005' and seq = 1;
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select open_dispute((select id from tranches where tx_id = 'fdc10000-0000-4000-8000-000000000005' and seq = 2), 'Semences non conformes à la commande');
+select t.admin();
+select t.check((select status from transactions where id = 'fdc10000-0000-4000-8000-000000000005') = 'SUSPENDED',
+  'T6 : litige avant paiement sur la demande 2 : opération suspendue');
+
+-- Dossier 2 (témoin) : même état, opération restée active.
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select t.ok($$select save_draft(t.agro_draft('fdc10000-0000-4000-8000-000000000006'))$$, 'T6 : dossier témoin créé');
+select add_document('fdc10000-0000-4000-8000-000000000006', 'SUPPORTING_DOCUMENT', 'fdc10000-0000-4000-8000-000000000006/SUPPORTING_DOCUMENT/a.pdf', 'a.pdf', 'application/pdf', 1000);
+select submit_operation('fdc10000-0000-4000-8000-000000000006');
+select t.pay_and_confirm('fdc10000-0000-4000-8000-000000000006');
+select t.admin();
+update tranches set contest_ends_at = now() - interval '1 hour' where tx_id = 'fdc10000-0000-4000-8000-000000000006' and seq = 1;
+
+-- Le passage de libération ne touche pas l’opération suspendue, et libère bien le témoin.
+select release_due_tranches();
+select t.check((select funds_state from tranches where tx_id = 'fdc10000-0000-4000-8000-000000000005' and seq = 1) = 'HELD',
+  'T6 : fonds d’une opération suspendue jamais libérés automatiquement');
+select t.check((select funds_state from tranches where tx_id = 'fdc10000-0000-4000-8000-000000000006' and seq = 1) = 'RELEASED',
+  'T6 : même passage : les fonds du dossier actif témoin sont libérés');
+
+-- Demande échue : plus payable avant même le passage horaire d’expire_due_requests.
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select t.ok($$select save_draft(t.health_draft('fdc10000-0000-4000-8000-000000000007'))$$, 'T6 : demande santé créée');
+select add_document('fdc10000-0000-4000-8000-000000000007', 'QUOTE', 'fdc10000-0000-4000-8000-000000000007/QUOTE/q.pdf', 'q.pdf', 'application/pdf', 1000);
+select submit_operation('fdc10000-0000-4000-8000-000000000007');
+insert into t.ids select 'tr7', id from tranches where tx_id = 'fdc10000-0000-4000-8000-000000000007';
+insert into t.res select 'q7', get_quote((select v from t.ids where k = 'tr7'));
+select t.admin();
+update tranches set expires_at = now() - interval '1 minute' where id = (select v from t.ids where k = 'tr7');
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select t.hint($$select get_quote((select v from t.ids where k = 'tr7'))$$, 'REQUEST_EXPIRED',
+  'T6 : devis refusé pour une demande échue encore SUBMITTED');
+select t.hint($$select accept_and_pay((select v from t.ids where k = 'tr7'), 'xc-t6-expired', (select (v->>'id')::uuid from t.res where k = 'q7'))$$,
+  'REQUEST_EXPIRED', 'T6 : paiement refusé pour une demande échue encore SUBMITTED');
+select t.admin();
+select expire_due_requests();
+select t.check((select status from tranches where id = (select v from t.ids where k = 'tr7')) = 'EXPIRED',
+  'T6 : le passage horaire marque ensuite la demande EXPIRED');
+-- La demande expirée était la seule : l’opération se clôt (toutes les demandes finales), d’où TX_NOT_ACTIVE.
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select t.hint($$select get_quote((select v from t.ids where k = 'tr7'))$$, 'TX_NOT_ACTIVE',
+  'T6 : après le passage, codes d’aujourd’hui inchangés (opération close)');
+select t.admin();
+
 -- ===================== Fin =====================
 -- ---------- Résumé (éditeur SQL) ----------
 -- Le résultat est rendu par une erreur, toujours levée : elle s’affiche dans l’éditeur et annule tout le test.

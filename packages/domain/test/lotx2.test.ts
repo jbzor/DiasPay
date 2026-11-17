@@ -168,6 +168,7 @@ describe('libération conditionnelle (CONDITIONAL seulement)', () => {
     expect(isAutoReleasable({ ...due, disputeOpen: true }, now)).toBe(false);
     expect(isAutoReleasable({ ...due, releaseMode: 'EVIDENCE_REVIEW' }, now)).toBe(false);
     expect(isAutoReleasable({ ...due, settlementMode: 'DIRECT' }, now)).toBe(false);
+    expect(isAutoReleasable({ ...due, txSuspended: true }, now)).toBe(false);   // lot X-C (T6) : opération suspendue
   });
 });
 

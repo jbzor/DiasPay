@@ -493,6 +493,9 @@ export class MockApi implements TransactionApi {
   /** Soumission d’une demande au payeur (DRAFT → SUBMITTED) : jeton en CONDITIONAL ; alerte au payeur. */
   private submitRequest(tx: Transaction, tr: Tranche): void {
     tr.status = transitionPaymentRequest(tr.status, 'SUBMITTED', SYSTEM);
+    // Lot X-C (T6) : expiration posée à la soumission, comme _submit_request (durée par module, point ouvert 3).
+    const expiryDays = findModule(tx.vertical, this.modules)?.requestExpiryDays;
+    if (expiryDays) tr.expiresAt = new Date(this.clock().getTime() + expiryDays * 86_400_000).toISOString();
     if (tx.settlementMode === 'CONDITIONAL') this.ensureToken(tr);
     this.record(tx.id, 'REQUEST_SUBMITTED', tr.id);
     const payerIsInitiator = (this.creators[tx.id] ?? 'PAYER') === 'PAYER';
@@ -540,6 +543,13 @@ export class MockApi implements TransactionApi {
     return replay && replay.createdBy === this.payerKey() ? replay : undefined;
   }
   /** Contrôles communs à get_quote et accept_and_pay, dans le même ordre que le serveur. */
+  /** Lot X-C (T6) : une demande échue n’est plus payable, même avant le passage d’expiration (miroir du serveur). */
+  private checkNotExpired(tr: Tranche): void {
+    if (tr.expiresAt && tr.expiresAt <= this.clock().toISOString() && (tr.status === 'SUBMITTED' || tr.status === 'INFO_REQUESTED')) {
+      throw new DomainError('REQUEST_EXPIRED', 'Demande expirée : elle ne peut plus être payée');
+    }
+  }
+
   private payable(trancheId: string): { tx: Transaction; tr: Tranche } {
     const { tx, tr } = this.find(trancheId);
     if (!this.isParty(tx) && !this.isCreatorOf(tx)) throw new DomainError('TRANCHE_NOT_FOUND', 'Tranche introuvable');
@@ -556,6 +566,7 @@ export class MockApi implements TransactionApi {
     if (this.payments.attemptsOf(trancheId).some((a) => a.status === 'INITIATED' || a.status === 'PENDING')) {
       throw new DomainError('PAYMENT_IN_PROGRESS', 'Un paiement est déjà en cours pour cette tranche');
     }
+    this.checkNotExpired(tr);   // lot X-C (T6) : même ordre que get_quote
     if (tr.status !== 'SUBMITTED') throw new DomainError('NOT_PAYABLE', 'Cette demande n’est pas à payer');
     const q = this.payments.createQuote({
       trancheId, payerId: this.payerKey(), amount: { amountMinor: tr.amountMinor, currency: tx.amount.currency }, debitCurrency, method,
@@ -575,6 +586,7 @@ export class MockApi implements TransactionApi {
     // Contrôles de la tentative (clé, tentative en cours, demande à payer, devis) avant le plafond, comme le serveur.
     const known = this.payments.attemptsOf(trancheId).some((a) => a.status === 'INITIATED' || a.status === 'PENDING');
     if (known) throw new DomainError('PAYMENT_IN_PROGRESS', 'Un paiement est déjà en cours pour cette tranche');
+    this.checkNotExpired(tr);   // lot X-C (T6) : même ordre que accept_and_pay
     if (tr.status !== 'SUBMITTED') throw new DomainError('NOT_PAYABLE', 'Cette demande n’est pas à payer');
     const q = this.payments.quote(quoteId);
     if (!q || q.trancheId !== trancheId || q.payerId !== this.payerKey() || q.requestAmountMinor !== tr.amountMinor) {
@@ -686,6 +698,7 @@ export class MockApi implements TransactionApi {
       settlementMode: tx.settlementMode, status: tr.status, fundsState: tr.fundsState, releaseMode: tr.releaseMode, contestHours: tr.contestHours,
       confirmedAt: tr.confirmedAt ? new Date(tr.confirmedAt) : undefined, contestEndsAt: tr.contestEndsAt ? new Date(tr.contestEndsAt) : undefined,
       hasEvidence: tr.evidenceCount > 0, disputeOpen: !!d && d.status !== 'RESOLVED',
+      txSuspended: tx.status === 'SUSPENDED',   // lot X-C (T6) : aucune libération automatique pour une opération suspendue
     };
   }
   /** Payeur, mode PAYER_CONFIRM (CONDITIONAL) : confirme la prestation ; le délai de contestation démarre. */

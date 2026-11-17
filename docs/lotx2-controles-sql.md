@@ -384,3 +384,14 @@ silence, un `UPDATE` interdit est vérifié par le nombre de lignes touchées (`
   connecté » supposait que n’importe quel porteur du jeton devenait le payeur invité par téléphone : c’est le défaut
   corrigé par T5. Le test vérifie désormais d’abord le refus du porteur au mauvais numéro (réponse nulle), puis la
   prise en charge après que son numéro vérifié (auth.users) devient celui de l’invitation.
+
+### T6 (0027) : libération automatique et demande échue — 11 vérifications
+- Opération suspendue (litige avant paiement sur une autre demande du dossier) : ses fonds `HELD`, confirmés et au
+  délai écoulé, ne sont **jamais** libérés par `release_due_tranches` ; un dossier témoin identique mais actif est
+  libéré par le même passage. Une opération `CLOSED` avec des fonds `HELD` est impossible par construction
+  (`_request_final`, `_close_operation_if_done`, `guard_status`) : vérifié dans le code, aucun contrôle ajouté.
+- Demande échue (`expires_at` passée, encore `SUBMITTED`) : `get_quote` et `accept_and_pay` la refusent
+  (`REQUEST_EXPIRED`, nouveau code) avant même le passage horaire ; après `expire_due_requests`, la demande est
+  `EXPIRED` et les codes d’aujourd’hui restent (ici `TX_NOT_ACTIVE` : seule demande du dossier, opération close).
+- Parité : domaine (`isAutoReleasable` refuse `txSuspended` ; test lotx2) et simulateur (`checkNotExpired` dans
+  `getQuote` et `acceptAndPay`, `expiresAt` posée à la soumission depuis `requestExpiryDays` ; 2 tests MockApi).

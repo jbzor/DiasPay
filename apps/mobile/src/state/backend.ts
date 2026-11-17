@@ -43,6 +43,9 @@ export function getSupabaseApi(): SupabaseApi {
     anonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '',
     uploader: nativeUploader,
     hashFile: contentHasher,
+    // Lot X-C (T2) : hors démonstration (EXPO_PUBLIC_DEMO absent), un paiement reste « en cours »
+    // jusqu’à l’événement du partenaire, reçu par le temps réel (tranches).
+    demoSettle: DEMO_REVIEW,
   });
   return supabaseApi;
 }

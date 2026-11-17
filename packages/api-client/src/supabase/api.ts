@@ -48,6 +48,12 @@ export interface SupabaseApiOptions {
   hashFile?: FileHasher;
   /** Clé publique (publishable) : en-tête apikey de l’envoi signé. */
   anonKey: string;
+  /**
+   * Lot X-C (T2) : démonstration côté client (EXPO_PUBLIC_DEMO=1). Le partenaire simulé confirme alors chaque tentative
+   * aussitôt (demo_settle_payment ; mock_mode du serveur requis, DEMO_DISABLED sinon). Défaut : faux — la tentative reste
+   * en cours (INITIATED ou PENDING) jusqu’à l’événement du partenaire, reçu par le temps réel (table tranches).
+   */
+  demoSettle?: boolean;
 }
 
 /**
@@ -57,12 +63,14 @@ export interface SupabaseApiOptions {
 export class SupabaseApi implements TransactionApi {
   private readonly uploader: FileUploader;
   private readonly hashFile: FileHasher;
+  private readonly demoSettle: boolean;
   /** URL d’envoi signée par pièce : une reprise réutilise le même chemin (upsert) au lieu de créer un doublon. */
   private readonly pendingUploads = new Map<string, { path: string; url: string; at: number }>();
 
   constructor(private readonly sb: DiasPayClient, private readonly opts: SupabaseApiOptions) {
     this.uploader = opts.uploader ?? fetchUploader;
     this.hashFile = opts.hashFile ?? fetchHasher;
+    this.demoSettle = opts.demoSettle ?? false;
   }
 
   private async userId(): Promise<string> {
@@ -99,18 +107,19 @@ export class SupabaseApi implements TransactionApi {
   }
 
   /**
-   * Lot X (X5) : tentative idempotente (start_payment), puis réponse du partenaire. Tant que TrustPayWay n’est pas branché,
-   * le partenaire simulé répond par un événement appliqué par le même chemin (demo_settle_payment → apply_payment_event ;
-   * mock_mode du serveur uniquement, DEMO_DISABLED sinon). Même clé : même tentative, aucun nouveau paiement.
+   * Lot X (X5) : tentative idempotente (start_payment), puis réponse du partenaire. Lot X-C (T2) : hors démonstration,
+   * la tentative reste en cours (INITIATED ou PENDING) jusqu’à l’événement du partenaire, reçu par le temps réel ;
+   * en démonstration (demoSettle), le partenaire simulé répond aussitôt par le même chemin (demo_settle_payment →
+   * apply_payment_event ; mock_mode du serveur requis). Même clé : même tentative, aucun nouveau paiement.
    */
   async payTranche(trancheId: string, idempotencyKey: string = newUuid()): Promise<Transaction> {
     const a = unwrap(await this.sb.rpc('start_payment', { p_tranche: trancheId, p_idempotency_key: idempotencyKey }), 'payTranche') as Record<string, unknown>;
-    return this.settleDemo(a);
+    return this.afterPayment(a, 'payTranche');
   }
 
-  /** Démonstration (mock_mode) : le partenaire simulé confirme une tentative en cours, par le chemin des événements. */
-  private async settleDemo(a: Record<string, unknown>): Promise<Transaction> {
-    if (a.status === 'INITIATED' || a.status === 'PENDING') unwrap(await this.sb.rpc('demo_settle_payment', { p_attempt: String(a.id) }), 'payTranche');
+  /** Après la tentative : confirmation immédiate par le partenaire simulé en démonstration seulement (demoSettle). */
+  private async afterPayment(a: Record<string, unknown>, op: string): Promise<Transaction> {
+    if (this.demoSettle && (a.status === 'INITIATED' || a.status === 'PENDING')) unwrap(await this.sb.rpc('demo_settle_payment', { p_attempt: String(a.id) }), op);
     return this.getTransaction(String(a.txId));
   }
 
@@ -120,7 +129,7 @@ export class SupabaseApi implements TransactionApi {
 
   async acceptAndPay(trancheId: string, quoteId: string, idempotencyKey: string = newUuid()): Promise<Transaction> {
     const a = unwrap(await this.sb.rpc('accept_and_pay', { p_request: trancheId, p_idempotency_key: idempotencyKey, p_quote_id: quoteId }), 'acceptAndPay') as Record<string, unknown>;
-    return this.settleDemo(a);
+    return this.afterPayment(a, 'acceptAndPay');
   }
 
   async getToken(trancheId: string): Promise<TrancheToken> {

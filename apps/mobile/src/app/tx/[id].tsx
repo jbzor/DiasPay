@@ -7,6 +7,8 @@ import type { TxRole } from '@diaspay/domain';
 import type { Tranche, Transaction } from '@diaspay/api-client';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { trancheStatusKey, txStatusKey, useI18n, verticalLabel } from '@/i18n';
+import type { Key } from '@/i18n/messages';
+import { trancheInfo } from '@/features/tx/trancheInfo';
 import { api, getCurrentUser, usePersona } from '@/state/api';
 import { useDemo, useDisputeQuery, useTransactionsQuery } from '@/state/queries';
 import { QueryGate } from '@/ui/states';
@@ -96,21 +98,13 @@ function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boo
   const amount = money({ amountMinor: tr.amountMinor, currency: tx.amount.currency });
   const act = (fn: () => Promise<unknown>) => { void fn().catch((e) => showToast(errorText(e))); };
 
-  const info =
-    tr.onHold ? t('disputed')
-    : tr.status === 'DRAFT' ? (tr.dueDate ? t('plannedOn', { date: date(tr.dueDate) }) : t('milestone'))
-    : tr.status === 'SUBMITTED' ? (tr.dueDate ? t('payBefore', { date: date(tr.dueDate) }) : '')
-    : tr.status === 'ACCEPTED' ? t('paymentPending')
-    : tr.status === 'PAID' && !conditional ? t('paidOn', { date: tr.paidAt ? date(tr.paidAt) : '' })
-    : tr.status === 'REFUNDED' ? (tr.refundedMinor < tr.amountMinor
-      ? t('refundedPartial', { amount: money({ amountMinor: tr.refundedMinor, currency: tx.amount.currency }) }) : t('refundedFull'))
-    // Déblocage conditionnel : ancienne logique de confirmation et de délai de contestation, sur l’état des fonds.
-    : tr.fundsState === 'RELEASED' ? t('releasedOn', { date: tr.releasedAt ? date(tr.releasedAt) : '' })
-    : tr.fundsState === 'RETURNED' ? t('fundsReturned')
-    : held && tr.confirmedAt ? (tr.contestEndsAt ? t('confirmedAuto', { date: dateTime(tr.contestEndsAt) }) : t('trPaid'))
-    : held && tr.releaseMode === 'EVIDENCE_REVIEW' && tr.evidenceCount > 0 ? t('evidencePending')
-    : held ? (tr.releaseMode === 'PAYER_CONFIRM' ? t('awaitingPayerConfirm') : t('awaitingProvider'))
-    : t(trancheStatusKey(tr.status));
+  // Ligne d’état extraite et testée (features/tx/trancheInfo, lot X-C T2) : ACCEPTED = « paiement en cours »,
+  // mis à jour par le temps réel (tranches) quand l’événement du partenaire arrive.
+  const d = trancheInfo(tx, tr, {
+    date, dateTime, statusKey: trancheStatusKey,
+    money: (amountMinor) => money({ amountMinor, currency: tx.amount.currency }),
+  });
+  const info = d.key ? t(d.key as Key, d.params) : '';
 
   const canPay = persona === 'PAYER' && tx.status === 'ACTIVE' && tr.status === 'SUBMITTED' && !tr.onHold;
   return (

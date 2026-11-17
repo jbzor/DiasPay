@@ -42,7 +42,8 @@ async function signIn(who: Party): Promise<SupabaseApi> {
   if (!s.profile || s.profile.primaryRole !== role || s.profile.fullName !== name) {
     await auth.saveProfile({ fullName: name, country: 'FR', primaryRole: role });
   }
-  return new SupabaseApi(sb, { anonKey: SUPABASE_KEY });
+  // Lot X-C (T2) : les parcours de test attendent le comportement de démonstration (paiement confirmé aussitôt).
+  return new SupabaseApi(sb, { anonKey: SUPABASE_KEY, demoSettle: true });
 }
 
 export function party(who: Party): Promise<SupabaseApi> {

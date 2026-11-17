@@ -48,7 +48,8 @@ async function code(p: Promise<unknown>): Promise<string> {
 const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 const tx = (t: Transaction) => t.id;
 
-function healthDraft(id: string, over: Partial<NeedDraft> = {}): NeedDraft {
+/** Brouillon santé prêt à soumettre (réutilisé par les tests propres à Supabase, lot X-C). */
+export function healthDraft(id: string, over: Partial<NeedDraft> = {}): NeedDraft {
   const due = inDays(3);
   return {
     ...emptyDraft(id, new Date()), vertical: 'HEALTH', amountMinor: 180_000, currency: 'XAF', purpose: 'Soins (test de contrat)',

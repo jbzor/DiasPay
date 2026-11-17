@@ -1,7 +1,7 @@
 # Sources fonctionnelles du client
 
 Ce document recense les documents du client qui font foi pour DiasPay, et dans quel ordre ils s’appliquent. Il n’en
-reproduit pas le contenu : les documents eux-mêmes ne sont **pas** dans ce dépôt et ne doivent pas y être copiés.
+reproduit pas le contenu : les documents eux-mêmes seront déposés tels quels dans `docs/client/` (voir « Emplacement »).
 
 ## Règle
 
@@ -20,10 +20,10 @@ TrustToken pour chaque demande (exigence 5.1) : le cahier a prévalu.
 
 | Document | Ce qu’il fixe (d’après les références du dépôt) | Où il est cité dans le dépôt | Emplacement |
 |---|---|---|---|
-| Réponses écrites aux questions K1 à K14 (kickoff) | Les décisions de cadrage : paiement direct par défaut (K1), décision du payeur et bureau hors du flux par défaut (K2), enrôlement N0 à N3 (K3), QR en présentiel (K4), statuts et litige distinct (K5), autorisation à chaque échéance (K6), paiement exécuté irréversible (K7), contributions (K9), devise (K10), adaptateur de paiement (K12), données de santé minimales (K13) | `docs/specs/modele-cible-v2.md` §1 ; entrées X*-v2 de `docs/decisions.md` | `docs/client/` |
-| Cahier d’extension | Les exigences fonctionnelles et les cas d’usage : TrustToken et TrustLink de chaque paiement (section 1, cas 3 et 8, section 3.C, exigence 5.1) ; parcours d’authentification (US-01) | `docs/decisions.md` (D5, Xc-7) ; `docs/release-checklist.md` | `docs/client/` |
-| Message du Dr | Point de vue du client sur le terrain de la santé (contexte de K13) | non cité nommément dans le dépôt | `docs/client/` |
-| Dossier institutionnel | Présentation du projet et de ses partenaires | non cité nommément dans le dépôt | `docs/client/` |
+| (1) Cahier d’extension fonctionnelle | Les exigences fonctionnelles et les cas d’usage : TrustToken et TrustLink de chaque paiement (section 1, cas 3 et 8, section 3.C, exigence 5.1) ; parcours d’authentification (US-01) | `docs/decisions.md` (D5, Xc-7) ; `docs/release-checklist.md` | `docs/client/` |
+| (2) Message du Dr | Point de vue du client sur le terrain de la santé (contexte de K13) | non cité nommément dans le dépôt | `docs/client/` |
+| (3) Dossier institutionnel | Présentation du projet et de ses partenaires | non cité nommément dans le dépôt | `docs/client/` |
+| (4) Réponses écrites aux questions K1 à K14 (kickoff) | Les décisions de cadrage : paiement direct par défaut (K1), décision du payeur et bureau hors du flux par défaut (K2), enrôlement N0 à N3 (K3), QR en présentiel (K4), statuts et litige distinct (K5), autorisation à chaque échéance (K6), paiement exécuté irréversible (K7), contributions (K9), devise (K10), adaptateur de paiement (K12), données de santé minimales (K13) | `docs/specs/modele-cible-v2.md` §1 ; entrées X*-v2 de `docs/decisions.md` | `docs/client/` |
 
 Les questions K8, K11 et K14 n’ont pas d’effet décrit dans `docs/specs/modele-cible-v2.md` : leurs réponses sont à
 reprendre depuis le document du client quand un lot les concerne. Le document d’analyse `ALIGNEMENT-CAHIER-EXTENSION.md`

@@ -101,6 +101,7 @@ Ces décisions remplacent D6 (contrôles automatiques comme étape de la validat
 - **Jeton de présentation** (`presentation_tokens`) : référence opaque, durée de vie courte (valeur configurable, point ouvert), rotation continue côté commerçant, **une seule prise en charge** (`claim`) ; la prise en charge **lie** la demande à l'utilisateur connecté, mais ne vaut pas autorisation de payer.
 - À la prise en charge, l'application affiche **toujours** le nom du commerçant et le montant avant toute autorisation, puis le détail des frais et le total débité.
 - Révocation immédiate possible ; limitation des tentatives ; événements suspects journalisés.
+- **TrustToken de chaque demande** (corrigé au lot X-C, Xc-7 ; le cahier d’extension prévaut, `docs/sources-client.md`) : chaque demande soumise a son TrustToken, en `DIRECT` comme en `CONDITIONAL` (exigence 5.1). Jusqu’au paiement, il suit l’échéance de la demande ; en `CONDITIONAL`, `token_ttl_days` ne vaut que pour la phase de confirmation après paiement ; il est révoqué à chaque statut final et à l’annulation de l’opération ; un paiement exige un jeton actif. La première version de ce modèle ne donnait un jeton qu’en `CONDITIONAL` : c’était un écart avec le client.
 
 ## 5. Compatibilité avec l'existant
 

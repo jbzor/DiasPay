@@ -97,17 +97,16 @@ La même suite (`packages/api-client/test/contract/contract.ts`) s’exécute co
 
 ## 9. Écarts assumés entre le simulateur et le serveur
 
+Lot X-C (17 novembre 2026) : les lignes du modèle v1 remplacées par une ligne v2 ont été retirées (soumission, correction d’un dossier rejeté, rôles au dossier du premier lot X). L’écart du verrouillage OTP n’existe plus (D5, Xc-9).
+
 | Sujet | Simulateur (`MockApi`) | Serveur (`SupabaseApi`) |
 |---|---|---|
-| Après la soumission | `IN_REVIEW` immédiatement | reste `SUBMITTED` : seul un validateur passe en `IN_REVIEW` (ou `demo_review`) |
 | Identifiant du dossier soumis | nouvel identifiant `tx-…` | identifiant du brouillon conservé |
-| Correction d’un dossier rejeté | nouveau brouillon lié (`correctionOf`) | même identifiant (`correctionOf` = id) |
 | Isolation des dossiers | un profil de démonstration à la fois (payeur / prestataire) | RLS par utilisateur, invitations rattachées à l’inscription |
 | Déblocage automatique | minuterie dans l’application (30 s) | pg_cron toutes les 10 minutes ; activation des tranches à 06:00 UTC |
 | Identifiant d’une pièce | celui choisi par l’application | attribué par le serveur (`add_document`) |
 | Annuaire des prestataires | jeu de démonstration intégré | table `providers` (seed : 15 prestataires fictifs à Yaoundé et Douala) |
 | Nom du payeur sur une transaction | connu du simulateur | non exposé dans la liste (profils protégés par RLS) ; présent sur le reçu (`get_receipt`) |
-| Rôles au dossier (lot X) | le créateur garde son rôle de création ; pour tout autre dossier, le profil de démonstration courant (payeur par défaut). Aucun rapprochement par numéro de téléphone | parties réelles (`transaction_parties`), payeur désigné par son numéro, invitation rattachée à l’inscription |
 | Destinataires des alertes du lot X | une seule liste d’alertes pour tous les profils | `INFO_REQUESTED`, `INFO_ANSWERED`, `REQUEST_REJECTED` aux autres parties que l’auteur ; `PAYMENT_REQUEST_RECEIVED` au payeur seul |
 | Échecs de résolution d’une référence (lot X) | comptés en mémoire, par utilisateur, perdus au redémarrage | `security_events`, en ajout seul ; plus de 10 échecs dans l’heure : `TOO_MANY_ATTEMPTS`, événement `SUSPICIOUS_ACTIVITY` |
 | Échec à la confirmation (`confirmByReference`) | non compté, comme le serveur | non compté : l’erreur annule la transaction qui l’enregistrerait (la limite s’applique quand même) |
@@ -123,6 +122,16 @@ La même suite (`packages/api-client/test/contract/contract.ts`) s’exécute co
 | Types de besoin (X6) | `DEFAULT_MODULES` (ou l’option `modules`) ; aucun administrateur pour en ajouter | table `request_modules`, écriture par un administrateur |
 | Revue par le bureau (X6) | même décision (`platformReviewDecision`) ; doublon : même créateur, même montant, même prestataire (par son nom), 30 jours | `_platform_review` : même payeur (compte ou numéro invité), même prestataire (annuaire ou nom), 30 jours |
 | Plusieurs payeurs (X7) | non modélisé (un profil de démonstration à la fois) ; règle du domaine `checkAddPayer` testée seule | déclencheur `_check_multiple_payers` sur `transaction_parties` |
+| Noyau v2 : soumission (lot X v2) | `submitNeed` : ACTIVE directement (NEVER), ou PENDING_REVIEW selon l’option `modules` | `submit_operation` : idem, selon `request_modules.platform_review` |
+| Remboursement après un litige (lot X v2) | versé aussitôt par le partenaire simulé : la demande passe en REFUNDED | remboursement PENDING jusqu’à l’événement du partenaire (`demo_settle_refund` ou TrustPayWay) : la demande reste PAID (drapeau de contrat `refundSettlement`) |
+| Revue par le bureau (lot X v2) | `simulateReview` sur PENDING_REVIEW ou IN_REVIEW | `demo_review` (mock_mode) ou `claim_dossier` puis `decide_tx` |
+| Jeton de présentation (lot X v2, X3) | non simulé (aucune interface) | `issue_presentation_token`, `claim_presentation_token` |
+| Rôles au dossier (lot X v2) | toujours déduits du créateur et du profil de démonstration | `transaction_parties` ; l’initiateur (`initiator_id`) peut ne pas être partie |
+| Enrôlement (lot X v2, X4) | niveau par utilisateur (`MockUser.enrolmentLevel`, N0 par défaut ; compte de démonstration de l’application : N2) ; adaptateur KYC simulé (option `kyc`) ; pas de revue par le personnel ni de bucket | `profiles.enrolment_level`, `submit_enrolment` (KYC simulé en mock_mode : `kyc_simulated_result`), revue `claim_enrolment_case` et `decide_enrolment`, bucket `identity` |
+| Plafonds (lot X v2, X4) | `checkLimits` à l’acceptation (options `limits`, `limitsWhenMissing` ; défaut : lignes de développement sans plafond) | `_check_payer_limits`, appelée par `accept_and_pay` |
+| Devis et frais (lot X v2, X5) | `PaymentEngine.createQuote` (options `quoteTtlSeconds` 300, `fxRates` parité EUR/XAF, `feeSchedule` absent) | `get_quote` (réglages `fx_quote_ttl_seconds`, `simulated_fx_rates`, `fee_schedule`) |
+| Exécution manuelle d’un remboursement (lot X v2, X5) | `PaymentEngine.markRefundExecuted` (sans écran, pas d’administrateur dans l’API) | `mark_refund_executed`, administrateur non partie |
+| Bénéficiaire et pièces (lot X v2, X6) | `checkBeneficiary` à l’enregistrement et à la soumission, `isAllowedKind` à l’envoi d’une pièce ; aucun journal de consultation des pièces (pas de stockage) | `save_draft`, `submit_operation`, `_documents_guard` ; consultation d’une pièce sensible journalisée sans nom de fichier ni chemin |
 
 > **Paiement hors démonstration sur le projet de développement (lot X-C).** Sans `EXPO_PUBLIC_DEMO=1`, l’application ne
 > demande plus au partenaire simulé de confirmer : un paiement reste **en cours** (tentative `INITIATED`, demande
@@ -134,14 +143,3 @@ La même suite (`packages/api-client/test/contract/contract.ts`) s’exécute co
 > **Saisie du code SMS (D5, lot X-C T9).** Le simulateur suit désormais Supabase : un code erroné répond `OTP_WRONG`, sans
 > nombre d’essais restants ni verrouillage par numéro. L’écart avec le cahier (US-01 : 3 essais, 15 minutes) est
 > commun aux deux implémentations et reste décrit par D5.
-
-| Noyau v2 : soumission (lot X v2) | `submitNeed` : ACTIVE directement (NEVER), ou PENDING_REVIEW selon l’option `modules` | `submit_operation` : idem, selon `request_modules.platform_review` |
-| Remboursement après un litige (lot X v2) | versé aussitôt par le partenaire simulé : la demande passe en REFUNDED | remboursement PENDING jusqu’à l’événement du partenaire (`demo_settle_refund` ou TrustPayWay) : la demande reste PAID (drapeau de contrat `refundSettlement`) |
-| Revue par le bureau (lot X v2) | `simulateReview` sur PENDING_REVIEW ou IN_REVIEW | `demo_review` (mock_mode) ou `claim_dossier` puis `decide_tx` |
-| Jeton de présentation (lot X v2, X3) | non simulé (aucune interface) | `issue_presentation_token`, `claim_presentation_token` |
-| Rôles au dossier (lot X v2) | toujours déduits du créateur et du profil de démonstration | `transaction_parties` ; l’initiateur (`initiator_id`) peut ne pas être partie |
-| Enrôlement (lot X v2, X4) | niveau par utilisateur (`MockUser.enrolmentLevel`, N0 par défaut ; compte de démonstration de l’application : N2) ; adaptateur KYC simulé (option `kyc`) ; pas de revue par le personnel ni de bucket | `profiles.enrolment_level`, `submit_enrolment` (KYC simulé en mock_mode : `kyc_simulated_result`), revue `claim_enrolment_case` et `decide_enrolment`, bucket `identity` |
-| Plafonds (lot X v2, X4) | `checkLimits` à l’acceptation (options `limits`, `limitsWhenMissing` ; défaut : lignes de développement sans plafond) | `_check_payer_limits`, appelée par `accept_and_pay` |
-| Devis et frais (lot X v2, X5) | `PaymentEngine.createQuote` (options `quoteTtlSeconds` 300, `fxRates` parité EUR/XAF, `feeSchedule` absent) | `get_quote` (réglages `fx_quote_ttl_seconds`, `simulated_fx_rates`, `fee_schedule`) |
-| Exécution manuelle d’un remboursement (lot X v2, X5) | `PaymentEngine.markRefundExecuted` (sans écran, pas d’administrateur dans l’API) | `mark_refund_executed`, administrateur non partie |
-| Bénéficiaire et pièces (lot X v2, X6) | `checkBeneficiary` à l’enregistrement et à la soumission, `isAllowedKind` à l’envoi d’une pièce ; aucun journal de consultation des pièces (pas de stockage) | `save_draft`, `submit_operation`, `_documents_guard` ; consultation d’une pièce sensible journalisée sans nom de fichier ni chemin |

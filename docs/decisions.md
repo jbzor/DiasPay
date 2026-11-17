@@ -57,6 +57,7 @@ Choix délégués par le client au prestataire. Chaque décision reste révisabl
   - Dossier soumis ou en validation : ni supprimable ni annulable dans la vague 1.
   - Aucun dossier ayant une ligne d’audit n’est jamais effacé.
 - **Mise en œuvre** : statut `CANCELLED` et transition `REJECTED → CANCELLED` (payeur, demandeur) dans `packages/domain/src/txMachine.ts` ; `abandonRejected` et `deleteDraft` dans `packages/api-client/src/mockApi.ts`.
+- **Depuis le lot X v2** (commit `de85dfc`) : `txMachine.ts` n’existe plus. La machine de l’opération est `packages/domain/src/operationMachine.ts` : `REJECTED` n’y est plus un statut ; l’annulation par l’initiateur (`DRAFT` ou `ACTIVE` → `CANCELLED`, `cancelOperation`) et le refus par le bureau (`PENDING_REVIEW` ou `IN_REVIEW` → `CANCELLED` avec motif) la remplacent.
 
 ## D5 — Verrouillage après trois codes SMS erronés
 
@@ -326,6 +327,48 @@ Le prompt « Lot X (version 2) » remplace le premier lot X. Modèle cible : `do
 - **Contrôles modifiés** : 00, 01 et 04 (santé sans pièce d’identité, référence au lieu du nom, type de pièce non prévu) ; tests du domaine, du client, de l’application et de bout en bout du bureau (`fixtures.ts`). Détail dans `docs/lotx2-controles-sql.md`.
 - **Reste à décider** : les durées de conservation (point ouvert 6) et la purge, le format exact de la référence du patient avec les établissements de santé, et la sensibilité des autres pièces (le bail et l’attestation d’inscription contiennent aussi des données personnelles).
 
+# Lot X-C — corrections avant la passe 3
+
+Source : état des lieux du 16 novembre 2026 (`docs/etat-des-lieux/ETAT-DES-LIEUX.md`, sections D.6, J et L ; risques R1 à R7). Hiérarchie des sources : `docs/sources-client.md` (le document du client prévaut sur `docs/specs/modele-cible-v2.md`). Migrations 0024 à 0031, test `supabase/tests/07_lotxc.sql`, contrôles modifiés dans `docs/lotx2-controles-sql.md` (section « Lot X-C »).
+
+## Xc-2 — Chemin de paiement réel (R1)
+
+- **Date** : 17 novembre 2026
+- **Constat** : `SupabaseApi.payTranche` et `acceptAndPay` appelaient toujours `demo_settle_payment`, qui lève `DEMO_DISABLED` hors `mock_mode` : aucun paiement possible en production.
+- **Choisi** : option `demoSettle` de `SupabaseApi` (défaut faux), branchée sur `EXPO_PUBLIC_DEMO` dans l’application et vraie dans les harnais de test. Hors démonstration, la tentative reste `INITIATED` ou `PENDING` et la demande `ACCEPTED` ; l’écran de l’opération affiche « Paiement en cours de confirmation » et se met à jour par le temps réel déjà publié sur `tranches` (vérifié dans `useRealtime` et `subscribeChanges`). Aucun mécanisme nouveau.
+- **Conséquence** : sur le projet de développement, hors démonstration, un paiement reste en cours tant que le simulateur de scénarios (X9) n’existe pas (`docs/supabase-setup.md` §9).
+
+## Xc-3 — Brouillons d’opération (R2)
+
+- **Date** : 17 novembre 2026
+- **Constat confirmé** (reproduit en base) : la politique `tx_update_draft` laissait le créateur modifier par PostgREST toute colonne d’un brouillon : `beneficiary_name` (nom d’un patient, contre K13), `settlement_mode`, `initiator_id`. `status` restait protégé par `guard_status`.
+- **Écritures directes clientes sur `transactions`** : aucune (les applications ne font que des `SELECT`).
+- **Choisi** (0024) : politique supprimée, `save_draft` seul chemin. `submit_operation` recalcule `settlement_mode` depuis `request_modules`, refuse un `initiator_id` différent du créateur (`INITIATOR_MISMATCH`, nouveau code) et un nom quand le module ne le prévoit pas (`BENEFICIARY_NAME_NOT_ALLOWED`). Aucun `grant update (colonnes)` n’a été nécessaire.
+- **Non fait** : le test mort sur `'REJECTED'` de `save_draft` reste, la fonction n’ayant pas été modifiée.
+
+## Xc-4 — Profils, numéro et nom (R3)
+
+- **Date** : 17 novembre 2026
+- **Constat confirmé** : `profiles_self_update` et `guard_profile` ne protégeaient pas `phone` : un utilisateur pouvait inscrire le numéro d’un autre et se faire désigner comme contrepartie à sa place (`_user_by_phone`).
+- **Écritures directes clientes sur `profiles`** : `auth.saveProfile` (`full_name`, `country`, `primary_role`) et les préférences (`push_enabled`), dans `packages/api-client/src/supabase/auth.ts`. Conservées.
+- **Choisi** :
+  - 0025 : `phone` protégé par `guard_profile` (`PROFILE_PROTECTED`), convention de 0004 (déclencheur plutôt que droits par colonne). Le numéro ne change que par l’authentification : le numéro vérifié de `auth.users` est recopié (`on_auth_user_phone_changed`). Unicité du numéro **normalisé** (`profiles_phone_norm_key`) ; aucun doublon relevé le 16 novembre.
+  - 0030 (complément) : à partir de N1, le nom est figé (`PROFILE_PROTECTED`) : il a été rapproché d’une pièce d’identité. En N0, `saveProfile` pose encore le nom ; réécrire la même valeur reste permis. Les fonctions serveur (KYC) ne sont pas concernées.
+
+## Xc-5 — Prise en charge du jeton de présentation (R5)
+
+- **Date** : 17 novembre 2026
+- **Constat** : `claim_presentation_token` liait n’importe quel porteur du jeton comme payeur quand le payeur n’était connu que par son téléphone.
+- **Choisi** (0026, dépend de Xc-4) : la prise en charge n’aboutit alors que si le numéro vérifié de l’utilisateur connecté est égal, une fois normalisé, à celui de l’invitation. Sinon : même réponse nulle qu’une référence inconnue, échec compté (`TOO_MANY_ATTEMPTS` inchangé). Aucun payeur désigné (cas du commerçant, K4) : comportement conservé.
+
+## Xc-6 — Libération automatique et demande échue (R6, J1)
+
+- **Date** : 17 novembre 2026
+- **Choisi** (0027) :
+  - `release_due_tranches` ne libère rien pour une opération `SUSPENDED`. Une opération `CLOSED` avec des fonds `HELD` est impossible par construction (`_request_final`, `_close_operation_if_done`, `guard_status`) : vérifié dans le code, rien changé.
+  - `get_quote` et `accept_and_pay` refusent une demande dont `expires_at` est passée, avant même le passage horaire d’`expire_due_requests` (`REQUEST_EXPIRED`, nouveau code ; aucun équivalent n’existait). Après ce passage, les codes d’aujourd’hui restent.
+  - Parité : domaine (`isAutoReleasable` avec `txSuspended`) et simulateur (`checkNotExpired`, `expiresAt` posée à la soumission depuis `requestExpiryDays`).
+
 ## Xc-7 — Un TrustToken pour chaque demande, y compris en règlement direct
 
 - **Date** : 17 novembre 2026
@@ -344,3 +387,25 @@ Le prompt « Lot X (version 2) » remplace le premier lot X. Modèle cible : `do
   - **Écrans** : aucun changement visible en `DIRECT` (pas de QR ni de lien). L’affichage du TrustToken et du DiasPay Link dans l’espace de vérification du payeur viendra au lot Y. Le reçu porte désormais la référence du jeton en `DIRECT` aussi.
   - **Données de développement** : un jeton est émis pour chaque demande `DIRECT` déjà soumise et non finale, dans la migration.
 - **Contrôles modifiés** : 00, 01, 02, 03 et 05 (« aucun jeton en DIRECT » devient « un jeton par demande soumise ») ; contrat X1 réécrit ; tests du simulateur. Détail dans `docs/lotx2-controles-sql.md`.
+
+
+## Xc-8 — Droits de anon et lecture des réglages (R7, D.6)
+
+- **Date** : 17 novembre 2026
+- **Constat** (T1, 16 novembre) : 14 fonctions du schéma `public` exécutables par `anon` (7 fonctions des politiques, 6 fonctions de déclencheur, et `rls_auto_enable`, qui ne vient d’aucune migration : fonction d’event trigger créée par l’option du tableau de bord Supabase) ; `app_config` lisible par tous les rôles.
+- **Choisi** (0029) :
+  - `app_config` : lecture réservée à `authenticated` ; aucune lecture avant connexion (vérifié dans le bureau et l’application).
+  - EXECUTE retiré à `anon` et `PUBLIC` sur toute fonction du schéma `public`, par un parcours du catalogue : une fonction absente (`rls_auto_enable` sur un projet neuf) est ignorée, la migration passe partout. `authenticated` garde les fonctions des politiques et perd les fonctions de déclencheur (PostgreSQL ne vérifie pas EXECUTE au déclenchement).
+  - Fonctions futures : privilèges par défaut du rôle des migrations (`postgres`, vérifié dans `pg_default_acl`) sans `anon` (réglage par schéma de Supabase) ni `PUBLIC` (réglage global de PostgreSQL). Les fonctions créées par `supabase_admin` ne sont pas couvertes ; le contrôle générique les signalerait.
+  - `00_smoke` : contrôle générique (aucune fonction pour `anon`) avec une liste d’exceptions explicite et vide, à la place de la liste fermée.
+- **Conséquence** : une requête de `anon` sur une table dont la politique appelle `is_party` est désormais **refusée** au lieu de rendre une liste vide. Aucune donnée n’était exposée avant, aucun écran n’en dépend.
+
+## Xc-9 — Valeurs sûres côté client et restes (X1.2, X1.8, J3, D5)
+
+- **Date** : 17 novembre 2026
+- **Choisi** :
+  - `eqrImageEnabled` : réglage absent = image masquée.
+  - Garde de production : un build sans `EXPO_PUBLIC_API=supabase` (valeur absente ou autre) est bloqué comme `DemoInReleaseBlocked`, sauf build interne déclaré (`EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE=1`). `mock` est bloqué comme une valeur absente : c’est aussi le simulateur.
+  - Déclaration orpheline `Stack.Screen name="t/[reference]"` retirée.
+  - `MockAuth` aligné sur D5 : `OTP_WRONG` sans compteur ni verrouillage, comme Supabase. L’écart avec le cahier (US-01) est désormais commun aux deux implémentations.
+  - `scripts/prod-readiness.sql` (lecture seule) : réglages dangereux pour une production ; points 44 à 46 de `docs/release-checklist.md`.

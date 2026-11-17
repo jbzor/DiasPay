@@ -59,8 +59,8 @@ En dehors de ces cas, le profil de démonstration suit le rôle choisi à l'insc
 Mise en place complète : `docs/supabase-setup.md`. Codes d’erreur : `docs/error-codes.md`. Contrôles avant publication : `docs/release-checklist.md`.
 
 - **Choix à la racine** : `EXPO_PUBLIC_API=supabase` dans `apps/mobile/.env.local` (copier `.env.example`). Les écrans ne connaissent que `TransactionApi` / `AuthApi` ; supabase-js n’est importé que dans `packages/api-client/src/supabase/`.
-- **Serveur** : migrations `supabase/migrations/0001` à `0005` ; 0005 ajoute codes d’erreur stables, brouillons serveur (`save_draft`), invitations, prestataires, limites des pièces, notifications, reçu, litige, démonstration (`mock_mode` seulement) et pg_cron.
-- **Authentification** : SMS (code de 6 chiffres, 300 s). Session chiffrée sur l’appareil (clé AES dans SecureStore, session chiffrée dans AsyncStorage). Supabase ne verrouille pas après 3 codes erronés : décision D5.
+- **Serveur** : migrations `supabase/migrations/0001` à `0031` (état actuel et statuts v2 : `supabase/README.md`, section « État actuel ») ; 0005 a ajouté codes d’erreur stables, brouillons serveur (`save_draft`), invitations, prestataires, limites des pièces, notifications, reçu, litige, démonstration (`mock_mode` seulement) et pg_cron.
+- **Authentification** : SMS (code de 6 chiffres, 300 s). Session chiffrée sur l’appareil (clé AES dans SecureStore, session chiffrée dans AsyncStorage). Supabase ne verrouille pas après 3 codes erronés : décision D5 (le simulateur fait de même depuis le lot X-C).
 - **Données** : crochets react-query (`apps/mobile/src/state/queries.ts`) communs au simulateur et à Supabase ; temps réel (Realtime, RLS) qui invalide les requêtes ; cache conservé hors connexion avec bandeau « Hors connexion » ; brouillons tamponnés sur l’appareil et synchronisés à chaque étape.
 - **Pièces** : bucket privé `dossiers`, chemin `<tx>/<type>/<uuid>.<ext>`, envoi par URL signée avec progression, consultation par URL signée de 60 s.
 - **Types** : `pnpm db:types` régénère `packages/api-client/src/supabase/database.types.ts` (jamais édité à la main).
@@ -127,6 +127,8 @@ Les deux appareils ont chacun leur propre jeu de données simulé : pour que l�
 6. **Récapitulatif** : règle de déblocage en clair, « Soumettre le dossier » ou « Enregistrer le brouillon ».
 
 **Brouillons** : enregistrés automatiquement (500 ms après chaque saisie, immédiatement à chaque changement d’étape) avec AsyncStorage, y compris sur le web. Ils apparaissent en tête de « Transactions » (« Brouillon », étape atteinte), se rouvrent à la dernière étape et se suppriment après confirmation. Un brouillon appartient à l’utilisateur connecté. Une pièce dont le fichier local a disparu au rechargement est marquée « à rajouter ».
+
+> Lot X version 2 : ce paragraphe décrit le parcours des premiers lots. Depuis 0014, une opération est active dès la soumission par défaut (`platform_review = NEVER`), `REJECTED` n’est plus un statut d’opération, et chaque demande soumise reçoit son TrustToken (Xc-7). États actuels : `supabase/README.md`.
 
 **Suivi** : un dossier soumis passe « En validation » (non modifiable). Rejeté, il affiche son motif et un bouton « Corriger » qui le rouvre en brouillon (RG : `REJECTED → DRAFT`), puis se soumet à nouveau. Validé, il émet son jeton et active la première tranche si son échéance tombe dans les 7 jours (RG-12), sinon elle reste « Prévue ». Les événements « dossier validé » et « dossier rejeté » sont préparés dans le simulateur (`MockApi.listEvents()`) pour les alertes du lot suivant.
 

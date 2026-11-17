@@ -1,0 +1,48 @@
+# Sources fonctionnelles du client
+
+Ce document recense les documents du client qui font foi pour DiasPay, et dans quel ordre ils s’appliquent. Il n’en
+reproduit pas le contenu : les documents eux-mêmes ne sont **pas** dans ce dépôt et ne doivent pas y être copiés.
+
+## Règle
+
+**Le document du client prévaut sur `docs/specs/modele-cible-v2.md`.** Le modèle cible est notre traduction de travail des
+décisions du client, pas une source. En cas de contradiction :
+
+1. on applique le document du client ;
+2. on signale l’écart dans le compte rendu du lot ;
+3. on le corrige dans le code et dans `docs/specs/modele-cible-v2.md`, avec une entrée dans `docs/decisions.md` qui cite la
+   section du document du client.
+
+Exemple : Xc-7 (jeton en règlement direct). Le lot X v2 avait suivi le modèle cible ; le cahier d’extension exigeait un
+TrustToken pour chaque demande (exigence 5.1) : le cahier a prévalu.
+
+## Documents du client
+
+| Document | Ce qu’il fixe (d’après les références du dépôt) | Où il est cité dans le dépôt | Emplacement |
+|---|---|---|---|
+| Réponses écrites aux questions K1 à K14 (kickoff) | Les décisions de cadrage : paiement direct par défaut (K1), décision du payeur et bureau hors du flux par défaut (K2), enrôlement N0 à N3 (K3), QR en présentiel (K4), statuts et litige distinct (K5), autorisation à chaque échéance (K6), paiement exécuté irréversible (K7), contributions (K9), devise (K10), adaptateur de paiement (K12), données de santé minimales (K13) | `docs/specs/modele-cible-v2.md` §1 ; entrées X*-v2 de `docs/decisions.md` | hors dépôt, à indiquer |
+| Cahier d’extension | Les exigences fonctionnelles et les cas d’usage : TrustToken et TrustLink de chaque paiement (section 1, cas 3 et 8, section 3.C, exigence 5.1) ; parcours d’authentification (US-01) | `docs/decisions.md` (D5, Xc-7) ; `docs/release-checklist.md` | hors dépôt, à indiquer |
+| Message du Dr | Point de vue du client sur le terrain de la santé (contexte de K13) | non cité nommément dans le dépôt | hors dépôt, à indiquer |
+| Dossier institutionnel | Présentation du projet et de ses partenaires | non cité nommément dans le dépôt | hors dépôt, à indiquer |
+
+Les questions K8, K11 et K14 n’ont pas d’effet décrit dans `docs/specs/modele-cible-v2.md` : leurs réponses sont à
+reprendre depuis le document du client quand un lot les concerne. Le document d’analyse `ALIGNEMENT-CAHIER-EXTENSION.md`
+(questions K1 à K14) n’a jamais été fourni au dépôt (voir `docs/decisions.md`, lot X).
+
+## Hiérarchie entre les documents du client
+
+**Proposée, à confirmer par le client** (aucun document du dépôt ne la fixe) :
+
+1. **Réponses écrites aux questions K1 à K14** : décisions les plus récentes et explicites. Sur le point qu’elles
+   tranchent, elles priment, y compris sur le cahier d’extension.
+2. **Cahier d’extension** : référence des exigences fonctionnelles pour tout ce que les réponses K ne tranchent pas.
+3. **Message du Dr** et **dossier institutionnel** : contexte. Ils éclairent l’interprétation, mais ne fixent pas
+   d’exigence seuls.
+
+Sous ces documents : `docs/specs/modele-cible-v2.md` (traduction de travail), puis `docs/decisions.md` (nos choix là où le
+client n’a rien fixé), puis `docs/open-parameters.md` (valeurs qui restent à fournir par le client et ne s’inventent pas).
+
+## À compléter
+
+- L’emplacement de chaque document (dossier partagé, date de version), par le chef de projet.
+- La confirmation de la hiérarchie ci-dessus par le client.

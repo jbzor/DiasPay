@@ -157,7 +157,7 @@ Les résultats de `apply_payment_event` (`APPLIED`, `IGNORED`, `REJECTED`, `INVA
 
 | Code | Origine | Sens |
 |---|---|---|
-| `PROFILE_PROTECTED` | S | Rôle de plateforme, statut KYC ou niveau d’enrôlement modifiés par l’utilisateur lui-même (déclencheur `guard_profile`) |
+| `PROFILE_PROTECTED` | S | Rôle de plateforme, statut KYC, niveau d’enrôlement, téléphone (lot X-C, 0025) ou, à partir de N1, nom (0030) modifiés par l’utilisateur lui-même (déclencheur `guard_profile`) |
 | `ENROLMENT_PENDING` | D, S | Un dossier d’enrôlement est déjà en cours (SUBMITTED ou IN_REVIEW) |
 | `ALREADY_ENROLLED` | D, S | Niveau demandé déjà atteint |
 | `SELF_REVIEW` | S | Le personnel n’examine pas son propre dossier d’enrôlement |

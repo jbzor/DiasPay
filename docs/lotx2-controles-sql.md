@@ -435,3 +435,7 @@ silence, un `UPDATE` interdit est vérifié par le nombre de lignes touchées (`
 ### T9 : valeurs sûres côté client (aucune migration)
 - Aucun contrôle SQL. Tests du client : `MockAuth` (D5 : `OTP_WRONG` sans compteur ni verrouillage ; 2 tests remplacés,
   ils décrivaient le verrouillage retiré), garde de production `apiReleaseViolation` (2 tests).
+
+### T4b (0030) : nom figé à partir de N1 — 6 vérifications
+- Un compte N1 ne change pas son nom (`PROFILE_PROTECTED`, valeur relue inchangée) ; réécrire le même nom avec un autre
+  pays reste permis (c’est ce que fait `saveProfile`) ; un compte N0 pose encore son nom.

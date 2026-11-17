@@ -415,6 +415,20 @@ insert into auth.users(id, phone) values ('fdc00000-0000-4000-8000-000000000009'
 select t.check(exists (select 1 from profiles where id = 'fdc00000-0000-4000-8000-000000000009' and phone = '33625560009'),
   'T8 : le profil est toujours créé à l’inscription');
 
+-- ===================== T4b : nom figé à partir de N1 (0030) =====================
+select t.check((select enrolment_level from profiles where id = 'fdc00000-0000-4000-8000-000000000006') = 'N1'
+           and (select enrolment_level from profiles where id = 'fdc00000-0000-4000-8000-000000000003') = 'N0',
+  'T4b : prérequis : un compte N1 et un compte N0');
+select t.login('fdc00000-0000-4000-8000-000000000006');
+select t.hint($$update profiles set full_name = 'Autre nom' where id = auth.uid()$$, 'PROFILE_PROTECTED', 'T4b : N1 : changer son nom refusé');
+select t.check((select full_name from profiles where id = auth.uid()) = 'Demandeur X-C (test)', 'T4b : N1 : nom inchangé');
+select t.check(t.n_updated($$update profiles set full_name = 'Demandeur X-C (test)', country = 'CM' where id = auth.uid()$$) = 1,
+  'T4b : N1 : réécrire le même nom avec un autre pays reste permis (saveProfile)');
+select t.login('fdc00000-0000-4000-8000-000000000003');
+select t.check(t.n_updated($$update profiles set full_name = 'Nom posé en N0' where id = auth.uid()$$) = 1, 'T4b : N0 : le titulaire pose encore son nom');
+select t.check((select full_name from profiles where id = auth.uid()) = 'Nom posé en N0', 'T4b : N0 : nom enregistré');   -- instruction suivante : nouvel instantané
+select t.admin();
+
 -- ===================== Fin =====================
 -- ---------- Résumé (éditeur SQL) ----------
 -- Le résultat est rendu par une erreur, toujours levée : elle s’affiche dans l’éditeur et annule tout le test.

@@ -15,7 +15,7 @@ import { DateField } from '@/ui/DateField';
 import { Text } from '@/ui/text';
 
 /** Plan proposé à l’ouverture selon le type de besoin (modifiable). */
-const DEFAULT_PLAN: Partial<Record<Vertical, PlanType>> = { RENT: 'RECURRING', EDUCATION: 'INSTALLMENTS', HEALTH: 'SINGLE' };
+const DEFAULT_PLAN: Partial<Record<Vertical | (string & {}), PlanType>> = { RENT: 'RECURRING', EDUCATION: 'INSTALLMENTS', HEALTH: 'SINGLE' };
 const FREQS: RecurrenceFreq[] = ['WEEKLY', 'MONTHLY', 'QUARTERLY'];
 /** Décision D3 : texte d’aide par type de plan. */
 const PLAN_HELP = {

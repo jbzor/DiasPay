@@ -3,6 +3,7 @@ import { MockApi } from '@diaspay/api-client';
 import type { Persona, Transaction, TransactionApi } from '@diaspay/api-client';
 import type { DisputeOutcome } from '@diaspay/domain';
 
+import { contentHasher } from '@/lib/contentHash';
 import { API_MODE, getSupabaseApi } from './backend';
 import { asyncDraftStore } from './drafts';
 import { asyncStateStore } from './simState';
@@ -23,6 +24,7 @@ export const mockApi = new MockApi(undefined, undefined, {
   state: asyncStateStore,
   uploadDelayMs: 250,
   uploadFailureRate: Number.isFinite(failureRate) ? Math.min(1, Math.max(0, failureRate)) : 0,
+  hashFile: contentHasher,   // lot X (X4) : même empreinte que le serveur
 });
 
 /** Après chaque écriture, les requêtes sont invalidées (branché par queries.ts, sans dépendance circulaire). */
@@ -53,7 +55,9 @@ let currentUser: CurrentUser | null = null;
 export const getCurrentUser = () => currentUser;
 export function setCurrentUser(u: CurrentUser | null): void {
   currentUser = u;
-  mockApi.setUser(u);
+  // Simulateur : le compte de démonstration est déjà enrôlé (N2 : il peut aussi initier en prestataire). Sur Supabase, le
+  // niveau vient du serveur (profiles.enrolment_level, X4 v2).
+  mockApi.setUser(u && { ...u, enrolmentLevel: 'N2' });
 }
 
 let persona: Persona = 'PAYER';

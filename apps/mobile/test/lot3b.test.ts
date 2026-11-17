@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { filterTransactions } from '@diaspay/api-client';
 import type { Transaction } from '@diaspay/api-client';
 import type { DraftDocument } from '@diaspay/domain';
-import { demoReleaseViolation } from '../src/lib/releaseGuard';
+import { apiReleaseViolation, demoReleaseViolation } from '../src/lib/releaseGuard';
 import { filesForKind, occupiedSlots } from '../src/features/need/documents';
 
 describe('garde de production du mode démonstration', () => {
@@ -17,12 +17,26 @@ describe('garde de production du mode démonstration', () => {
   });
 });
 
-describe('« Clôturées » inclut les dossiers abandonnés', () => {
+describe('garde de production du serveur (lot X-C, T9)', () => {
+  it('bloque un build de production sans EXPO_PUBLIC_API=supabase (simulateur)', () => {
+    expect(apiReleaseViolation({ dev: false })).toBe(true);                    // valeur absente
+    expect(apiReleaseViolation({ dev: false, api: 'mock' })).toBe(true);
+    expect(apiReleaseViolation({ dev: false, api: '' })).toBe(true);
+  });
+  it('laisse passer le développement, un build relié au serveur, ou un build interne déclaré', () => {
+    expect(apiReleaseViolation({ dev: true })).toBe(false);
+    expect(apiReleaseViolation({ dev: false, api: 'supabase' })).toBe(false);
+    expect(apiReleaseViolation({ dev: false, allow: '1' })).toBe(false);
+  });
+});
+
+describe('« Clôturées » inclut les opérations annulées (lot X v2)', () => {
   const tx = (id: string, status: Transaction['status']) => ({ id, status, tranches: [] }) as unknown as Transaction;
   it('filtre', () => {
-    const list = [tx('a', 'CLOSED'), tx('b', 'CANCELLED'), tx('c', 'IN_PROGRESS'), tx('d', 'REJECTED')];
+    const list = [tx('a', 'CLOSED'), tx('b', 'CANCELLED'), tx('c', 'ACTIVE'), tx('d', 'PENDING_REVIEW'), tx('e', 'SUSPENDED')];
     expect(filterTransactions(list, 'CLOSED').map((t) => t.id)).toEqual(['a', 'b']);
-    expect(filterTransactions(list, 'ACTIVE').map((t) => t.id)).toEqual(['c']);
+    expect(filterTransactions(list, 'ACTIVE').map((t) => t.id)).toEqual(['c', 'e']);   // suspendue (litige avant paiement) : toujours en cours
+    expect(filterTransactions(list, 'REVIEW').map((t) => t.id)).toEqual(['d']);
   });
 });
 

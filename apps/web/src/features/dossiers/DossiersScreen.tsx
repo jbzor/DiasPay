@@ -25,7 +25,7 @@ import { dossierTitle } from '@/lib/labels';
 const VERTICALS = ['EDUCATION', 'HEALTH', 'RENT', 'AGRO', 'REAL_ESTATE', 'LAND'] as const;
 
 /**
- * Dossiers à valider (BO1). Liste des dossiers soumis ou en validation, du plus ancien au plus récent ; volet de
+ * Dossiers à valider (BO1). Liste des dossiers en attente de revue (PENDING_REVIEW, lot X v2) ou en validation (IN_REVIEW), du plus ancien au plus récent ; volet de
  * détail avec pièces, contrôles automatiques (D6), case de vérification du montant, motif de rejet, décision.
  * Ouvrir un dossier le prend en charge (D8).
  */
@@ -57,7 +57,7 @@ export function DossiersScreen() {
   async function open(row: DossierRow) {
     setSelectedId(row.id);
     setFocusKey(null);
-    if (row.status === 'SUBMITTED' && !row.isParty) {
+    if (row.status === 'PENDING_REVIEW' && !row.isParty) {
       try { await claimDossier(row.id); await list.reload(true); } catch { /* lecture seule : expliquée dans le volet */ }
     }
   }
@@ -96,7 +96,7 @@ export function DossiersScreen() {
             <label className="field-label" htmlFor="f-status">{t('dossiers.filterStatus')}</label>
             <select id="f-status" className="select" value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="">{t('common.all')}</option>
-              <option value="SUBMITTED">{t('txStatus.SUBMITTED')}</option>
+              <option value="PENDING_REVIEW">{t('txStatus.PENDING_REVIEW')}</option>
               <option value="IN_REVIEW">{t('txStatus.IN_REVIEW')}</option>
             </select>
           </div>
@@ -138,10 +138,10 @@ function DossierPanel({ row, staffName, onClose, onDone, onStale }: {
   const title = dossierTitle(row);
   const amount = formatAmount(row.amountMinor, row.currency);
 
-  // Un dossier SUBMITTED est en cours de prise en charge (D8) : les contrôles sont affichés tout de suite, la base
+  // Un dossier PENDING_REVIEW est en cours de prise en charge (D8) : les contrôles sont affichés tout de suite, la base
   // refusera une décision si la prise en charge échoue.
   const readOnly = row.isParty ? t('dossiers.isParty') : row.decidedByMe ? t('dossiers.alreadyDecided')
-    : row.status !== 'IN_REVIEW' && row.status !== 'SUBMITTED' ? t('dossiers.notInReview') : null;
+    : row.status !== 'IN_REVIEW' && row.status !== 'PENDING_REVIEW' ? t('dossiers.notInReview') : null;
   const canApprove = !readOnly && validatorDecisionError({ approved: true, amountChecked }) === null;
 
   function askReject() {
@@ -157,8 +157,8 @@ function DossierPanel({ row, staffName, onClose, onDone, onStale }: {
     setActionError(null);
     try {
       const approved = confirm === 'approve';
-      // Prise en charge d’abord (sans effet si elle a déjà eu lieu) : la décision suit toujours SUBMITTED → IN_REVIEW.
-      if (row.status === 'SUBMITTED') await claimDossier(row.id);
+      // Prise en charge d’abord (sans effet si elle a déjà eu lieu) : la décision suit toujours PENDING_REVIEW → IN_REVIEW.
+      if (row.status === 'PENDING_REVIEW') await claimDossier(row.id);
       const result = await decideDossier(row.id, { approved, amountChecked, reason: approved ? undefined : reason });
       setConfirm(null);
       onDone(!approved ? t('dossiers.doneRejected', { title }) : result === 'IN_REVIEW' ? t('dossiers.donePartial', { title }) : t('dossiers.doneApproved', { title }));
@@ -174,7 +174,8 @@ function DossierPanel({ row, staffName, onClose, onDone, onStale }: {
 
   const d = detail.data;
   const pendingMine = !row.isParty && !row.decidedByMe && row.received < row.required;
-  const releaseMode = d?.tranches[0];
+  // Règle de déblocage : seulement en règlement CONDITIONAL (en DIRECT, le prestataire est payé dès le paiement).
+  const releaseMode = d?.settlementMode === 'CONDITIONAL' ? d.tranches[0] : undefined;
 
   return (
     <Panel title={title} onClose={onClose} openKey={row.id} actions={readOnly ? null : (
@@ -209,9 +210,11 @@ function DossierPanel({ row, staffName, onClose, onDone, onStale }: {
               ))}
             </ul>
           </Section>
-          {releaseMode ? (
+          {releaseMode || d.settlementMode !== 'CONDITIONAL' ? (
             <Section title={t('dossiers.releaseRule')} id="sec-rule">
-              <p className="muted">{tMaybe(`releaseMode.${releaseMode.releaseMode}`, { h: releaseMode.contestHours }) ?? releaseMode.releaseMode}</p>
+              <p className="muted">{releaseMode
+                ? tMaybe(`releaseMode.${releaseMode.releaseMode}`, { h: releaseMode.contestHours }) ?? releaseMode.releaseMode
+                : t('settlement.DIRECT')}</p>
             </Section>
           ) : null}
           <Section title={t('dossiers.documents')} id="sec-docs">

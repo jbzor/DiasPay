@@ -19,13 +19,14 @@ Choix délégués par le client au prestataire. Chaque décision reste révisabl
 
 | Verticale | Pièces |
 |---|---|
-| Santé | Devis ou facture proforma (obligatoire) ; pièce d’identité du bénéficiaire (obligatoire) ; certificat médical (facultatif) |
+| Santé | Devis ou facture proforma (obligatoire). **Corrigé le 12 novembre 2026** (K13, lot X version 2, X6) : la pièce d’identité du bénéficiaire et le certificat médical sont supprimés |
 | Scolarité | Attestation d’inscription (obligatoire) ; échéancier de l’école (facultatif) |
 | Loyer | Bail (obligatoire) ; dernière quittance (facultatif) |
 
 - **Fichiers** : jusqu’à 3 fichiers par type de pièce (une pièce d’identité se photographie recto et verso), 10 Mo chacun, JPEG, PNG ou PDF. Une pièce est « fournie » dès qu’un fichier est envoyé. Le validateur juge de la suffisance ; l’application ne le fait pas.
 - **Hors décision** : Agro, Immobilier et Terrain restent « À CONFIRMER » (vague 2).
 - **Mise en œuvre** : `packages/domain/src/documents.ts` (`REQUIRED_DOCUMENTS`, `MAX_FILES_PER_KIND`, erreur `TOO_MANY_FILES`).
+- **Correction santé (12 novembre 2026, K13)** : données de santé minimales. Le type « Santé » ne demande plus que le devis ou la facture proforma, marqué sensible. Il n’enregistre qu’une **référence minimale du patient** (un code ou des initiales, jamais un nom complet), pas son nom. La pièce d’identité et le certificat médical ne sont plus acceptés pour ce type (`DOCUMENT_KIND_NOT_ALLOWED`). Raison : décision du kickoff ; une plateforme de paiement n’a pas à conserver de données médicales ni d’identité du patient. Voir X6-v2.
 
 ## D3 — Textes d’aide du plan de paiement (étape 4)
 
@@ -56,6 +57,7 @@ Choix délégués par le client au prestataire. Chaque décision reste révisabl
   - Dossier soumis ou en validation : ni supprimable ni annulable dans la vague 1.
   - Aucun dossier ayant une ligne d’audit n’est jamais effacé.
 - **Mise en œuvre** : statut `CANCELLED` et transition `REJECTED → CANCELLED` (payeur, demandeur) dans `packages/domain/src/txMachine.ts` ; `abandonRejected` et `deleteDraft` dans `packages/api-client/src/mockApi.ts`.
+- **Depuis le lot X v2** (commit `de85dfc`) : `txMachine.ts` n’existe plus. La machine de l’opération est `packages/domain/src/operationMachine.ts` : `REJECTED` n’y est plus un statut ; l’annulation par l’initiateur (`DRAFT` ou `ACTIVE` → `CANCELLED`, `cancelOperation`) et le refus par le bureau (`PENDING_REVIEW` ou `IN_REVIEW` → `CANCELLED` avec motif) la remplacent.
 
 ## D5 — Verrouillage après trois codes SMS erronés
 
@@ -98,3 +100,312 @@ Choix délégués par le client au prestataire. Chaque décision reste révisabl
 - **Date** : 11 novembre 2026
 - **Statut** : décidé par le chef de projet
 - **Décision** : quand un validateur ouvre un dossier `SUBMITTED`, il le prend en charge. La transition `SUBMITTED → IN_REVIEW` est jouée automatiquement par `claim_dossier` et journalisée à son nom. Un dossier déjà `IN_REVIEW` reste ouvert aux autres validateurs, comme l’exige la double validation. Un validateur partie au dossier ne le prend pas en charge (RG-03) : il le voit en lecture seule.
+
+---
+
+# Lot X — fondations du cahier d’extension (passe 1 : X1 à X3)
+
+Principe : tant que le client n’a pas tranché, le comportement par défaut ne change pas. Les choix ci-dessous sont ceux que le prompt du lot laissait ouverts ; ils sont révisables au kickoff. Le document d’analyse `ALIGNEMENT-CAHIER-EXTENSION.md` (questions K1 à K14) n’était pas disponible dans l’espace de travail : seules les questions citées par le prompt (K1, K2, K3) sont référencées ici.
+
+## X-0 — Organisation des migrations du lot X
+
+- **Date** : 12 novembre 2026
+- **Décision** : `0007_lotx_enums.sql` (valeurs d’enum : `INFO_REQUESTED`, `REJECTED`, `IMMEDIATE`) et `0008_lotx.sql` (X1 à X3) sont appliquées sur le projet de développement à la fin de la passe 1. Comme une migration appliquée n’est jamais modifiée, la passe 2 ajoute **une migration par tâche**, appliquée à la fin de sa tâche : `0009_lotx_x4.sql`, `0010_lotx_x5.sql`, `0011_lotx_x6.sql`, `0012_lotx_x7.sql` (au lieu d’un seul `0009_lotx_p2.sql` annoncé à la passe 1 : un fichier unique aurait dû être modifié après son application, ou appliqué d’un bloc sans commit par tâche). Leur test est un nouveau fichier, `supabase/tests/04_lotx_p2.sql` (et sa variante éditeur), plutôt que la suite de `03_lotx.sql`, qui reste celui de la passe 1.
+
+## X-1 — Sécurité du TrustLink
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - **Plus aucun lien** : partage, copie, enregistrement du QR et adresse du lien retirés de l’écran du jeton ; route `t/[reference]`, rejeu d’un lien après connexion, `buildLink`, `parseDeepLink` et `EXPO_PUBLIC_LINK_BASE` supprimés. Seul lien interne : `diaspay://tranche/<identifiant de tranche>` (`parseInternalLink`, `+native-intent.tsx`) ; toute autre adresse est ignorée. Le build web garde ses routes adressables par URL (outil de développement), toujours derrière la session et la RLS.
+  - **QR** : affiché au payeur connecté seulement, pour sa tranche **payée** (`PAID_LOCKED`) ; le bouton « Afficher le QR » d’une tranche à payer est retiré (écart visible, voir le compte rendu). Capture d’écran interdite sur iOS et Android (`expo-screen-capture`). Avec `eqr_image_enabled = 'false'`, la référence reste affichée (non sélectionnable) pour la saisie manuelle par le prestataire.
+  - **Lecture du jeton réservée au payeur** (RLS de `tranche_tokens`) : avant, toutes les parties le lisaient, donc le prestataire pouvait confirmer sans le QR du payeur.
+  - **Même réponse** pour une référence inconnue et un dossier étranger : `resolve_reference_info` renvoie `null` (traduit en `UNKNOWN_REFERENCE` par le client) au lieu de lever une erreur, pour que l’échec soit enregistré (une erreur annulerait l’enregistrement). `confirm_by_reference` lève `UNKNOWN_REFERENCE` dans les deux cas, sans enregistrer l’échec, mais applique la limite.
+  - **Limitation** : `app_config.reference_failure_limit = 10` par utilisateur et par heure glissante ; `security_events` (ajout seul, lecture par le personnel) ne garde que les 4 premiers caractères de la référence tentée ; `SUSPICIOUS_ACTIVITY` écrit une fois au seuil.
+  - **Révocation** : par l’initiateur (créateur du dossier) tant que la tranche n’est pas payée, ou par un administrateur non partie à tout moment ; motif obligatoire ; le jeton révoqué est conservé (clé primaire propre, un seul jeton actif par tranche). `reissue_token` révoque puis émet une nouvelle référence, jamais journalisée. Le rejet d’une demande révoque aussi le jeton.
+  - **Ouverture** : `mark_received` ne journalise que la première ouverture (`REQUEST_VIEWED`), quel que soit l’état de la tranche.
+  - **Gabarits externes** : trois familles (`PAYMENT_REQUEST_RECEIVED`, `REQUEST_UPDATED`, `PAYMENT_UPDATED`), français et anglais, sans aucun paramètre ; l’e-mail et WhatsApp ajoutent « DiasPay ne vous envoie jamais de lien de paiement… ». Aucun canal externe n’est encore branché.
+- **Reste à décider** : `eqr_image_enabled` en production ; signature cryptographique réelle et vérification hors ligne (TrustEngine) ; durée de validité définitive des jetons ; fournisseur SMS, e-mail, WhatsApp. État détaillé : `docs/specs/trustlink-security.md`.
+
+## X-2 — Décisions du payeur (serveur et domaine, sans écran)
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - Transitions passées **uniquement** par `request_info`, `answer_info` et `reject_request` (motif de 3 à 2000 caractères) ; `transition_tranche` les refuse (`TRANSITION_FORBIDDEN`).
+  - Une demande d’informations n’est possible que si le payeur **n’est pas** l’initiateur (sinon personne ne pourrait répondre) ; l’initiateur est le créateur du dossier (demandeur, ou prestataire en X3).
+  - Le motif d’un rejet est conservé comme message `NOTE` ; `REJECTED` est terminal et compte pour la clôture. Le retour à `AWAITING_PAYMENT` après une réponse n’envoie pas de nouvelle alerte `PAYMENT_READY` (l’alerte est `INFO_ANSWERED`).
+  - Destinataires : `INFO_REQUESTED`, `INFO_ANSWERED`, `REQUEST_REJECTED` aux autres parties que l’auteur ; alertes sans texte ni montant.
+  - Pièces d’une réponse : documents de la tranche, insérés par l’initiateur pendant `INFO_REQUESTED` (politiques `docs_insert_info`, `dossiers_insert_info`) ; `answerInfo` de l’API ne prend que le texte (l’envoi des pièces viendra avec l’écran, lot Y).
+  - Mode `IMMEDIATE` : ajouté, **aucun type de besoin ne l’utilise** (K1) ; testé en basculant temporairement `RENT` dans la transaction annulée du test SQL, et dans le domaine (`paymentOutcome`).
+- **Reste à décider** : expiration d’une tranche en `INFO_REQUESTED` (aujourd’hui : aucune) ; effet d’un rejet sur les tranches suivantes (aujourd’hui : seule la tranche rejetée est close, un jalon suivant reste bloqué car il attend une tranche débloquée) ; flux par défaut (K1) et validation par défaut (K2).
+
+## X-3 — Demandes initiées par un prestataire ou un tiers
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - `profiles.can_initiate_requests` : **enrôlement provisoire**, faux par défaut, modifiable seulement par un administrateur (déclencheur `guard_profile`, comme `platform_role`). L’enrôlement réel (niveaux de vérification) sera défini au kickoff (K3).
+  - Rôle explicite du brouillon `creatorRole` (`NeedDraft`, stocké avec le brouillon) ; `createDraft({ vertical, creatorRole })` dans l’API est un raccourci de `saveDraft`. **Sans rôle explicite, rien ne change** : demandeur si le profil l’est, sinon payeur. Un profil « prestataire » sans rôle explicite crée donc en payeur, comme le serveur le faisait déjà ; le simulateur, qui le refusait, est aligné.
+  - Rôle `PROVIDER` : autorisation obligatoire (`INITIATION_NOT_ALLOWED`), payeur désigné par téléphone (invitation s’il n’a pas de compte, rattachement à l’inscription), jamais soi-même (`SELF_PAYER`), payeur exigé à la soumission ; le nom du prestataire est celui du profil du créateur ; un prestataire n’agit sur un brouillon que s’il l’a créé.
+  - `PAYMENT_REQUEST_RECEIVED` est envoyé au payeur **à la soumission** (dès que les contrôles existants passent), avant la validation du bureau de contrôle, qui reste obligatoire (aucun changement de K2). Un payeur sans compte ne reçoit rien ; il retrouve la demande à son inscription.
+  - Aucun écran : l’assistant de création garde sa forme (la variante « je suis prestataire » viendra au lot Y).
+- **Reste à décider** : politique d’enrôlement et niveaux de vérification (K3) ; tiers non prestataire ; notification d’un payeur invité après son inscription.
+
+## X-4 — TrustVault : empreintes et consultations
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - **Empreinte** : `documents.content_hash` (SHA-256, 64 caractères hexadécimaux, normalisée en minuscules) et `hash_algo` (`SHA-256`), calculées sur l’appareil avant l’envoi (`expo-crypto` 58 sur les octets lus par `expo-file-system`, WebCrypto sur le web), enregistrées par `add_document` (paramètre facultatif `p_hash`, même signature d’appel sans empreinte) ; le simulateur reçoit la même fonction dans l’application. **Immuables** : aucune modification, ni ajout après coup sur une pièce enregistrée sans empreinte (`HASH_IMMUTABLE`).
+  - **Empreinte facultative côté serveur** tant que le réglage `require_content_hash` vaut `false` (défaut) : les versions déjà installées de l’application et les tests existants envoient des pièces sans empreinte. L’application, elle, en envoie toujours une. À passer à `true` avant la production (liste de contrôle).
+  - **Réutilisation (TrustProof)** : `document_reuse(hash, tx)` compte les **autres dossiers soumis** (brouillons exclus) contenant la même empreinte. Une partie n’interroge qu’une empreinte d’une pièce qu’elle voit (sinon `NOT_FOUND`, même réponse qu’une empreinte inconnue) et ne reçoit qu’un nombre ; le personnel reçoit aussi les références courtes. Contrôle `DOCUMENT_REUSED` (ATTENTION, sans blocage) dans `dossier_checks`, détail : type de pièce et références. Une même pièce d’identité réutilisée par le même payeur déclenche aussi l’alerte : c’est voulu, le validateur juge.
+  - **Consultations** : `get_document_access` journalise `DOCUMENT_VIEWED` (acteur, rôle, pièce ; horodatage de la ligne) pour toute partie et le personnel, puis le stockage autorise la lecture du fichier 2 minutes (même mécanisme que le lot 5). **Changement voulu** : une partie ne lit plus un fichier d’un dossier soumis sans consultation journalisée. Exception : le brouillon jamais audité de son créateur (non journalisé, sinon il deviendrait insupprimable, décision D4).
+  - **Immuabilité** : déclencheur sur `documents` : ni modification ni suppression (`DOCUMENT_LOCKED`) hors brouillon ou dossier rejeté, sauf une pièce de réponse pendant `INFO_REQUESTED` ; la suppression du dossier lui-même et la réinitialisation de démonstration restent possibles. Les fichiers du bucket étaient déjà protégés (aucune politique de mise à jour, suppression limitée aux brouillons jamais audités).
+  - Aucun écran mobile n’affiche aujourd’hui une pièce déjà envoyée ; `documentUrl` passe désormais par `get_document_access`, et le back-office garde `open_document` (lot 5, même journal).
+- **Reste à décider** : passage de `require_content_hash` à `true` ; durée de conservation des pièces et des journaux de consultation (exigence 5.3) ; chiffrement applicatif des pièces au repos (aujourd’hui : chiffrement du stockage Supabase) ; contrôle de réutilisation entre payeurs différents seulement, si les alertes sur les pièces d’identité gênent le bureau.
+
+## X-5 — Fondations des paiements
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - **Aucun appel à TrustPayWay.** `PaymentPort` v2 dans le domaine (`createPayment`, `getPaymentStatus`, `refund`, `verifyWebhook`, `parseWebhook`) ; un adaptateur simulé qui répond par des **événements signés** (HMAC-SHA256), appliqués par le même chemin que ceux du partenaire, dans le simulateur (`PaymentEngine`) comme sur le serveur (`demo_settle_payment` → `apply_payment_event`, mock_mode).
+  - **Paiement de l’application** : `payTranche` passe désormais par `start_payment` puis par l’événement simulé, au lieu de `simulate_tranche_system(…, 'PAID_LOCKED')` (toujours disponible pour les tests existants). Résultat visible identique (tranche payée, fonds bloqués). Clé d’idempotence : une par écran de paiement (nouvel essai, double appui : jamais un second paiement).
+  - **Tentatives** : clé unique de 8 à 200 caractères ; au plus une tentative en cours ou réussie par tranche ; fournisseur `app_config.payment_provider` (`SIMULATED`). Seul le payeur paie (`PAYER_ONLY`).
+  - **Événements** : `apply_payment_event` réservée au rôle `service_role` (ni `anon`, ni `authenticated`) ; la signature est vérifiée par l’appelant, une signature invalide est enregistrée sans être appliquée ; la fonction répond toujours, sans exception, pour que l’événement reste enregistré.
+  - **Journal** : plan de comptes minimal à faire valider (`docs/specs/ledger.md`) ; équilibre par devise vérifié par une contrainte différée ; lignes immuables ; remboursements par contrepassation ; versement au prestataire écrit au déblocage par un déclencheur sur `release_events` (tous les déclencheurs de déblocage sont couverts).
+  - **Remboursements** : administrateur non partie, jamais au-delà du payé, idempotents ; une tranche débloquée n’est pas remboursable par cette voie. **Le litige tranché en faveur du payeur ne crée pas de remboursement** (comportement inchangé) : le rapprochement le signale.
+  - **Rapprochement** : vue `v_reconciliation` (personnel), onze codes d’écart, mêmes règles dans le simulateur.
+- **Reste à décider** : validation du plan de comptes et des frais ; expiration d’une tentative sans réponse ; lien entre litige et remboursement ; fonction Edge de réception des webhooks de TrustPayWay et schéma de signature ; écran de rapprochement pour le bureau de contrôle.
+
+## X-6 — Types de besoin configurables (noyau et modules)
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - **`request_modules`** : code, libellés et descriptions (français, anglais), activé, vague, mode de déblocage, délai de contestation, double validation, `platform_review`, plusieurs payeurs, pièces requises (JSON : type, obligatoire, nombre maximal de fichiers, libellés), ordre d’affichage. Amorcée avec les valeurs actuelles ; **la migration vérifie** qu’elles coïncident avec `release_rules`, `required_documents` et `open_verticals` avant de les remplacer, et s’arrête sinon. Écriture réservée aux administrateurs (RLS) ; un module se contrôle à l’écriture (types de pièce, 1 à 10 fichiers, libellés).
+  - **Colonne `transactions.vertical` conservée** (nom inchangé), passée de l’enum `vertical` à `text` avec une clé étrangère vers `request_modules(code)`. L’enum `vertical` reste en base, inutilisé, pour le retour arrière. Les vues du bureau (`bo_dossiers`, `bo_evidence_queue`, `bo_disputes`) sont recréées à l’identique à partir de leur définition en base.
+  - **`release_rules` et `required_documents` deviennent des vues** sur `request_modules` ; les anciennes tables sont **renommées** (`_release_rules_0003`, `_required_documents_0005`), pas supprimées. `app_config.open_verticals` n’est plus lu : l’ouverture est `request_modules.enabled`.
+  - **Réversible** : `supabase/rollbacks/0011_lotx_x6_down.sql` (refuse si un dossier utilise un module ajouté depuis). Testé dans une transaction annulée sur le jeu de données du projet de développement augmenté de 300 dossiers synthétiques (tous types, huit statuts) : application, retour arrière, puis comparaison (303 dossiers, règles, pièces et ouverture identiques) et tests 00 à 03 verts.
+  - **`platform_review`** : `needs_platform_review(tx)` et, à la soumission, `ALWAYS` = file du bureau (inchangé), `NEVER` = validation automatique par le système (`SUBMITTED → VALIDATED`, journal `AUTO_VALIDATED`, sans ligne de validation), `RISK_BASED` = automatique sauf montant au seuil de double validation, **première demande validée** du créateur, ou doublon (même règle que le contrôle `DUPLICATE`). **Double validation toujours appliquée** : un dossier qui exige deux validateurs (module ou seuil) va toujours au bureau, quel que soit le mode. **Tous les modules restent `ALWAYS`.**
+  - **Client** : `listModules()` ; l’assistant lit la liste des types, les pièces requises (et leur nombre maximal de fichiers), la règle de déblocage du récapitulatif et les libellés dans les modules, avec les valeurs du code tant que la liste n’est pas chargée. `RELEASE_RULES`, `REQUIRED_DOCUMENTS` et `VERTICALS` restent les valeurs par défaut du simulateur et des tests (`DEFAULT_MODULES`), comparées par test à l’amorçage SQL.
+  - Changements de comportement voulus, invisibles avec les modules par défaut : un code de type de besoin bien formé inconnu de l’application est accepté (un module peut s’ajouter par des données) ; le simulateur répond `VERTICAL_UNAVAILABLE` (comme le serveur) au lieu de `VALIDATION` pour un type fermé.
+- **Reste à décider** : valeurs de `platform_review` par module (K2) ; écran d’administration des modules (back-office) ; filtre « Verticale » du back-office encore limité aux six types connus ; suppression de l’enum `vertical` et des tables renommées une fois le retour arrière jugé inutile.
+
+## X-7 — Structure multi-payeurs (préparation, sans interface)
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - `transaction_parties` : identifiant propre (`id`, clé primaire) au lieu de (transaction, rôle) ; unicité (transaction, utilisateur, rôle) et (transaction, téléphone invité, rôle). **Un seul demandeur et un seul prestataire** par dossier, comme avant (index unique sur le rôle hors payeur), pour que rien ne change hors des payeurs.
+  - Second payeur : **déclencheur de contrainte** (`_check_multiple_payers`, `MULTIPLE_PAYERS_NOT_ALLOWED`), qui lit `request_modules.multiple_payers` (faux partout). Il s’applique à toute écriture, y compris hors des politiques RLS. Aucune fonction ni API ne propose d’ajouter un payeur (pas d’interface) ; la règle du domaine (`checkAddPayer`) est prête pour la phase 2.
+  - Retour arrière : `supabase/rollbacks/0012_lotx_x7_down.sql`, à jouer avant celui de 0011 ; la chaîne 0012 puis 0011 est testée dans une transaction annulée (jeu de données du développement, puis tests 00 à 03).
+  - Suite (contributions, cible, clôture, surplus, anonymat) : brouillon `docs/specs/multi-payers.md`.
+- **Reste à décider** : tout ce que liste `docs/specs/multi-payers.md` (types concernés, parts, échéance non atteinte, anonymat, litiges).
+
+---
+
+# Lot X version 2 — refonte du noyau après le kickoff
+
+Le prompt « Lot X (version 2) » remplace le premier lot X. Modèle cible : `docs/specs/modele-cible-v2.md` (décisions K1 à K14). Le document `ALIGNEMENT-CAHIER-EXTENSION.md` n’a pas été fourni : `docs/alignement-cahier-extension.md` n’existe pas.
+
+## X0-v2 — Reprise de l’ancien lot X, migrations
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - L’ancien lot X (0007 à 0012) est appliqué et conservé : jamais modifié. La version 2 continue la numérotation : `0013_lotx2_enums.sql` (valeurs d’enum seulement, fichier séparé), `0014_lotx2_core.sql` (X2), `0015_lotx2_x1.sql` (compléments X1, qui dépendent du mode de règlement), `0016_lotx2_x3.sql` (X3), puis `0017_lotx2_fixes.sql`, `0018_lotx2_fixes2.sql` et `0019_lotx2_fixes3.sql` (défauts de 0014 trouvés en mettant les tests et les écrans à jour ; 0014 étant appliquée, elle n’est pas retouchée). 0019 : un remboursement intégral décidé par un litige sur des fonds encore bloqués (CONDITIONAL) les marque rendus (RETURNED), pour qu’ils ne puissent plus être libérés au prestataire. Commits par tâche : X2, puis X1, puis X3 (X1 dépend du mode de règlement de X2).
+  - Ancien X1 : conservé ; ancien X2 (`INFO_REQUESTED`, `REJECTED`) : conservé avec la table 3.2 ; `IMMEDIATE` → `settlement_mode = DIRECT` (voir X2-v2) ; `platform_review` : défaut `NEVER` ; `can_initiate_requests` : conservé jusqu’à X4 (enrôlement).
+  - Écrans : adaptations minimales listées dans `docs/lotx2-adaptations-ecrans.md`.
+  - Tests : 00 à 04 mis à jour volontairement, avec un nouveau test `05_lotx2_p1.sql` (et sa variante éditeur) pour la passe 1. Chaque contrôle modifié, remplacé ou ajouté est listé avec sa raison dans `docs/lotx2-controles-sql.md`.
+
+## X2-v2 — Le noyau : opérations, demandes, états, règlement direct (K1, K2, K5, K6, K7)
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - **Statuts** exactement ceux des sections 3.1 et 3.2. PostgreSQL ne retire pas une valeur d’enum : les anciennes valeurs (SUBMITTED, VALIDATED, TOKEN_ISSUED, IN_PROGRESS, DISPUTED pour l’opération ; PLANNED, AWAITING_PAYMENT, PAID_LOCKED, CONFIRMED, RELEASED, EVIDENCE_SUBMITTED, DISPUTED pour la demande ; IMMEDIATE) restent dans les types, mais des contraintes (`transactions_status_v2`, `tranches_status_v2`, `tranches_no_immediate`, `request_modules_no_immediate`) les refusent, et le TypeScript ne les connaît plus. `IN_REVIEW` est gardé comme sous-état de la revue (prise en charge D8) : la section 5 du modèle le prévoit.
+  - **Données de développement converties**, pas effacées (aucune donnée de production) : correspondance de la section 5 (PLANNED → DRAFT, AWAITING_PAYMENT → SUBMITTED, payée → PAID avec `funds_state`, opération en cours → ACTIVE, rejetée → CANCELLED, litiges → dossiers RESOLVED avec issue). Plus sûr qu’un `demo_reset()` : les comptes de démonstration gardent leurs dossiers.
+  - **Soumission** : `submit_operation` (et `transition_tx(…,'SUBMITTED')`, gardée comme alias pour les appels existants). Mêmes contrôles qu’avant, plus un payeur obligatoire pour toute opération. NEVER → ACTIVE (`AUTO_ACTIVATED`, auteur : l’initiateur qui soumet) ; sinon PENDING_REVIEW. L’activation soumet les demandes dues (RG-12 conservée). Plus de jeton d’opération ni d’étapes « système » simulées (`auto_issue_token` n’est plus lu).
+  - **Revue par le bureau** : file du lot 5 inchangée côté interface (`bo_dossiers` : PENDING_REVIEW et IN_REVIEW). Approbation → ACTIVE (alerte `TX_VALIDATED`) ; rejet → **CANCELLED** avec motif (alerte `TX_REJECTED`). **D4 remplacée** pour ce parcours : plus de correction d’une opération rejetée (l’initiateur en crée une nouvelle) ; l’abandon devient l’annulation par l’initiateur (`cancelOperation`, DRAFT ou ACTIVE → CANCELLED ; en ACTIVE avec une demande payée, seules les demandes restantes sont annulées et l’opération se clôt).
+  - **Mode de règlement** : `transactions.settlement_mode`, recopié du module à la création du brouillon. Vague 1 (Scolarité, Santé, Loyer) en DIRECT ; vague 2 (Agro, Immobilier, Terrain) en CONDITIONAL, avec leurs règles de libération en données. En DIRECT : paiement → PAID, versement au prestataire au journal (`DIRECT_PAYMENT`), reçu immédiat, ni jeton, ni scan, ni délai de contestation. En CONDITIONAL : PAID avec `funds_state = HELD`, puis confirmation (scan du prestataire, ou payeur en PAYER_CONFIRM : `confirm_service`), preuves (`submit_evidence`, décision du bureau), libération (`approve_release`, délai écoulé, ou litige) → RELEASED ; `funds_state = RETURNED` si les fonds reviennent au payeur. `confirmed_at` et `evidence_submitted_at` remplacent les anciens statuts.
+  - **Paiement** (en attendant `accept_and_pay` en X5) : `start_payment` passe la demande SUBMITTED → ACCEPTED ; l’événement du partenaire la passe à PAID, ou la rend payable (ACCEPTED → SUBMITTED) si toutes les tentatives échouent. Un remboursement versé passe PAID → REFUNDED (`refunded_minor`, partiel ou total).
+  - **Litige distinct** : statuts OPEN (ouverture), AWAITING_RESPONSE (le bureau demande une précision : `request_dispute_response`), IN_MEDIATION (la partie adverse a répondu, ou une partie a complété : `respond_dispute`, `add_dispute_message`), RESOLVED (avec une issue). Le modèle ne fixe pas les transitions entre ces statuts : celles-ci sont un choix à valider. Avant paiement (SUBMITTED, INFO_REQUESTED, ACCEPTED) : `on_hold`, opération SUSPENDED (le paiement et la demande d’informations répondent `REQUEST_ON_HOLD`) ; issue NO_ACTION seulement, qui lève la suspension. Après paiement : statut inchangé ; issues de remboursement (remboursement lié, contrepassation) ou, en CONDITIONAL avec fonds bloqués, FUNDS_RELEASED / FUNDS_RETURNED. Un litige en cours bloque la libération automatique.
+  - **Suspension pour fraude** : `suspend_operation` et `lift_suspension` (personnel non partie), sans écran.
+  - **Expiration** : `expire_due_requests` (pg_cron, toutes les heures), selon `request_modules.request_expiry_days` : point ouvert, aucune valeur, donc aucune expiration aujourd’hui.
+  - **Alertes** : demande soumise → `PAYMENT_READY` si le payeur est l’initiateur, `PAYMENT_REQUEST_RECEIVED` sinon (au payeur seul) ; paiement exécuté → `REQUEST_PAID` (nouvelle) ; confirmation et libération en CONDITIONAL → `TRANCHE_CONFIRMED`, `TRANCHE_RELEASED` (sauf libération décidée par un litige : `DISPUTE_RESOLVED` seule, 0017).
+  - **Vue `payment_requests`** (lecture seule) et colonnes du modèle (`target_amount_minor`, `scheduled_for` générées depuis `amount_minor` et `due_date`, `currency` recopiée de l’opération) ; le TypeScript parle de `PaymentRequest` (`Tranche` reste un alias).
+  - **Domaine** : `operationMachine`, `paymentRequestMachine` (chaque transition permise et refusée, par acteur, testée ; parité avec les tables SQL testée), `conditionalRelease`, `disputes`.
+  - **Journal en DIRECT** : le paiement est aussitôt versé (journaux PAYMENT puis RELEASE). Un remboursement intégral laisse alors `PARTNER_CASH` à −montant et `DUE_TO_PROVIDER` à +montant pour la demande, ce qui se lit « le prestataire doit rendre la somme ». Le journal reste équilibré. Cette lecture est à valider avec le plan de comptes (`docs/specs/ledger.md`), qui sera revu en X5.
+- **Reste à décider** : transitions entre statuts de litige ; durée d’expiration par module ; seuil `RISK_BASED` ; plan de comptes en DIRECT (rétrofacturation). Voir `docs/open-parameters.md`.
+
+## X1-v2 — Compléments de sécurité du TrustLink et du QR (K4)
+
+- **Date** : 12 novembre 2026
+- **Choisi** : l’ancien X1 est conservé. `eqr_image_enabled` vaut désormais `false` (QR retiré du parcours par défaut ; code conservé pour CONDITIONAL). Résolution d’une référence : le payeur, l’initiateur, et le prestataire **en CONDITIONAL seulement** (la confirmation par scan l’exige) ; même réponse pour « inconnue » et « pas partie ». Les jetons de demande n’existent qu’en CONDITIONAL : émis à la soumission, réémission refusée en DIRECT (`NO_TOKEN`, 0018).
+- **Reste à décider** : l’image du QR en CONDITIONAL ; QR dynamique du commerçant (interface plus tard, schéma en X3).
+
+## X3-v2 — Décisions du payeur, jeton de présentation (K4, K6)
+
+- **Date** : 12 novembre 2026
+- **Choisi** :
+  - `request_info` (SUBMITTED → INFO_REQUESTED), `answer_info` (→ SUBMITTED), `reject_request` : fonctions du premier lot, statuts v2.
+  - **`accept_plan`** : le payeur accepte le principe du plan, une fois (idempotente), ce qui n’autorise aucun paiement à l’avance. L’action est journalisée et l’alerte `PLAN_ACCEPTED` part aux autres parties. Elle est aussi possible quand l’opération est suspendue.
+  - **Jeton de présentation** : `presentation_tokens` ne conserve que l’empreinte SHA-256 de la référence. La référence (32 caractères hexadécimaux) n’est renvoyée qu’à l’émission et jamais journalisée.
+    - Émission par l’initiateur, pour une demande soumise. Chaque émission révoque les jetons précédents non pris (rotation). `revoke_presentation_tokens` révoque explicitement.
+    - Prise en charge à usage unique. Elle lie la demande à l’utilisateur connecté : le payeur invité par téléphone, ou un payeur encore inconnu. Elle renvoie un résumé minimal (nom de l’initiateur, montant, devise) et n’autorise aucun paiement.
+    - Refus explicites : expiré (`TOKEN_EXPIRED`), révoqué (`TOKEN_REVOKED`), déjà pris (`TOKEN_USED`).
+    - Référence inconnue, demande déjà liée à un autre payeur, ou prise en charge par l’initiateur lui-même : réponse nulle, et l’échec compte pour la limitation (`TOO_MANY_ATTEMPTS`).
+    - Durée de vie : réglage `presentation_token_ttl_seconds`, point ouvert. La valeur 90 est posée en développement seulement (mock_mode) ; sans réglage, l’émission répond `NOT_CONFIGURED`.
+  - **Initiation par un prestataire** : inchangée (`can_initiate_requests`) jusqu’à X4 (niveaux d’enrôlement).
+  - Aucun écran nouveau. `acceptPlan` est exposé par l’API ; le jeton de présentation ne l’est pas encore (interface du lot Y).
+- **Reste à décider** : durée de vie et rotation du QR de présentation (avec le partenaire et en test) ; affichage obligatoire du nom du commerçant, du montant puis des frais avant toute autorisation (lot Y, X5 pour les frais).
+
+
+## X4-v2 — Enrôlement et niveaux (K3)
+
+- **Date** : 12 novembre 2026
+- **Choisi** (migration `0020_lotx2_x4.sql`, test `06_lotx2_p2.sql`, partie X4) :
+  - **Niveau** : `profiles.enrolment_level` (N0 à N3, défaut N0). C’est du texte avec une contrainte, pas une énumération, pour se passer d’un fichier d’énumérations séparé. Le niveau est protégé comme `platform_role` (déclencheur `guard_profile`, code `PROFILE_PROTECTED`). Un profil créé directement par un client est forcé à N0.
+  - **Initiation** : N1 pour initier une demande en demandeur, N2 en prestataire (commerçant). Le payeur qui crée son propre besoin reste en N0 : il n’envoie de demande à personne. Contrôle dans `save_draft`, puis de nouveau à la soumission (`ENROLMENT_REQUIRED`).
+  - **`can_initiate_requests` (lot X, 0008) supprimée.** Conversion des données de développement seulement (mock_mode) : l’ancienne autorisation devient N2, et un demandeur (rôle principal ou initiateur d’un dossier) devient N1. Hors mock_mode, personne n’est relevé sans dossier. Le code `INITIATION_NOT_ALLOWED` devient `ENROLMENT_REQUIRED` (`docs/error-codes.md`, codes renommés).
+  - **Dossiers** : `enrolment_cases` (un seul dossier ouvert par profil), `enrolment_documents`, et le journal immuable `enrolment_events`. Les dossiers d’enrôlement ne concernent aucune transaction, d’où un journal à part plutôt que `audit_log`. Pièces exigées : N1 pièce d’identité et selfie ; N2 immatriculation et justificatif d’activité, après le N1 du représentant ; N3 documents légaux et mandat du représentant, après le N1.
+  - **KycPort** (`@diaspay/domain`) : N1 et N2 passent par l’adaptateur, N3 par la revue manuelle.
+    - En mock_mode, le résultat simulé vient du réglage `kyc_simulated_result` (APPROVED, REJECTED ou REVIEW ; APPROVED en développement). Il passe par le même chemin (`_apply_kyc`) que l’adaptateur réel.
+    - L’adaptateur réel appellera `apply_kyc_result`, réservée au rôle service. Elle est sans effet sur un dossier déjà tranché.
+    - REVIEW envoie le dossier au bureau.
+  - **Revue par le personnel** : `claim_enrolment_case` (un seul relecteur), puis `decide_enrolment` (approbation, ou refus avec motif). Le personnel n’examine jamais son propre dossier (`SELF_REVIEW`). Aucun écran (lot Y).
+  - **Pièces d’identité** : bucket privé distinct `identity`. Chaque titulaire dépose dans son dossier `<uid>/` ; aucune modification ni suppression. La lecture n’est possible que dans les 2 minutes qui suivent une consultation journalisée (`get_enrolment_document_access`), par le titulaire ou par le relecteur qui a pris le dossier en charge. Les autres validateurs n’y ont pas accès.
+  - **Plafonds** (`enrolment_limits`, par niveau et devise, par paiement, par jour et par mois) :
+    - Aucune valeur n’a été fournie (point ouvert 1) : la table est vide hors développement.
+    - Ligne absente : refus prudent (`LIMITS_NOT_CONFIGURED`), sauf si le réglage `limits_when_missing` vaut explicitement ALLOW.
+    - En mock_mode, des lignes de développement sans aucun plafond (`dev_only`) gardent les démonstrations payables, sans inventer de nombre.
+    - Le contrôle porte sur le payeur, dans la devise de la demande. Jour et mois sont des périodes civiles UTC, et les paiements en cours comptent. Il s’applique à l’acceptation (`accept_and_pay`, X5).
+  - **Simulateur** : niveau par utilisateur (`MockUser.enrolmentLevel`, N0 par défaut) et adaptateur KYC simulé. Le compte de démonstration de l’application est N2 dans le simulateur ; sur Supabase, les comptes de démonstration et de test sont relevés par `seed.sql`.
+- **Contrôles SQL modifiés** : 00, 01, 02, 03 et 05 relèvent leur demandeur à N1 dans le jeu d’essai. Dans 03, les trois contrôles de `can_initiate_requests` sont remplacés par des contrôles du niveau. Détail dans `docs/lotx2-controles-sql.md`.
+- **Reste à décider** : le prestataire de vérification d’identité (adaptateur réel) ; les plafonds (point ouvert 1) ; la période des plafonds (jour civil UTC ou glissant) ; si le prestataire désigné par un payeur doit aussi être enrôlé ; la conservation des pièces d’identité (point ouvert 6).
+
+## X5-v2 — Paiements, devises, remboursements (K7, K9, K10, K12)
+
+- **Date** : 12 novembre 2026
+- **Choisi** (migration `0021_lotx2_x5.sql`, test `06_lotx2_p2.sql`, partie X5) : 0010 (tentatives, événements, journal, rapprochement) est complétée, pas refaite.
+  - **Statuts du modèle cible** : tentative INITIATED → PENDING → CONFIRMED ou FAILED, uniquement par des événements du partenaire ou du simulateur ; remboursement REQUESTED, EXECUTED, FAILED. Les anciennes valeurs (SUCCEEDED, PENDING) sont converties par la migration et refusées par les contraintes. Les **types d’événement** du partenaire (`PAYMENT_SUCCEEDED`, `REFUND_SUCCEEDED`…) et les **codes d’écart** du rapprochement (`SUCCEEDED_WITHOUT_EVENT`…) gardent leur nom : ce sont des codes stables, pas des statuts.
+  - **Contributions** (K9) : une demande est payée quand la somme des contributions confirmées atteint son montant cible. En phase 1, une seule contribution du montant total, créée à l’acceptation. Après un échec, la contribution passe en FAILED et une nouvelle tentative en crée une autre. Une contribution entièrement remboursée passe en REFUNDED.
+  - **Devis** (`fx_quotes`, K10) : demandé avant l’autorisation (`get_quote`), figé (déclencheur, `QUOTE_FROZEN`), utilisable une fois, conservé avec le paiement.
+    - Contenu : devises, taux, source, horodatage, expiration, frais par poste (service, change, moyen de paiement) et total débité.
+    - Devise canonique : celle de la demande. Le journal et les montants des tentatives restent dans cette devise ; les frais sont des lignes du journal `PAYMENT` dans la devise débitée (équilibre par devise inchangé).
+    - Conversion exacte, **arrondie au supérieur** : le payeur couvre toujours le montant de la demande.
+    - Le partenaire ne cote pas encore (point ouvert 7). Le simulateur cote à partir du réglage `simulated_fx_rates` et marque le devis `simulated`. En développement, seule la parité fixe EUR/XAF (655,957) est posée : aucun taux USD n’est inventé, d’où `QUOTE_UNAVAILABLE`.
+    - Durée de vie : `fx_quote_ttl_seconds` (300 s en développement seulement ; absent, `NOT_CONFIGURED`). Frais : barème `fee_schedule` (absent : aucun frais), point ouvert 9.
+  - **`accept_and_pay(p_request, p_idempotency_key, p_quote_id)`** contrôle, dans l’ordre :
+    - le rejeu de la même clé ;
+    - la partie, le payeur, la suspension, l’opération active, une tentative en cours et la demande à payer ;
+    - le devis (`QUOTE_INVALID`, `QUOTE_USED`, `QUOTE_EXPIRED`) ;
+    - le plafond du niveau du payeur (X4).
+
+    Il crée la contribution et la tentative INITIATED, et fait passer la demande en ACCEPTED. La condition de témoin s’ajoutera en X8.
+  - **`start_payment` est conservée** comme raccourci des écrans existants : devis dans la devise de la demande, puis `accept_and_pay`, avec la même idempotence. Pourquoi : l’écran de paiement ne change pas avant le lot Y (détail des frais).
+  - **Remboursement manuel (pilote)** : `mark_refund_executed(p_refund, p_partner_ref)`, réservée à un administrateur non partie. Elle exige la référence du partenaire et pose automatiquement la contrepassation (`REFUND_SETTLED`), par le même chemin (`_refund_executed`) que l’événement du partenaire. Elle est idempotente pour la même référence ; avec une autre référence, elle répond `REFUND_NOT_PENDING`.
+  - **Simulateur** : moteur `PaymentEngine` mis à jour (devis, contributions, statuts, exécution manuelle), et `getQuote` et `acceptAndPay` dans l’API ; un ancien instantané est converti au chargement. `SupabaseApi` : `getQuote`, `acceptAndPay` ; `payTranche` règle la démonstration dès que la tentative est INITIATED ou PENDING.
+- **Contrôles SQL modifiés** : 00, 02, 04 et 05 (noms de statut de tentative et de remboursement). Détail dans `docs/lotx2-controles-sql.md`. Test de bout en bout du bureau (`litiges.spec.ts`) : remboursement REQUESTED.
+- **Reste à décider** : cotations du partenaire (point ouvert 7), durée de vie d’un devis (point ouvert 8), barème des frais et qui les paie (point ouvert 9), arrondi au supérieur à valider avec le partenaire, expiration d’une tentative sans réponse du partenaire.
+
+## X6-v2 — Types de besoin configurables, données minimales (K13)
+
+- **Date** : 12 novembre 2026
+- **Choisi** (migrations `0022_lotx2_x6.sql` et `0023_lotx2_fixes4.sql`, test `06_lotx2_p2.sql`, partie X6) : 0011 est complétée (`request_modules`, colonne `vertical` en texte avec clé étrangère, `release_rules` et `required_documents` en vues). Le nom de colonne `vertical` reste, comme le demande le lot.
+  - **Nouvelles colonnes du module** :
+    - `beneficiary_mode` : NAME, REFERENCE_ONLY ou NONE ;
+    - `retention_days` : vide tant que la durée n’est pas décidée (point ouvert 6), sans purge automatique ;
+    - une **sensibilité** pour chaque pièce requise : STANDARD, ou SENSITIVE pour la santé.
+
+    Valeurs vérifiées par le déclencheur `_check_module_documents` et par `checkModule` du domaine.
+  - **Santé (K13)** : le devis seul, sensible ; référence du patient au lieu du nom. Décision D2 corrigée (date et raison ci-dessus).
+  - **Référence du bénéficiaire** : `transactions.beneficiary_reference`, mise en majuscules. Elle ne contient ni espace (donc jamais un nom complet) ni plus de 16 caractères (`BENEFICIARY_REFERENCE_INVALID`).
+    - `save_draft` refuse un nom pour un module REFERENCE_ONLY ou NONE (`BENEFICIARY_NAME_NOT_ALLOWED`), et le nom ne reste pas non plus dans le brouillon enregistré (`draft_data`).
+    - `submit_operation` exige la référence (`BENEFICIARY_REFERENCE_REQUIRED`).
+    - Données de développement : les noms des bénéficiaires de la santé déjà enregistrés sont effacés. Les anciennes pièces d’identité de dossiers de développement restent, mais aucune nouvelle n’est acceptée.
+  - **Types de pièce** : une pièce du dossier doit être d’un type prévu par le module (`DOCUMENT_KIND_NOT_ALLOWED`). Exception : la preuve de jalon (`EVIDENCE`), rattachée à une demande et non au module (0023, défaut trouvé par le test de bout en bout du bureau).
+  - **Journaux** : la consultation d’une pièce sensible (`get_document_access`, `open_document`) est journalisée sans nom de fichier ni chemin, avec l’empreinte SHA-256 du chemin, qui suffit à la lecture du fichier dans les 2 minutes. Les alertes n’ont jamais contenu de nom, d’objet ni de référence ; un test le vérifie pour la santé.
+  - **Client** :
+    - le domaine (`checkBeneficiary`, `isAllowedKind`, `isSensitiveKind`), `DEFAULT_MODULES` et le test de coïncidence avec l’amorçage SQL (0011, 0014, 0022) sont mis à jour ;
+    - l’assistant de création lit le mode du bénéficiaire dans le module : « Référence du patient » pour la santé, rien pour NONE ;
+    - simulateur et `SupabaseApi` : `beneficiaryReference`, mode du bénéficiaire, sensibilité.
+  - Un type de besoin s’ajoute par une ligne de données (test : module `TEST_ANON`, sans bénéficiaire, de bout en bout). Un type de la vague 2 désactivé est refusé.
+- **Contrôles modifiés** : 00, 01 et 04 (santé sans pièce d’identité, référence au lieu du nom, type de pièce non prévu) ; tests du domaine, du client, de l’application et de bout en bout du bureau (`fixtures.ts`). Détail dans `docs/lotx2-controles-sql.md`.
+- **Reste à décider** : les durées de conservation (point ouvert 6) et la purge, le format exact de la référence du patient avec les établissements de santé, et la sensibilité des autres pièces (le bail et l’attestation d’inscription contiennent aussi des données personnelles).
+
+# Lot X-C — corrections avant la passe 3
+
+Source : état des lieux du 16 novembre 2026 (`docs/etat-des-lieux/ETAT-DES-LIEUX.md`, sections D.6, J et L ; risques R1 à R7). Hiérarchie des sources : `docs/sources-client.md` (le document du client prévaut sur `docs/specs/modele-cible-v2.md`). Migrations 0024 à 0031, test `supabase/tests/07_lotxc.sql`, contrôles modifiés dans `docs/lotx2-controles-sql.md` (section « Lot X-C »).
+
+## Xc-2 — Chemin de paiement réel (R1)
+
+- **Date** : 17 novembre 2026
+- **Constat** : `SupabaseApi.payTranche` et `acceptAndPay` appelaient toujours `demo_settle_payment`, qui lève `DEMO_DISABLED` hors `mock_mode` : aucun paiement possible en production.
+- **Choisi** : option `demoSettle` de `SupabaseApi` (défaut faux), branchée sur `EXPO_PUBLIC_DEMO` dans l’application et vraie dans les harnais de test. Hors démonstration, la tentative reste `INITIATED` ou `PENDING` et la demande `ACCEPTED` ; l’écran de l’opération affiche « Paiement en cours de confirmation » et se met à jour par le temps réel déjà publié sur `tranches` (vérifié dans `useRealtime` et `subscribeChanges`). Aucun mécanisme nouveau.
+- **Conséquence** : sur le projet de développement, hors démonstration, un paiement reste en cours tant que le simulateur de scénarios (X9) n’existe pas (`docs/supabase-setup.md` §9).
+
+## Xc-3 — Brouillons d’opération (R2)
+
+- **Date** : 17 novembre 2026
+- **Constat confirmé** (reproduit en base) : la politique `tx_update_draft` laissait le créateur modifier par PostgREST toute colonne d’un brouillon : `beneficiary_name` (nom d’un patient, contre K13), `settlement_mode`, `initiator_id`. `status` restait protégé par `guard_status`.
+- **Écritures directes clientes sur `transactions`** : aucune (les applications ne font que des `SELECT`).
+- **Choisi** (0024) : politique supprimée, `save_draft` seul chemin. `submit_operation` recalcule `settlement_mode` depuis `request_modules`, refuse un `initiator_id` différent du créateur (`INITIATOR_MISMATCH`, nouveau code) et un nom quand le module ne le prévoit pas (`BENEFICIARY_NAME_NOT_ALLOWED`). Aucun `grant update (colonnes)` n’a été nécessaire.
+- **Non fait** : le test mort sur `'REJECTED'` de `save_draft` reste, la fonction n’ayant pas été modifiée.
+
+## Xc-4 — Profils, numéro et nom (R3)
+
+- **Date** : 17 novembre 2026
+- **Constat confirmé** : `profiles_self_update` et `guard_profile` ne protégeaient pas `phone` : un utilisateur pouvait inscrire le numéro d’un autre et se faire désigner comme contrepartie à sa place (`_user_by_phone`).
+- **Écritures directes clientes sur `profiles`** : `auth.saveProfile` (`full_name`, `country`, `primary_role`) et les préférences (`push_enabled`), dans `packages/api-client/src/supabase/auth.ts`. Conservées.
+- **Choisi** :
+  - 0025 : `phone` protégé par `guard_profile` (`PROFILE_PROTECTED`), convention de 0004 (déclencheur plutôt que droits par colonne). Le numéro ne change que par l’authentification : le numéro vérifié de `auth.users` est recopié (`on_auth_user_phone_changed`). Unicité du numéro **normalisé** (`profiles_phone_norm_key`) ; aucun doublon relevé le 16 novembre.
+  - 0030 (complément) : à partir de N1, le nom est figé (`PROFILE_PROTECTED`) : il a été rapproché d’une pièce d’identité. En N0, `saveProfile` pose encore le nom ; réécrire la même valeur reste permis. Les fonctions serveur (KYC) ne sont pas concernées.
+
+## Xc-5 — Prise en charge du jeton de présentation (R5)
+
+- **Date** : 17 novembre 2026
+- **Constat** : `claim_presentation_token` liait n’importe quel porteur du jeton comme payeur quand le payeur n’était connu que par son téléphone.
+- **Choisi** (0026, dépend de Xc-4) : la prise en charge n’aboutit alors que si le numéro vérifié de l’utilisateur connecté est égal, une fois normalisé, à celui de l’invitation. Sinon : même réponse nulle qu’une référence inconnue, échec compté (`TOO_MANY_ATTEMPTS` inchangé). Aucun payeur désigné (cas du commerçant, K4) : comportement conservé.
+
+## Xc-6 — Libération automatique et demande échue (R6, J1)
+
+- **Date** : 17 novembre 2026
+- **Choisi** (0027) :
+  - `release_due_tranches` ne libère rien pour une opération `SUSPENDED`. Une opération `CLOSED` avec des fonds `HELD` est impossible par construction (`_request_final`, `_close_operation_if_done`, `guard_status`) : vérifié dans le code, rien changé.
+  - `get_quote` et `accept_and_pay` refusent une demande dont `expires_at` est passée, avant même le passage horaire d’`expire_due_requests` (`REQUEST_EXPIRED`, nouveau code ; aucun équivalent n’existait). Après ce passage, les codes d’aujourd’hui restent.
+  - Parité : domaine (`isAutoReleasable` avec `txSuspended`) et simulateur (`checkNotExpired`, `expiresAt` posée à la soumission depuis `requestExpiryDays`).
+
+## Xc-7 — Un TrustToken pour chaque demande, y compris en règlement direct
+
+- **Date** : 17 novembre 2026
+- **Source** : cahier d’extension du client, section 1 (tout paiement est associé à un TrustToken et à un TrustLink), cas 3 et 8 (chaque demande et chaque échéance a son propre TrustToken), section 3.C (« TrustToken généré » juste après la soumission), **exigence 5.1**. Le lot X v2 avait supprimé le jeton en `DIRECT` (0014, `NO_TOKEN` en 0018) en même temps que le lien partageable et le QR : c’était un écart avec le client, corrigé ici. Le lien partageable et l’image du QR restent supprimés (`eqr_image_enabled` faux).
+- **Choisi** (migration `0028_lotxc_t7.sql`, test `07_lotxc.sql`, section T7) :
+  - **Émission** : `_submit_request` émet le jeton à la soumission, quel que soit le mode, et journalise `TOKEN_ISSUED` (« TrustToken généré » dans la chronologie). `reissue_token` et `revoke_token` fonctionnent en `DIRECT` ; `NO_TOKEN` ne vaut plus que pour une demande non soumise (ou au statut final).
+  - **Validité en `DIRECT`** : elle est contrôlée par le **cycle de vie de la demande**, pas par une durée propre au jeton :
+    - expiration : `tranche_tokens.expires_at` = `expires_at` de la demande. Tant que la durée d’expiration des demandes n’est pas fixée (point ouvert 3), ni la demande ni le jeton n’expirent ; **quand une durée sera fixée, le jeton en héritera** sans autre changement ;
+    - révocation à chaque statut final de la demande (payée, refusée, annulée, échue, remboursée) et à l’annulation de l’opération (déclencheur `tranches_revoke_token_on_final` ; `transition_tx` ne révoquait rien jusque-là).
+  
+    Aucune durée n’est inventée.
+  - **Validité en `CONDITIONAL`** (complément, migration `0031_lotxc_t7b.sql`) : jusqu’au paiement, le jeton suit lui aussi l’échéance de la demande. `token_ttl_days` ne s’applique qu’à la **phase de confirmation**, à compter du passage à PAID (et à toute réémission pendant cette phase). Avant 0031, le délai courait dès la soumission : une demande payée au 8e jour avait déjà un jeton expiré, et la confirmation par scan était refusée (`TOKEN_EXPIRED`). Les jetons `CONDITIONAL` actifs non payés ont repris l’échéance de leur demande.
+  - **`auto_issue_token` supprimé** (0031) : plus aucune fonction ne le lisait depuis 0014 (seule `_simulate_token_issue`, de l’ancien parcours de validation v1, le lisait, et plus rien ne l’appelait). L’émission du TrustToken à la soumission est **inconditionnelle** : aucun réglage ne la conditionne. Le réglage, la fonction morte, la ligne de `seed.sql` et les mises à jour des tests 00, 01 et 04 sont retirés.
+  - **Résolution** inchangée (`_party_token`, 0015) : en `DIRECT`, seuls le payeur et l’initiateur résolvent la référence ; le prestataire seulement en `CONDITIONAL`. Même réponse nulle pour une référence inconnue ou étrangère, limitation inchangée.
+  - **Paiement** : `accept_and_pay` refuse une demande sans jeton actif (`TOKEN_REVOKED`). Le simulateur fait de même.
+  - **Écrans** : aucun changement visible en `DIRECT` (pas de QR ni de lien). L’affichage du TrustToken et du DiasPay Link dans l’espace de vérification du payeur viendra au lot Y. Le reçu porte désormais la référence du jeton en `DIRECT` aussi.
+  - **Données de développement** : un jeton est émis pour chaque demande `DIRECT` déjà soumise et non finale, dans la migration.
+- **Contrôles modifiés** : 00, 01, 02, 03 et 05 (« aucun jeton en DIRECT » devient « un jeton par demande soumise ») ; contrat X1 réécrit ; tests du simulateur. Détail dans `docs/lotx2-controles-sql.md`.
+
+
+## Xc-8 — Droits de anon et lecture des réglages (R7, D.6)
+
+- **Date** : 17 novembre 2026
+- **Constat** (T1, 16 novembre) : 14 fonctions du schéma `public` exécutables par `anon` (7 fonctions des politiques, 6 fonctions de déclencheur, et `rls_auto_enable`, qui ne vient d’aucune migration : fonction d’event trigger créée par l’option du tableau de bord Supabase) ; `app_config` lisible par tous les rôles.
+- **Choisi** (0029) :
+  - `app_config` : lecture réservée à `authenticated` ; aucune lecture avant connexion (vérifié dans le bureau et l’application).
+  - EXECUTE retiré à `anon` et `PUBLIC` sur toute fonction du schéma `public`, par un parcours du catalogue : une fonction absente (`rls_auto_enable` sur un projet neuf) est ignorée, la migration passe partout. `authenticated` garde les fonctions des politiques et perd les fonctions de déclencheur (PostgreSQL ne vérifie pas EXECUTE au déclenchement).
+  - Fonctions futures : privilèges par défaut du rôle des migrations (`postgres`, vérifié dans `pg_default_acl`) sans `anon` (réglage par schéma de Supabase) ni `PUBLIC` (réglage global de PostgreSQL). Les fonctions créées par `supabase_admin` ne sont pas couvertes ; le contrôle générique les signalerait.
+  - `00_smoke` : contrôle générique (aucune fonction pour `anon`) avec une liste d’exceptions explicite et vide, à la place de la liste fermée.
+- **Conséquence** : une requête de `anon` sur une table dont la politique appelle `is_party` est désormais **refusée** au lieu de rendre une liste vide. Aucune donnée n’était exposée avant, aucun écran n’en dépend.
+
+## Xc-9 — Valeurs sûres côté client et restes (X1.2, X1.8, J3, D5)
+
+- **Date** : 17 novembre 2026
+- **Choisi** :
+  - `eqrImageEnabled` : réglage absent = image masquée.
+  - Garde de production : un build sans `EXPO_PUBLIC_API=supabase` (valeur absente ou autre) est bloqué comme `DemoInReleaseBlocked`, sauf build interne déclaré (`EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE=1`). `mock` est bloqué comme une valeur absente : c’est aussi le simulateur.
+  - Déclaration orpheline `Stack.Screen name="t/[reference]"` retirée.
+  - `MockAuth` aligné sur D5 : `OTP_WRONG` sans compteur ni verrouillage, comme Supabase. L’écart avec le cahier (US-01) est désormais commun aux deux implémentations.
+  - `scripts/prod-readiness.sql` (lecture seule) : réglages dangereux pour une production ; points 44 à 46 de `docs/release-checklist.md`.

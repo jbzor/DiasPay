@@ -3,7 +3,7 @@ import { Linking, Platform, Pressable, StyleSheet, View, useWindowDimensions } f
 import { Text } from '@/ui/text';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
-import { useIsFocused, useLocalSearchParams } from 'expo-router';
+import { useIsFocused } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fontSize, palette, semantic, spacing, touchTarget } from '@diaspay/ui-tokens';
 import { trancheStatusKey, useI18n } from '@/i18n';
@@ -34,7 +34,6 @@ export default function Scan() {
   const focused = useIsFocused();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const params = useLocalSearchParams<{ ref?: string; n?: string }>();
   const [permission, requestPermission] = useCameraPermissions();
   const [s, dispatch] = useReducer(scanReducer, initialScanState);
   const [torch, setTorch] = useState(false);
@@ -43,11 +42,6 @@ export default function Scan() {
   const [bioError, setBioError] = useState(false);
 
   useEffect(() => { dispatch({ type: 'START' }); }, []);
-
-  // Lien profond du prestataire (/t/<référence>) : même parcours qu’un scan.
-  useEffect(() => {
-    if (params.ref) dispatch({ type: 'MANUAL', text: String(params.ref), at: Date.now() });
-  }, [params.ref, params.n]);
 
   // Première ouverture : demande la permission de la caméra.
   useEffect(() => {
@@ -152,7 +146,7 @@ export default function Scan() {
 
           {s.phase === 'error' ? (
             <>
-              <Banner tone="error" text={s.error === 'OFFLINE' ? t('scanOffline') : errorText({ code: s.error === 'GENERIC' ? undefined : s.error })} />
+              <Banner tone="error" text={s.error === 'OFFLINE' ? t('scanOffline') : s.error === 'WRONG_MODE' ? t('scanWrongMode') : errorText({ code: s.error === 'GENERIC' ? undefined : s.error })} />
               <Button label={t('scanAnother')} onPress={() => dispatch({ type: 'RESET' })} />
             </>
           ) : null}
@@ -162,7 +156,7 @@ export default function Scan() {
               <StatusLabel kind="active" label={t('qrValid')} />
               <Text style={st.sheetTitle}>{t('sheetTranche', { n: s.info.seq, amount: money({ amountMinor: s.info.amountMinor, currency: s.info.currency }) })}</Text>
               <View>
-                <Row label={t('beneficiary')} value={s.info.beneficiaryName} />
+                {s.info.beneficiaryName ? <Row label={t('beneficiary')} value={s.info.beneficiaryName} /> : null}
                 <Row label={t('purpose')} value={s.info.purpose} />
                 <Row label={t('status')} value={t(trancheStatusKey(s.info.status))} />
               </View>

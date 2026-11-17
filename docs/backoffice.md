@@ -1,5 +1,11 @@
 # Bureau de contrôle (back-office web)
 
+> **Avertissement (lot X version 2, rappelé au lot X-C le 17 novembre 2026).** La validation systématique de chaque dossier
+> par le bureau **n’est plus le flux par défaut** : `request_modules.platform_review` vaut `NEVER` pour tous les types de
+> besoin (décision K2). Une opération soumise est active aussitôt (`AUTO_ACTIVATED`) ; le bureau ne voit un dossier que
+> si un module est réglé sur `ALWAYS` ou `RISK_BASED`. Il traite par ailleurs l’enrôlement, les signalements de fraude et la
+> médiation des litiges. Le reste de ce document décrit les écrans tels qu’ils existent et reste valable pour ces cas.
+
 Application Next.js 16 (App Router, TypeScript strict) dans `apps/web`, utilisée par les **validateurs** et les **administrateurs**, au-dessus du même projet Supabase que l’application mobile. Elle couvre quatre écrans :
 
 - Dossiers à valider (BO1)

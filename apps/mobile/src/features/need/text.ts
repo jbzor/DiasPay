@@ -1,5 +1,6 @@
 import type { NeedIssue, PlanType } from '@diaspay/domain';
 import { useI18n } from '@/i18n';
+import { getModules } from '@/state/modules';
 import type { Key } from '@/i18n';
 import { en } from '@/i18n/messages';
 import type { PlanLabels } from './wizard';
@@ -8,7 +9,9 @@ import type { PlanLabels } from './wizard';
 export function useNeedText() {
   const { t, money, locale } = useI18n();
   const has = (k: string): k is Key => k in en;
-  const docLabel = (kind: string) => (has(`doc_${kind}`) ? t(`doc_${kind}` as Key) : kind);
+  // Pièces connues : textes de l’application ; pièce déclarée par un module (lot X, X6) : libellés du module.
+  const docLabel = (kind: string) => (has(`doc_${kind}`) ? t(`doc_${kind}` as Key)
+    : getModules().flatMap((m) => m.requiredDocuments).find((d) => d.kind === kind)?.labels[locale] ?? kind);
   const issueText = (i: NeedIssue | undefined): string | null => {
     if (!i) return null;
     const k = `need_${i.code}`;

@@ -8,7 +8,7 @@ const REF = '4f9a2c71b8e01d3ca9';
 const QR = encodeEqr({ reference: REF, kid: 'SIMULATED', signature: 'SIMULATED.ab' });
 const T0 = 1_000_000;
 const info = (over: Partial<ReferenceInfo> = {}): ReferenceInfo => ({
-  trancheId: 'tr-1', txId: 'tx-1', label: 'Scolarité T1', amountMinor: 300_000, currency: 'XAF', status: 'PAID_LOCKED',
+  trancheId: 'tr-1', txId: 'tx-1', label: 'Scolarité T1', amountMinor: 300_000, currency: 'XAF', status: 'PAID',
   expiresAt: new Date(T0 + 3_600_000).toISOString(), used: false, providerName: 'École', beneficiaryName: 'Aïcha N.', purpose: 'Scolarité',
   seq: 2, contestHours: 72, ...over,
 });
@@ -77,8 +77,8 @@ describe('machine d’états du scan', () => {
     it('TOKEN_USED', () => expect(err(info({ used: true }))).toBe('TOKEN_USED'));
     it('TOKEN_EXPIRED', () => expect(err(info(), true, T0 + 3_600_001)).toBe('TOKEN_EXPIRED'));
     it('NOT_PAID', () => {
-      expect(err(info({ status: 'AWAITING_PAYMENT' }))).toBe('NOT_PAID');
-      expect(err(info({ status: 'CONFIRMED' }))).toBe('NOT_PAID');
+      expect(err(info({ status: 'SUBMITTED' }))).toBe('NOT_PAID');   // lot X v2 : demande pas encore payée
+      expect(err(info({ status: 'REFUNDED' }))).toBe('NOT_PAID');
     });
     it('succès', () => expect(err(info())).toBe('ready'));
     it('precheck est pur', () => expect(precheck(info(), T0, true)).toBeNull());

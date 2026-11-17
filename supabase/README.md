@@ -1,6 +1,27 @@
 # Base de données DiasPay (Supabase / PostgreSQL)
 
-Quatre migrations à appliquer **dans l'ordre**, une par fichier :
+## État actuel (17 novembre 2026, lot X-C)
+
+**31 migrations**, `0001` à `0031`, toutes appliquées au projet de développement par `scripts/db.sh push`. Les sections plus bas décrivent l’historique des premiers lots ; ce qui suit fait foi pour l’état actuel.
+
+| Migrations | Lot | Contenu |
+|---|---|---|
+| 0001 à 0004 | v0.1 à v0.3 | Schéma de base, tranches, correctifs |
+| 0005, 0006 | lots 4 et 5 | Codes d’erreur stables, brouillons serveur, pg_cron ; bureau de contrôle |
+| 0007 à 0012 | lot X, passe 1 | TrustLink, empreintes (TrustVault), paiements, modules, multi-payeurs |
+| 0013 à 0023 | lot X version 2 | Noyau v2 (statuts, `settlement_mode`, litige distinct), QR, décisions du payeur, enrôlement, devises, données minimales |
+| 0024 à 0031 | lot X-C | Brouillons (0024), profils et numéro (0025, 0030), jeton de présentation (0026), libération et demande échue (0027), TrustToken en règlement direct (0028, 0031), droits de `anon` (0029) |
+
+**Statuts v2** (machines du domaine identiques au SQL, `packages/domain/src/operationMachine.ts` et `paymentRequestMachine.ts`) :
+- opération : `DRAFT`, `PENDING_REVIEW`, `IN_REVIEW`, `ACTIVE`, `SUSPENDED`, `CLOSED`, `CANCELLED` ;
+- demande de paiement (table `tranches`, vue `payment_requests`) : `DRAFT`, `SUBMITTED`, `INFO_REQUESTED`, `ACCEPTED`, `PAID`, `REJECTED`, `CANCELLED`, `EXPIRED`, `REFUNDED` ;
+- le litige est un dossier distinct, pas un statut ; l’état des fonds (`funds_state`) n’existe qu’en `CONDITIONAL`.
+
+**Tests** : `scripts/db.sh test` exécute `tests/00_smoke.sql` à `tests/07_lotxc.sql` (tout est annulé à la fin) ; `scripts/db.sh test-editor` leurs variantes pour l’éditeur SQL. Décisions : `docs/decisions.md` ; sources du client : `docs/sources-client.md`.
+
+## Historique : les quatre premières migrations
+
+Quatre migrations à appliquer **dans l'ordre**, une par fichier (état d’origine, conservé) :
 
 | Fichier | Contenu |
 |---|---|
@@ -90,7 +111,7 @@ Test : `tests/02_lot5.sql` (132 vérifications). Variante pour l’éditeur SQL 
   - `log_audit_export(tx, lignes)` journalise l’export CSV sous `AUDIT_EXPORTED`.
   - `bo_find_transactions(texte)` cherche par objectif, nom, prestataire, référence du dossier ou d’un eQR.
 - **Litiges** : colonnes `response`, `responded_by` et `responded_at`, et fonction `respond_dispute(litige, texte)`. Seule la partie adverse répond, une seule fois (`NOT_RESPONDENT`, `ALREADY_ANSWERED`) ; l’écran mobile de réponse reste à faire.
-- **Émission simulée du jeton** : avec `mock_mode = 'true'` et `auto_issue_token = 'true'` (posé par `seed.sql`), une validation complète enchaîne comme la validation de démonstration : jeton, `IN_PROGRESS`, puis activation de la première tranche (RG-12). Hors `mock_mode`, le dossier reste `VALIDATED` : l’émission relève du TrustEngine, hors périmètre.
+- ~~Émission simulée du jeton (`auto_issue_token`)~~ : sans effet depuis 0014, supprimée par 0031. Le TrustToken est désormais émis à la soumission de chaque demande, sans réglage (Xc-7).
 - **Droits** : aucune fonction nouvelle n’est exécutable par `anon`, et les fonctions internes ne le sont par personne ; les vues sont fermées à `anon`. Un test dédié le vérifie.
 - **Comptes du personnel de test** : `supabase/seed-staff.sql` (`scripts/db.sh seed-staff`), développement seulement. Le mot de passe est lu dans `.env.local` (`E2E_STAFF_PASSWORD`).
 

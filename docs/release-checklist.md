@@ -4,7 +4,7 @@
 
 1. **Le mode démonstration est désactivé.** `EXPO_PUBLIC_DEMO` et `EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE` ne sont pas définis dans l’environnement du build. Contrôle automatique : un build de production (`!__DEV__`) avec `EXPO_PUBLIC_DEMO=1` affiche un écran bloquant « Build non conforme » et journalise l’anomalie (`apps/mobile/src/lib/releaseGuard.ts`). `EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE=1` ne sert qu’aux builds internes de démonstration et aux captures de conformité.
 2. `EXPO_PUBLIC_UPLOAD_FAILURE_RATE` n’est pas défini (pas d’échec d’envoi simulé).
-3. `EXPO_PUBLIC_LINK_BASE` désigne le domaine réservé des DiasPay Links, et les fichiers `apple-app-site-association` et `assetlinks.json` sont publiés (voir README, lot 2).
+3. **Aucun lien ouvrable de l’extérieur** (lot X) : `app.json` ne déclare ni `ios.associatedDomains` ni `android.intentFilters` ; aucun fichier `apple-app-site-association` ni `assetlinks.json` n’est publié pour l’application (`pnpm --filter @diaspay/mobile test` vérifie l’absence de route `/t/` et de partage).
 4. `EXPO_PUBLIC_HELP_URL` et `EXPO_PUBLIC_TERMS_URL` pointent vers les pages publiées du centre d’aide et des conditions.
 5. `pnpm -r test`, `pnpm --filter @diaspay/mobile typecheck` et `pnpm --filter @diaspay/mobile exec expo export --platform web` passent.
 6. Le numéro de version (`expo.version` dans `app.json`) a été incrémenté ; l’écran Profil › À propos l’affiche.
@@ -46,7 +46,42 @@
     - Vercel ne définit que `NEXT_PUBLIC_SUPABASE_URL` et `NEXT_PUBLIC_SUPABASE_ANON_KEY`, et cette dernière est la clé publique.
     - Après `pnpm --filter @diaspay/web build`, `pnpm --filter @diaspay/web test` inclut le contrôle de `.next/static` : ni `sb_secret_`, ni JWT `service_role`.
 20. **Aucun numéro de test actif** en production : `sms_test_otp` vide dans Supabase Auth (voir aussi le point 13). Les numéros +33 6 39 98 00 11 à 14 n’existent que sur le projet de développement.
-21. `auto_issue_token` absent ou `'false'` en production : sans `mock_mode`, il est sans effet, et le jeton relève du TrustEngine.
+21. ~~`auto_issue_token`~~ : réglage supprimé par 0031 (lot X-C). Le TrustToken est émis à la soumission de chaque demande, sans réglage.
 22. **Domaine du bureau de contrôle** déclaré dans Supabase Auth (Site URL et Redirect URLs, `…/auth/confirm`). En-têtes vérifiés : `curl -sI https://<domaine>/connexion` doit montrer la CSP à nonce, `X-Frame-Options: DENY` et `Referrer-Policy: no-referrer`.
 23. **`supabase/seed-evidence.sql` jamais exécuté** en production. Il refuse de toute façon si `mock_mode <> 'true'`.
 24. **Longueur minimale des mots de passe** : dans Supabase Auth, `password_min_length` est à 12 (6 par défaut). Le bureau de contrôle impose déjà 12 caractères lors d’une réinitialisation.
+
+## Fondations du cahier d’extension (lot X)
+
+25. **Aucun gabarit de notification externe ne contient d’adresse** : `pnpm --filter @diaspay/domain test` (test d’architecture de `notificationTemplates.ts` : ni lien, ni domaine, ni référence, ni chiffre, ni paramètre). Tout envoi SMS, e-mail ou WhatsApp passe par `externalNotification()`, jamais par un texte libre.
+26. **`eqr_image_enabled` décidé** par le client et fixé en production :
+    ```sql
+    select value from app_config where key = 'eqr_image_enabled';   -- 'true' (QR affiché au payeur) ou 'false' (référence seule)
+    ```
+27. **Limitation des résolutions** : `select value from app_config where key = 'reference_failure_limit';` renvoie `10` ; le personnel surveille `security_events` (`SUSPICIOUS_ACTIVITY`).
+28. **`can_initiate_requests`** n’est accordé qu’à des comptes enrôlés par un administrateur (`select count(*) from profiles where can_initiate_requests;`), en attendant la politique d’enrôlement (K3).
+29. **Mode `IMMEDIATE` non utilisé** tant que le client n’a pas tranché (K1) : `select vertical from release_rules where release_mode = 'IMMEDIATE';` ne renvoie aucune ligne.
+30. **Empreinte des pièces obligatoire** : `select value from app_config where key = 'require_content_hash';` renvoie `true` (toutes les versions de l’application en circulation envoient l’empreinte). Contrôle : `select count(*) from documents where content_hash is null and created_at > now() - interval '30 days';` est nul.
+31. **Consultations journalisées** : une partie ne lit un fichier du bucket `dossiers` qu’après `get_document_access` (politique `dossiers_read`) ; `supabase/tests/04_lotx_p2.sql` passe sur l’environnement de recette.
+32. **Idempotence et rapprochement testés** sur l’environnement de recette : `supabase/tests/04_lotx_p2.sql` (même clé, événement en double, hors d’ordre, signature invalide, journal équilibré et immuable, remboursement partiel puis total) et `select count(*) from v_reconciliation where cardinality(issues) > 0;` examiné par le personnel (connecté).
+33. **`apply_payment_event` réservée au service** : `select has_function_privilege('authenticated', 'apply_payment_event(text, text, boolean, jsonb)', 'execute');` renvoie `false`. La fonction Edge qui reçoit les webhooks de TrustPayWay vérifie leur signature avant de l’appeler.
+34. **`demo_settle_payment` et `demo_settle_refund` refusées** en production (`mock_mode = 'false'` : `DEMO_DISABLED`) ; `payment_provider` vaut le partenaire réel.
+35. **`platform_review` décidé** pour chaque type de besoin (K2) : `select code, platform_review from request_modules order by display_order;`. Par défaut, `ALWAYS` partout. Un module `NEVER` ou `RISK_BASED` ne dispense jamais de la double validation.
+36. **Retour arrière de 0011 décidé** : tant que `supabase/rollbacks/0011_lotx_x6_down.sql` peut servir, garder l’enum `vertical` et les tables `_release_rules_0003`, `_required_documents_0005` ; ne pas ajouter de module en production avant d’y avoir renoncé (le retour arrière refuse un dossier d’un module ajouté).
+37. **Un seul payeur partout** tant que la phase 2 n’est pas livrée : `select count(*) from request_modules where multiple_payers;` est nul.
+
+## Noyau v2 (lot X version 2)
+
+38. **Paramètres ouverts résolus ou explicitement acceptés** : chaque ligne de `docs/open-parameters.md` a une valeur fournie, ou une décision écrite d’accepter le comportement prudent (refus, revue, absence d’expiration). En production, `presentation_token_ttl_seconds` n’a pas la valeur de développement sans décision.
+39. **Règlement direct par défaut vérifié** : `select code, settlement_mode, platform_review from request_modules order by display_order;` correspond aux décisions K1 et K2 ; `supabase/tests/05_lotx2_p1.sql` passe sur l’environnement de recette.
+40. **Aucun ancien statut en base** : `select count(*) from tranches where status::text in ('PLANNED','AWAITING_PAYMENT','PAID_LOCKED','CONFIRMED','RELEASED','EVIDENCE_SUBMITTED','DISPUTED');` est nul (les contraintes l’imposent).
+
+41. **Enrôlement prêt** (X4) : aucune ligne `dev_only` dans `enrolment_limits` (`select count(*) from enrolment_limits where dev_only;` est nul) ; plafonds saisis ou refus prudent accepté par écrit ; `kyc_simulated_result` absent (`select count(*) from app_config where key = 'kyc_simulated_result';` est nul) ; adaptateur KYC réel choisi et branché sur `apply_kyc_result` (rôle service) ; bucket `identity` privé.
+42. **Paiements v2 prêts** (X5) : `fx_quote_ttl_seconds` fixé avec le partenaire (pas la valeur de développement sans décision) ; `simulated_fx_rates` absent si le partenaire cote ; `fee_schedule` décidé (ou « aucun frais » accepté par écrit) ; procédure d’exécution manuelle des remboursements (`mark_refund_executed`, référence du partenaire) écrite pour le pilote ; `select status, count(*) from payment_attempts group by 1;` ne montre que INITIATED, PENDING, CONFIRMED, FAILED.
+43. **Données minimales** (X6, K13) : `select code, beneficiary_mode, retention_days from request_modules;` : la santé en REFERENCE_ONLY ; durées de conservation décidées (point ouvert 6) ou absence de purge acceptée par écrit ; `select count(*) from transactions t join request_modules m on m.code = t.vertical where m.beneficiary_mode <> 'NAME' and t.beneficiary_name is not null;` est nul.
+
+## Corrections avant la passe 3 (lot X-C)
+
+44. **Réglages dangereux : aucun, ou acceptés par écrit.** `scripts/db.sh psql -f scripts/prod-readiness.sql` (lecture seule) liste `mock_mode = 'true'`, `require_staff_mfa <> 'true'`, `enrolment_limits` vide ou avec des lignes `dev_only`, `fee_schedule` absent, et toute fonction du schéma public exécutable par `anon`. Le résultat doit être vide, ou chaque ligne restante acceptée par écrit.
+45. **Build de boutique relié au serveur** : `EXPO_PUBLIC_API=supabase` et `EXPO_PUBLIC_DEMO` absent, sans `EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE`. Sinon l’application se bloque au lancement (`releaseGuard.ts`).
+46. **Paiement réel** : un paiement hors démonstration reste « en cours » (demande `ACCEPTED`) jusqu’à l’événement signé du partenaire (`apply_payment_event`). Vérifier sur la recette qu’un événement du partenaire fait bien passer la demande à `PAID` (temps réel sur `tranches`).

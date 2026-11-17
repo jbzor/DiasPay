@@ -54,44 +54,26 @@ describe('MockAuth', () => {
     expect(await auth.getSession()).toEqual(s);
   });
 
-  it('indique les essais restants sur un mauvais code', async () => {
+  it('mauvais code : OTP_WRONG sans compteur ni verrouillage, comme Supabase (D5, lot X-C T9)', async () => {
     const { auth } = make();
     await auth.requestOtp(PHONE);
-    const e1 = await codeOf(auth.verifyOtp(PHONE, '000000'));
-    expect(e1.code).toBe('OTP_WRONG');
-    expect(e1.details.remaining).toBe(2);
-    const e2 = await codeOf(auth.verifyOtp(PHONE, '000001'));
-    expect(e2.details.remaining).toBe(1);
+    for (let i = 0; i < 5; i++) {
+      const e = await codeOf(auth.verifyOtp(PHONE, '000000'));
+      expect(e.code).toBe('OTP_WRONG');
+      expect(e.details.remaining).toBeUndefined();
+    }
+    expect((await auth.verifyOtp(PHONE, MOCK_OTP_CODE)).phone).toBe(E164);   // le bon code passe toujours
   });
 
-  it('verrouille 15 minutes après trois échecs, puis déverrouille', async () => {
-    const { auth, advance } = make();
-    await auth.requestOtp(PHONE);
-    await codeOf(auth.verifyOtp(PHONE, '000000'));
-    await codeOf(auth.verifyOtp(PHONE, '000000'));
-    const lock = await codeOf(auth.verifyOtp(PHONE, '000000'));
-    expect(lock.code).toBe('OTP_LOCKED');
-    expect(lock.details.lockedUntil).toBe(new Date(T0.getTime() + 15 * MIN).toISOString());
-    // Même le bon code et une nouvelle demande sont refusés pendant le verrouillage.
-    expect((await codeOf(auth.verifyOtp(PHONE, MOCK_OTP_CODE))).code).toBe('OTP_LOCKED');
-    expect((await codeOf(auth.requestOtp(PHONE))).code).toBe('OTP_LOCKED');
-    advance(15 * MIN - 1);
-    expect((await codeOf(auth.requestOtp(PHONE))).code).toBe('OTP_LOCKED');
-    advance(1);
-    await auth.requestOtp(PHONE);
-    const e = await codeOf(auth.verifyOtp(PHONE, '000000'));
-    expect(e.details.remaining).toBe(2); // compteur remis à zéro
-    expect((await auth.verifyOtp(PHONE, MOCK_OTP_CODE)).phone).toBe(E164);
-  });
-
-  it('un renvoi ne remet pas le compteur d’échecs à zéro', async () => {
+  it('après un renvoi, le nouveau code est accepté (aucun compteur, D5, lot X-C T9)', async () => {
     const { auth, advance } = make();
     await auth.requestOtp(PHONE);
     await codeOf(auth.verifyOtp(PHONE, '000000'));
     await codeOf(auth.verifyOtp(PHONE, '000000'));
     advance(MIN);
     await auth.requestOtp(PHONE);
-    expect((await codeOf(auth.verifyOtp(PHONE, '000000'))).code).toBe('OTP_LOCKED');
+    expect((await codeOf(auth.verifyOtp(PHONE, '000000'))).code).toBe('OTP_WRONG');
+    expect((await auth.verifyOtp(PHONE, MOCK_OTP_CODE)).phone).toBe(E164);
   });
 
   it('signale un code expiré après 5 minutes', async () => {

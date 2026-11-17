@@ -23,7 +23,7 @@ import { OfflineBanner } from '@/ui/states';
 import { API_MODE } from '@/state/backend';
 import { bootstrap, useSession } from '@/state/auth';
 import { canSetup, canUseApp } from '@/lib/flow';
-import { demoReleaseViolation } from '@/lib/releaseGuard';
+import { apiReleaseViolation, demoReleaseViolation } from '@/lib/releaseGuard';
 import { useI18n } from '@/i18n';
 
 // L’écran de lancement natif reste affiché tant que la police n’est pas chargée.
@@ -32,6 +32,11 @@ void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 const DEMO_IN_RELEASE = demoReleaseViolation({
   dev: __DEV__, demo: process.env.EXPO_PUBLIC_DEMO, allow: process.env.EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE,
 });
+// Lot X-C (T9) : build de production sans EXPO_PUBLIC_API=supabase (simulateur) : même blocage.
+const API_IN_RELEASE = apiReleaseViolation({
+  dev: __DEV__, api: process.env.EXPO_PUBLIC_API, allow: process.env.EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE,
+});
+const BLOCKED_IN_RELEASE: 'demo' | 'api' | null = DEMO_IN_RELEASE ? 'demo' : API_IN_RELEASE ? 'api' : null;
 
 // Mode Supabase : le cache des requêtes est conservé sur l’appareil (dernières données connues hors connexion).
 // Le simulateur a sa propre persistance ; son cache n’est pas conservé.
@@ -60,16 +65,18 @@ function DataLifecycle() {
   return API_MODE === 'supabase' && !online ? <OfflineBanner /> : null;
 }
 
-/** Build de production avec le mode démonstration : écran bloquant. */
-function DemoInReleaseBlocked() {
+/** Build de production avec le mode démonstration, ou sans le serveur (lot X-C, T9) : écran bloquant. */
+function DemoInReleaseBlocked({ reason }: { reason: 'demo' | 'api' }) {
   const { t } = useI18n();
   useEffect(() => {
-    console.error('[DiasPay] Anomalie de build : EXPO_PUBLIC_DEMO=1 dans un build de production. Application bloquée.');
-  }, []);
+    console.error(reason === 'demo'
+      ? '[DiasPay] Anomalie de build : EXPO_PUBLIC_DEMO=1 dans un build de production. Application bloquée.'
+      : '[DiasPay] Anomalie de build : EXPO_PUBLIC_API absente ou différente de « supabase » dans un build de production. Application bloquée.');
+  }, [reason]);
   return (
     <View style={st.blocked} accessibilityRole="alert">
       <Text style={st.blockedTitle}>{t('demoInReleaseTitle')}</Text>
-      <Text style={st.blockedText}>{t('demoInReleaseText')}</Text>
+      <Text style={st.blockedText}>{t(reason === 'demo' ? 'demoInReleaseText' : 'apiInReleaseText')}</Text>
     </View>
   );
 }
@@ -88,7 +95,7 @@ export default function RootLayout() {
   const fontsReady = fontsLoaded || !!fontError;
 
   useEffect(() => {
-    if (DEMO_IN_RELEASE) return;
+    if (BLOCKED_IN_RELEASE) return;
     void bootstrap();
     // Équivalent du job serveur release_due_tranches() : débloque les tranches dont le délai de contestation est écoulé.
     // En mode Supabase, ce sont les tâches pg_cron du serveur (release_due_tranches, activate_due_tranches).
@@ -102,7 +109,7 @@ export default function RootLayout() {
     if (fontsReady) void SplashScreen.hideAsync().catch(() => undefined);
   }, [fontsReady]);
 
-  if (DEMO_IN_RELEASE) return <DemoInReleaseBlocked />;
+  if (BLOCKED_IN_RELEASE) return <DemoInReleaseBlocked reason={BLOCKED_IN_RELEASE} />;
   if (!fontsReady) return null;
 
   // Garde d’accès : un écran dont la garde est fausse est inaccessible, y compris par lien profond ;
@@ -116,8 +123,6 @@ export default function RootLayout() {
         <Stack.Screen name="(onboarding)/slides" options={{ animation: 'fade' }} />
         <Stack.Screen name="(auth)/login" options={{ animation: 'fade' }} />
         <Stack.Screen name="(auth)/otp" />
-        {/* Lien profond : accessible sans session pour mémoriser la référence et la rejouer après la connexion. */}
-        <Stack.Screen name="t/[reference]" options={{ animation: 'fade' }} />
         <Stack.Protected guard={canSetup(session)}>
           <Stack.Screen name="(auth)/profile-setup" options={{ gestureEnabled: false }} />
           <Stack.Screen name="(auth)/biometrics" options={{ gestureEnabled: false }} />

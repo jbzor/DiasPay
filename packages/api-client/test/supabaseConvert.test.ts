@@ -8,15 +8,18 @@ const TX = 'e3000000-0000-4000-8000-000000000001';
 
 function txRow(over: Partial<TxWithRelations> = {}): TxWithRelations {
   return {
-    id: TX, vertical: 'EDUCATION', purpose: 'Scolarité 2026-2027', amount_minor: 900000, currency: 'XAF', status: 'IN_PROGRESS',
+    id: TX, vertical: 'EDUCATION', purpose: 'Scolarité 2026-2027', amount_minor: 900000, currency: 'XAF', status: 'ACTIVE',
+    settlement_mode: 'CONDITIONAL', initiator_id: 'u1', accepted_at: T, accepted_by: 'u2',
     created_by: 'u1', due_date: null, expires_at: null, reject_reason: null, created_at: T, updated_at: T,
     beneficiary_name: 'Awa', provider_id: null, provider_name: 'Lycée Leclerc', plan_type: 'PARTIAL', draft_data: {},
     tranches: [
-      { id: 't2', tx_id: TX, seq: 2, label: 'Solde', amount_minor: 500000, due_date: null, status: 'PLANNED', release_mode: 'PROVIDER_CONFIRM',
-        contest_hours: 72, contest_ends_at: null, released_at: null, created_at: T, updated_at: T, tranche_tokens: null },
-      { id: 't1', tx_id: TX, seq: 1, label: 'Inscription', amount_minor: 400000, due_date: '2026-11-15', status: 'CONFIRMED', release_mode: 'PROVIDER_CONFIRM',
+      { id: 't2', tx_id: TX, seq: 2, label: 'Solde', amount_minor: 500000, due_date: null, status: 'DRAFT', release_mode: 'PROVIDER_CONFIRM',
+        contest_hours: 72, contest_ends_at: null, released_at: null, created_at: T, updated_at: T, tranche_tokens: null,
+        funds_state: 'NONE', on_hold: false, refunded_minor: 0, paid_at: null, expires_at: null, confirmed_at: null, evidence_submitted_at: null },
+      { id: 't1', tx_id: TX, seq: 1, label: 'Inscription', amount_minor: 400000, due_date: '2026-11-15', status: 'PAID', release_mode: 'PROVIDER_CONFIRM',
         contest_hours: 72, contest_ends_at: '2026-11-14T10:00:00+00:00', released_at: null, created_at: T, updated_at: T,
-        tranche_tokens: { reference: '4f9a2c71b8e01d3ca9' } },
+        funds_state: 'HELD', on_hold: false, refunded_minor: '1000', paid_at: T, expires_at: null, confirmed_at: T, evidence_submitted_at: null,
+        tranche_tokens: { reference: '4f9a2c71b8e01d3ca9', revoked_at: null } },
     ],
     documents: [
       { id: 'd1', tranche_id: null, deleted_at: null },
@@ -31,13 +34,17 @@ describe('conversion des lignes du serveur', () => {
   it('transaction : snake_case → domaine, tranches triées, pièces archivées exclues', () => {
     const tx = convert.toTransaction(txRow());
     expect(tx).toMatchObject({
-      id: TX, vertical: 'EDUCATION', amount: { amountMinor: 900000, currency: 'XAF' }, status: 'IN_PROGRESS',
+      id: TX, vertical: 'EDUCATION', amount: { amountMinor: 900000, currency: 'XAF' }, status: 'ACTIVE', settlementMode: 'CONDITIONAL',
+      acceptedAt: '2026-11-11T10:00:00.123Z',
       providerName: 'Lycée Leclerc', beneficiaryName: 'Awa', planType: 'PARTIAL', documentCount: 1, ownerId: 'u1',
       createdAt: '2026-11-11T10:00:00.123Z',
     });
     expect(tx.tranches.map((t) => t.seq)).toEqual([1, 2]);
-    expect(tx.tranches[0]).toMatchObject({ reference: '4f9a2c71b8e01d3ca9', contestEndsAt: '2026-11-14T10:00:00.000Z', evidenceCount: 1, dueDate: '2026-11-15' });
-    expect(tx.tranches[1]).toMatchObject({ reference: undefined, dueDate: undefined, evidenceCount: 0 });
+    expect(tx.tranches[0]).toMatchObject({ reference: '4f9a2c71b8e01d3ca9', contestEndsAt: '2026-11-14T10:00:00.000Z', evidenceCount: 1, dueDate: '2026-11-15',
+      status: 'PAID', fundsState: 'HELD', onHold: false, refundedMinor: 1000, paidAt: '2026-11-11T10:00:00.123Z', confirmedAt: '2026-11-11T10:00:00.123Z' });
+    expect(tx.tranches[1]).toMatchObject({ reference: undefined, dueDate: undefined, evidenceCount: 0, status: 'DRAFT', fundsState: 'NONE' });
+    // Lot X v2 : un ancien statut (PAID_LOCKED, IN_PROGRESS) est hors domaine.
+    expect(() => convert.toTransaction(txRow({ status: 'IN_PROGRESS' as never }))).toThrow(expect.objectContaining({ code: 'UNEXPECTED' }));
   });
 
   it('bigint transmis en chaîne : converti exactement', () => {
@@ -48,12 +55,14 @@ describe('conversion des lignes du serveur', () => {
 
   it('valeur hors domaine : UNEXPECTED, jamais propagée', () => {
     expect(() => convert.toTransaction(txRow({ status: 'BIDON' as never }))).toThrow(expect.objectContaining({ code: 'UNEXPECTED' }));
-    expect(() => convert.toTransaction(txRow({ vertical: 'CASINO' as never }))).toThrow(expect.objectContaining({ code: 'UNEXPECTED' }));
+    // Lot X (X6) : un type de besoin s’ajoute par une ligne de données ; seul un code mal formé est hors domaine.
+    expect(() => convert.toTransaction(txRow({ vertical: 'casino !' as never }))).toThrow(expect.objectContaining({ code: 'UNEXPECTED' }));
+    expect(convert.toTransaction(txRow({ vertical: 'CASINO' as never })).vertical).toBe('CASINO');
   });
 
   it('jeton renvoyé sous forme de tableau (relation non unique) : accepté', () => {
     const row = txRow();
-    row.tranches[1]!.tranche_tokens = [{ reference: 'aaaaaaaaaaaaaaaaaa' }];
+    row.tranches[1]!.tranche_tokens = [{ reference: 'bbbbbbbbbbbbbbbbbb', revoked_at: T }, { reference: 'aaaaaaaaaaaaaaaaaa', revoked_at: null }];
     expect(convert.toTransaction(row).tranches[0]!.reference).toBe('aaaaaaaaaaaaaaaaaa');
   });
 
@@ -78,10 +87,13 @@ describe('conversion des lignes du serveur', () => {
       .toMatchObject({ amountMinor: 400000, chainValid: true, releasedAt: '2026-11-11T10:00:00.123Z' });
     expect(convert.toDispute(null)).toBeNull();
     expect(convert.toDispute({ id: 'd', txId: TX, trancheId: 't1', reason: 'NOT_DELIVERED', description: 'x', openedBy: 'PROVIDER', openedAt: T, status: 'OPEN' }))
-      .toMatchObject({ openedBy: 'PROVIDER', status: 'OPEN', resolvedAt: undefined });
+      .toMatchObject({ openedBy: 'PROVIDER', status: 'OPEN', resolvedAt: undefined, beforePayment: false, outcome: undefined });
+    expect(convert.toDispute({ id: 'd', txId: TX, trancheId: 't1', openedAt: T, status: 'RESOLVED', outcome: 'REFUND_PARTIAL', beforePayment: false, refundAmountMinor: 500 }))
+      .toMatchObject({ status: 'RESOLVED', outcome: 'REFUND_PARTIAL', refundAmountMinor: 500 });
+    expect(() => convert.toDispute({ id: 'd', txId: TX, trancheId: 't1', openedAt: T, status: 'RESOLVED', outcome: 'REFUND_PAYER' })).toThrow(expect.objectContaining({ code: 'UNEXPECTED' }));
     expect(() => convert.toDispute({ id: 'd', txId: TX, trancheId: 't1', openedAt: T, status: 'PERDU' })).toThrow(expect.objectContaining({ code: 'UNEXPECTED' }));
-    expect(convert.toReferenceInfo({ trancheId: 't1', txId: TX, label: 'L', amountMinor: 5, currency: 'EUR', status: 'PAID_LOCKED', expiresAt: T, used: false, seq: 2, contestHours: 48 }))
-      .toMatchObject({ currency: 'EUR', status: 'PAID_LOCKED', seq: 2, contestHours: 48, providerName: '' });
+    expect(convert.toReferenceInfo({ trancheId: 't1', txId: TX, label: 'L', amountMinor: 5, currency: 'EUR', status: 'PAID', expiresAt: T, used: false, seq: 2, contestHours: 48 }))
+      .toMatchObject({ currency: 'EUR', status: 'PAID', seq: 2, contestHours: 48, providerName: '' });
   });
 
   it('brouillon : aller (sans pièces ni URI locale) et retour', () => {

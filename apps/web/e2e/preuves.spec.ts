@@ -7,7 +7,7 @@ import { row, signIn, staffPage } from './helpers';
 test.describe.configure({ mode: 'serial' });
 test.afterAll(cleanup);
 
-test('preuve de jalon (seed-evidence.sql) : aperçu journalisé, motif obligatoire, double validation, tranche débloquée', async ({ browser }) => {
+test('preuve de jalon (seed-evidence.sql) : aperçu journalisé, motif obligatoire, double validation, fonds libérés', async ({ browser }) => {
   const purpose = `Parcelle Odza ${RUN}`;
   const txId = await landWithPendingEvidence(purpose);
   const a = await staffPage(browser, STAFF.A.email, '/preuves');
@@ -42,20 +42,22 @@ test('preuve de jalon (seed-evidence.sql) : aperçu journalisé, motif obligatoi
   await expect(b.getByRole('status').filter({ hasText: 'Preuve approuvée' })).toBeVisible();
   await expect(row(b, `Terrain · ${purpose}`)).toHaveCount(0);
 
-  // Base : tranche débloquée, consultation de la preuve journalisée (deux validateurs), chaîne intacte ; alerte au prestataire.
+  // Base (lot X v2) : la demande reste payée, fonds libérés ; consultation de la preuve journalisée (deux validateurs),
+  // chaîne intacte ; alerte au prestataire.
   const sb = await staffClient(STAFF.A.email);
-  const tranche = await sb.from('tranches').select('status').eq('tx_id', txId).eq('seq', 1).single();
-  expect(tranche.data?.status).toBe('RELEASED');
+  const tranche = await sb.from('tranches').select('status, funds_state').eq('tx_id', txId).eq('seq', 1).single();
+  expect(tranche.data).toMatchObject({ status: 'PAID', funds_state: 'RELEASED' });
   const audit = (await sb.rpc('bo_audit', { p_tx: txId })).data as Array<{ event: string; actor_name: string }>;
   expect(audit.filter((r) => r.event === 'DOCUMENT_VIEWED').map((r) => r.actor_name).sort()).toEqual([STAFF.A.name, STAFF.B.name].sort());
   expect(audit.some((r) => r.event === 'EVIDENCE_APPROVED')).toBe(true);
+  expect(audit.some((r) => r.event === 'FUNDS_RELEASED')).toBe(true);
   expect(((await sb.rpc('bo_audit_verify', { p_tx: txId })).data as { valid: boolean }).valid).toBe(true);
   await expect.poll(async () => (await (await party('OTHER')).listNotifications()).some((n) => n.event.type === 'TRANCHE_RELEASED' && n.event.txId === txId)).toBe(true);
   await a.context().close();
   await b.context().close();
 });
 
-test('preuve : rejet avec motif, la tranche revient au prestataire', async ({ page }) => {
+test('preuve : rejet avec motif, fonds toujours bloqués, nouvelle preuve attendue du prestataire', async ({ page }) => {
   const purpose = `Parcelle Rejet ${RUN}`;
   const txId = await landWithPendingEvidence(purpose);
   await signIn(page, STAFF.B.email, '/preuves');
@@ -66,5 +68,7 @@ test('preuve : rejet avec motif, la tranche revient au prestataire', async ({ pa
   await page.getByRole('dialog').getByRole('button', { name: 'Rejeter' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Preuve rejetée' })).toBeVisible();
   const sb = await staffClient(STAFF.B.email);
-  expect((await sb.from('tranches').select('status').eq('tx_id', txId).eq('seq', 1).single()).data?.status).toBe('PAID_LOCKED');
+  expect((await sb.from('tranches').select('status, funds_state, evidence_submitted_at').eq('tx_id', txId).eq('seq', 1).single()).data)
+    .toMatchObject({ status: 'PAID', funds_state: 'HELD', evidence_submitted_at: null });
+  await expect(row(page, `Terrain · ${purpose}`)).toHaveCount(0);
 });

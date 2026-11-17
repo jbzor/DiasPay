@@ -3,8 +3,9 @@ import { Image, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '@/ui/text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { newUuid } from '@diaspay/api-client';
-import { MAX_FILES_PER_KIND, REQUIRED_DOCUMENTS, checkFile, checkFileCount, missingRequiredDocuments } from '@diaspay/domain';
-import type { DocumentKind, DraftDocument } from '@diaspay/domain';
+import { checkFile, checkFileCount, findModule, maxFilesFor, missingModuleDocuments } from '@diaspay/domain';
+import type { DraftDocument, ModuleDocumentKind } from '@diaspay/domain';
+import { useModuleList } from '@/state/modules';
 import { fontSize, palette, radius, semantic, spacing, touchTarget } from '@diaspay/ui-tokens';
 import { useI18n, verticalLabel } from '@/i18n';
 import { api } from '@/state/api';
@@ -26,20 +27,23 @@ export default function NeedDocuments() {
   const { t, locale, money, errorText } = useI18n();
   const { docLabel, fileSize } = useNeedText();
   const wiz = useWizard();
-  const [sheetFor, setSheetFor] = useState<DocumentKind | null>(null);
+  const [sheetFor, setSheetFor] = useState<ModuleDocumentKind | null>(null);
+  const modules = useModuleList();
   const [progress, setProgress] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   if (!wiz || !wiz.draft.vertical) return null;
   const draft = wiz.draft;
   const vertical = draft.vertical as NonNullable<typeof draft.vertical>;
-  const missing = missingRequiredDocuments(vertical, draft.documents);
+  // Lot X (X6) : pièces requises et nombre de fichiers lus dans le module du type de besoin.
+  const module = findModule(vertical, modules);
+  const missing = module ? missingModuleDocuments(module, draft.documents) : [];
 
-  async function upload(kind: DocumentKind, file: PickedFile, id = newUuid()) {
+  async function upload(kind: ModuleDocumentKind, file: PickedFile, id = newUuid()) {
     setError(null);
     try {
       checkFile(file); // contrôle local immédiat (le serveur simulé vérifie aussi)
       const retry = draft.documents.some((d) => d.id === id);
-      if (!retry) checkFileCount(occupiedSlots(draft.documents, kind));
+      if (!retry) checkFileCount(occupiedSlots(draft.documents, kind), maxFilesFor(module, kind));
     } catch (e) {
       setError(errorText(e));
       return;
@@ -61,7 +65,7 @@ export default function NeedDocuments() {
     }
   }
 
-  async function choose(kind: DocumentKind, source: PickSource) {
+  async function choose(kind: ModuleDocumentKind, source: PickSource) {
     setSheetFor(null);
     try {
       const r = await pickFile(source);
@@ -90,7 +94,7 @@ export default function NeedDocuments() {
       </View>
       <Text style={st.h}>{t('requiredDocs')}</Text>
       <View>
-        {REQUIRED_DOCUMENTS[vertical].map(({ kind, required }) => {
+        {(module?.requiredDocuments ?? []).map(({ kind, required, maxFiles }) => {
           const files = filesForKind(draft.documents, kind);
           const used = occupiedSlots(draft.documents, kind);
           const label = docLabel(kind);
@@ -103,11 +107,11 @@ export default function NeedDocuments() {
                   <Text style={st.docTitle}>{label}</Text>
                   <Text style={st.docSub}>
                     {required ? t('docRequired') : t('docOptional')}
-                    {used > 0 ? ` · ${t('filesCount', { n: used, max: MAX_FILES_PER_KIND })}` : ''}
+                    {used > 0 ? ` · ${t('filesCount', { n: used, max: maxFiles })}` : ''}
                   </Text>
                 </View>
                 {provided ? <View style={st.ok} accessibilityLabel={t('verified')}><Icon name="check" size={14} color={palette.green} /></View> : null}
-                {used < MAX_FILES_PER_KIND ? (
+                {used < maxFiles ? (
                   <Pressable accessibilityRole="button" accessibilityLabel={t('addFrom', { doc: label })} style={st.smallBtn} onPress={() => setSheetFor(kind)}>
                     <Text style={st.smallBtnText}>{t('add')}</Text>
                   </Pressable>

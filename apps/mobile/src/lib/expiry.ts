@@ -8,7 +8,8 @@ export type TokenState =
 
 export interface Countdown { hours: number; minutes: number }
 
-export interface TokenLike { expiresAt: string; usedAt?: string }
+/** Lot X-C (T7) : expiresAt absente en règlement direct tant que la durée des demandes n’est pas fixée. */
+export interface TokenLike { expiresAt?: string; usedAt?: string }
 
 /** Décompte affiché sous 24 h, arrondi à la minute supérieure (jamais « 0 min » tant que le jeton est valide). */
 export function countdown(msLeft: number): Countdown | null {
@@ -19,6 +20,7 @@ export function countdown(msLeft: number): Countdown | null {
 
 export function tokenState(token: TokenLike, now: Date): TokenState {
   if (token.usedAt) return { kind: 'used' };
+  if (!token.expiresAt) return { kind: 'valid', msLeft: Number.POSITIVE_INFINITY, countdown: null };
   const msLeft = new Date(token.expiresAt).getTime() - now.getTime();
   if (msLeft <= 0) return { kind: 'expired' };
   return { kind: 'valid', msLeft, countdown: countdown(msLeft) };

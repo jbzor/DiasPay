@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import { DomainError } from './types';
-import type { Currency, RecurrenceFreq, ReleaseMode, TrancheDraft, Vertical } from './types';
-import { RELEASE_RULES } from './rules';
+import type { Currency, RecurrenceFreq, ReleaseMode, TrancheDraft } from './types';
 import { addDays, addMonths, generateRecurringTranches, validatePlan } from './plan';
 import { isNormalizablePhone } from './phone';
-import { missingRequiredDocuments } from './documents';
-import type { DocumentKind } from './documents';
+import type { ModuleDocumentKind } from './documents';
+import { BENEFICIARY_REFERENCE_RE, DEFAULT_MODULES, findModule, missingModuleDocuments } from './modules';
+import type { ModuleCode, RequestModule } from './modules';
 
 // Création d’un besoin (lot 3) : brouillon, validation étape par étape, constructeurs de plan.
 // Les messages d’erreur sont des codes stables ; les textes sont traduits côté application.
@@ -13,9 +13,6 @@ import type { DocumentKind } from './documents';
 export type PlanType = 'SINGLE' | 'PARTIAL' | 'INSTALLMENTS' | 'RECURRING';
 export const PLAN_TYPES: readonly PlanType[] = ['SINGLE', 'PARTIAL', 'INSTALLMENTS', 'RECURRING'];
 export const CURRENCIES: readonly Currency[] = ['XAF', 'EUR', 'USD'];
-export const VERTICALS: readonly Vertical[] = ['EDUCATION', 'HEALTH', 'RENT', 'AGRO', 'REAL_ESTATE', 'LAND'];
-/** Vague 1 : verticales ouvertes à la création. Les autres arrivent avec les jalons et preuves (vague 2). */
-export const WAVE1_VERTICALS: readonly Vertical[] = ['EDUCATION', 'HEALTH', 'RENT'];
 
 export const NEED_STEPS = ['type', 'details', 'provider', 'plan', 'documents', 'recap'] as const;
 export type NeedStep = (typeof NEED_STEPS)[number];
@@ -33,7 +30,7 @@ export type DocumentStatus = 'UPLOADING' | 'UPLOADED' | 'FAILED' | 'MISSING';
 
 export interface DraftDocument {
   id: string;
-  kind: DocumentKind;
+  kind: ModuleDocumentKind;
   name: string;
   mimeType: string;
   sizeBytes: number;
@@ -41,30 +38,46 @@ export interface DraftDocument {
   uri?: string;
   status: DocumentStatus;
   uploadedAt?: string;
+  /** Lot X (X4) : empreinte SHA-256 (hexadécimal) calculée par l’application avant l’envoi, immuable ensuite. */
+  contentHash?: string;
 }
 
 export interface DraftDocumentInput {
   /** Identifiant à conserver (nouvelle tentative d’un envoi échoué). */
   id?: string;
-  kind: DocumentKind;
+  kind: ModuleDocumentKind;
   name: string;
   mimeType?: string;
   sizeBytes: number;
   uri: string;
+  /** Empreinte déjà calculée (sinon l’API la calcule avant l’envoi). */
+  contentHash?: string;
 }
 
 export interface NeedProvider { id?: string; name: string; invitedPhone?: string }
 
+/** Rôle du créateur dans la demande. PROVIDER (lot X, X3) : demande initiée par un prestataire autorisé. */
+export type CreatorRole = 'PAYER' | 'REQUESTER' | 'PROVIDER';
+export const CREATOR_ROLES: readonly CreatorRole[] = ['PAYER', 'REQUESTER', 'PROVIDER'];
+
 export interface NeedDraft {
   id: string;
-  vertical?: Vertical;
+  /** Code du type de besoin (module, lot X : X6). */
+  vertical?: ModuleCode;
   amountMinor?: number;
   currency?: Currency;
   purpose?: string;
   beneficiaryName?: string;
+  /** Lot X v2 (X6) : référence minimale du bénéficiaire (code ou initiales) pour un module REFERENCE_ONLY (santé, K13). */
+  beneficiaryReference?: string;
   desiredDate?: string;            // AAAA-MM-JJ
   provider?: NeedProvider;
-  counterpartyPhone?: string;      // payeur invité quand le créateur est demandeur
+  counterpartyPhone?: string;      // payeur invité quand le créateur est demandeur (ou prestataire initiateur)
+  /**
+   * Rôle explicite du créateur (lot X). Absent : déduit du profil (demandeur, sinon payeur), comportement inchangé.
+   * PROVIDER : exige le niveau d’enrôlement N2 (REQUESTER : N1 ; X4 v2) et le téléphone du payeur ; le prestataire est le créateur.
+   */
+  creatorRole?: CreatorRole;
   planType?: PlanType;
   recurrence?: { frequency: RecurrenceFreq; installments: number; startDate: string };
   tranches?: TrancheDraft[];
@@ -82,8 +95,10 @@ export interface NeedDraft {
 export interface NeedContext {
   /** Date du jour (AAAA-MM-JJ, heure locale de l’utilisateur). */
   today: string;
-  /** Rôle principal du créateur : un demandeur doit indiquer le téléphone du payeur. */
-  creatorRole?: 'PAYER' | 'REQUESTER' | 'PROVIDER';
+  /** Rôle principal du créateur (profil) : un demandeur doit indiquer le téléphone du payeur. */
+  creatorRole?: CreatorRole;
+  /** Types de besoin (listModules) ; défaut : modules du code (DEFAULT_MODULES). */
+  modules?: readonly RequestModule[];
 }
 
 export interface NeedIssue {
@@ -111,18 +126,28 @@ type Ctx = z.RefinementCtx;
 const issue = (ctx: Ctx, path: Array<string | number>, code: string, params?: NeedIssue['params']) =>
   ctx.addIssue({ code: 'custom', path, message: code, params });
 
-const typeSchema = z.object({
-  vertical: z.enum(VERTICALS as [Vertical, ...Vertical[]], { error: 'VERTICAL_REQUIRED' })
-    .refine((v) => WAVE1_VERTICALS.includes(v), { message: 'VERTICAL_UNAVAILABLE' }),
-});
+/** Type de besoin : connu des modules (VERTICAL_REQUIRED), et ouvert (VERTICAL_UNAVAILABLE, comme transition_tx). */
+function typeIssues(draft: NeedDraft, modules: readonly RequestModule[]): NeedIssue[] {
+  const m = findModule(draft.vertical, modules);
+  if (!m) return [{ path: 'vertical', code: 'VERTICAL_REQUIRED' }];
+  return m.enabled ? [] : [{ path: 'vertical', code: 'VERTICAL_UNAVAILABLE' }];
+}
 
-function detailsSchema(c: NeedContext) {
+function detailsSchema(c: NeedContext, module: RequestModule | undefined) {
+  const mode = module?.beneficiaryMode ?? 'NAME';
   return z.object({
     amountMinor: z.number({ error: 'AMOUNT_REQUIRED' }).int({ error: 'AMOUNT_INVALID' }).positive({ error: 'AMOUNT_INVALID' }),
     currency: z.enum(CURRENCIES as [Currency, ...Currency[]], { error: 'CURRENCY_REQUIRED' }),
     purpose: z.string({ error: 'PURPOSE_TOO_SHORT' }).trim()
       .min(PURPOSE_MIN, { error: 'PURPOSE_TOO_SHORT' }).max(PURPOSE_MAX, { error: 'PURPOSE_TOO_LONG' }),
-    beneficiaryName: z.string({ error: 'BENEFICIARY_REQUIRED' }).trim().min(1, { error: 'BENEFICIARY_REQUIRED' }),
+    // X6 (K13) : le nom n’est demandé que si le module l’enregistre ; sinon une référence (REFERENCE_ONLY) ou rien (NONE).
+    beneficiaryName: mode === 'NAME'
+      ? z.string({ error: 'BENEFICIARY_REQUIRED' }).trim().min(1, { error: 'BENEFICIARY_REQUIRED' })
+      : z.string().optional().refine((v) => !v?.trim(), { error: 'BENEFICIARY_NAME_NOT_ALLOWED' }),
+    beneficiaryReference: mode === 'REFERENCE_ONLY'
+      ? z.string({ error: 'BENEFICIARY_REFERENCE_REQUIRED' }).trim().min(1, { error: 'BENEFICIARY_REFERENCE_REQUIRED' })
+          .refine((v) => !v.trim() || BENEFICIARY_REFERENCE_RE.test(v.trim().toUpperCase()), { error: 'BENEFICIARY_REFERENCE_INVALID' })
+      : z.string().optional(),
     desiredDate: z.string().optional(),
     counterpartyPhone: z.string().optional(),
   }).superRefine((d, ctx) => {
@@ -131,7 +156,7 @@ function detailsSchema(c: NeedContext) {
       else if (d.desiredDate < c.today) issue(ctx, ['desiredDate'], 'DATE_IN_PAST');
     }
     const phone = d.counterpartyPhone?.trim();
-    if (c.creatorRole === 'REQUESTER' && !phone) issue(ctx, ['counterpartyPhone'], 'PAYER_PHONE_REQUIRED');
+    if ((c.creatorRole === 'REQUESTER' || c.creatorRole === 'PROVIDER') && !phone) issue(ctx, ['counterpartyPhone'], 'PAYER_PHONE_REQUIRED');
     else if (phone && !isNormalizablePhone(phone)) issue(ctx, ['counterpartyPhone'], 'PHONE_INVALID');
   });
 }
@@ -148,8 +173,8 @@ const providerSchema = z.object({
   }),
 });
 
-function planSchema(c: NeedContext, totalMinor: number | undefined, vertical: Vertical | undefined) {
-  const datesRequired = !vertical || RELEASE_RULES[vertical].releaseMode !== 'EVIDENCE_REVIEW';
+function planSchema(c: NeedContext, totalMinor: number | undefined, module: RequestModule | undefined) {
+  const datesRequired = !module || module.releaseMode !== 'EVIDENCE_REVIEW';
   return z.object({
     planType: z.enum(PLAN_TYPES as [PlanType, ...PlanType[]], { error: 'PLAN_TYPE_REQUIRED' }),
     recurrence: z.object({ frequency: z.string(), installments: z.number(), startDate: z.string() }).optional(),
@@ -200,16 +225,30 @@ function toIssues(r: z.ZodSafeParseResult<unknown>, prefix = ''): NeedIssue[] {
   }));
 }
 
+/**
+ * Rôle effectif du créateur, comme save_draft : le rôle explicite du brouillon, sinon demandeur si le profil l’est,
+ * sinon payeur (un profil « prestataire » sans rôle explicite crée en payeur, comme avant le lot X).
+ */
+export function effectiveCreatorRole(draft: Pick<NeedDraft, 'creatorRole'>, profileRole?: CreatorRole): CreatorRole | undefined {
+  if (draft.creatorRole) return draft.creatorRole;
+  if (profileRole === undefined) return undefined;
+  return profileRole === 'REQUESTER' ? 'REQUESTER' : 'PAYER';
+}
+
 /** Problèmes de l’étape (vide = étape valide). Le récapitulatif reprend tout le dossier. */
-export function validateStep(step: NeedStep, draft: NeedDraft, ctx: NeedContext): NeedIssue[] {
+export function validateStep(step: NeedStep, draft: NeedDraft, context: NeedContext): NeedIssue[] {
+  const ctx: NeedContext = { ...context, creatorRole: effectiveCreatorRole(draft, context.creatorRole) };
+  const modules = ctx.modules ?? DEFAULT_MODULES;
+  const module = findModule(draft.vertical, modules);
   switch (step) {
-    case 'type': return toIssues(typeSchema.safeParse(draft));
-    case 'details': return toIssues(detailsSchema(ctx).safeParse(draft));
-    case 'provider': return toIssues(providerSchema.safeParse(draft));
-    case 'plan': return toIssues(planSchema(ctx, draft.amountMinor, draft.vertical).safeParse(draft));
+    case 'type': return typeIssues(draft, modules);
+    case 'details': return toIssues(detailsSchema(ctx, module).safeParse(draft));
+    // Demande initiée par un prestataire : le prestataire est le créateur, l’étape n’a rien à vérifier.
+    case 'provider': return ctx.creatorRole === 'PROVIDER' ? [] : toIssues(providerSchema.safeParse(draft));
+    case 'plan': return toIssues(planSchema(ctx, draft.amountMinor, module).safeParse(draft));
     case 'documents': {
-      if (!draft.vertical) return [{ path: 'vertical', code: 'VERTICAL_REQUIRED' }];
-      const out: NeedIssue[] = missingRequiredDocuments(draft.vertical, draft.documents)
+      if (!module) return [{ path: 'vertical', code: 'VERTICAL_REQUIRED' }];
+      const out: NeedIssue[] = missingModuleDocuments(module, draft.documents)
         .map((kind) => ({ path: `documents.${kind}`, code: 'DOCUMENT_REQUIRED', params: { kind } }));
       if (draft.documents.some((d) => d.status === 'UPLOADING')) out.push({ path: 'documents', code: 'DOCUMENT_UPLOADING' });
       return out;
@@ -272,10 +311,12 @@ export function shouldActivateTranche(dueDate: string | undefined, today: string
   return !dueDate || dueDate <= addDays(today, ACTIVATION_WINDOW_DAYS);
 }
 
-/** Règle de déblocage de la verticale, pour l’afficher au récapitulatif. */
-export function describeRelease(vertical: Vertical): { releaseMode: ReleaseMode; contestHours: number; dualValidation: boolean } {
-  const r = RELEASE_RULES[vertical];
-  return { releaseMode: r.releaseMode, contestHours: r.contestHours, dualValidation: r.dualValidation };
+/** Règle de déblocage du type de besoin (module), pour l’afficher au récapitulatif. Module inconnu : VERTICAL_REQUIRED. */
+export function describeRelease(vertical: ModuleCode, modules: readonly RequestModule[] = DEFAULT_MODULES):
+  { releaseMode: ReleaseMode; contestHours: number; dualValidation: boolean } {
+  const m = findModule(vertical, modules);
+  if (!m) throw new DomainError('VALIDATION', 'Type de besoin inconnu');
+  return { releaseMode: m.releaseMode, contestHours: m.contestHours, dualValidation: m.dualValidation };
 }
 
 /** Brouillon vide. */

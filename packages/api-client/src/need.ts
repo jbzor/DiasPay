@@ -1,7 +1,7 @@
-import { DomainError } from '@diaspay/domain';
-import type { NeedDraft, Vertical } from '@diaspay/domain';
+import { DomainError, bufferToHex, sha256Hex } from '@diaspay/domain';
+import type { ModuleCode, NeedDraft } from '@diaspay/domain';
 
-export interface ProviderSummary { id: string; name: string; city: string; verticals: Vertical[]; verified: boolean }
+export interface ProviderSummary { id: string; name: string; city: string; verticals: ModuleCode[]; verified: boolean }
 
 /** Erreur d’API à code stable, avec des détails exploitables par l’écran (pièce manquante, liste des problèmes…). */
 export class ApiError extends DomainError {
@@ -77,3 +77,21 @@ export class MemoryStateStore implements StateStore {
   async save(snapshot: unknown) { this.value = structuredClone(snapshot); this.saves++; }
   async clear() { this.value = null; }
 }
+
+/**
+ * Empreinte SHA-256 d’un fichier avant son envoi (lot X, X4). L’application fournit une implémentation native (expo-crypto) ;
+ * `fetchHasher` sert sur le web et dans les tests (WebCrypto, sinon @noble/hashes).
+ */
+export type FileHasher = (file: { uri: string; mimeType?: string; sizeBytes: number }) => Promise<string>;
+
+export const fetchHasher: FileHasher = async (file) => {
+  const buf = await (await fetch(file.uri)).arrayBuffer();
+  const subtle = (globalThis as { crypto?: { subtle?: { digest(a: string, d: ArrayBuffer): Promise<ArrayBuffer> } } }).crypto?.subtle;
+  return subtle ? bufferToHex(await subtle.digest('SHA-256', buf)) : sha256Hex(new Uint8Array(buf));
+};
+
+/**
+ * Simulateur sans accès au fichier (tests) : empreinte de l’URI, stable pour un même fichier choisi. Dans l’application,
+ * le simulateur reçoit la même fonction que le serveur (empreinte du contenu).
+ */
+export const uriHasher: FileHasher = async (file) => sha256Hex(file.uri);

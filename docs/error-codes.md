@@ -22,7 +22,10 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `TRANCHE_NOT_FOUND` | S, C | Tranche introuvable, ou inaccessible |
 | `NOT_A_PARTY` | D, S | L’utilisateur n’est pas partie au dossier |
 | `PROVIDER_ONLY` | D, S | Réservé au prestataire |
-| `PAYER_ONLY` | S | Réservé au payeur (déblocage anticipé) |
+| `PAYER_ONLY` | D, S | Réservé au payeur : déblocage anticipé ; lot X : demande reçue (`mark_received`), demande d’informations, rejet |
+| `INITIATOR_ONLY` | D, S | Réservé à l’initiateur de la demande : réponse à une demande d’informations, révocation ou réémission du jeton (lot X) |
+| `INITIATOR_MISMATCH` | S | Soumission d’un brouillon dont `initiator_id` ne coïncide pas avec le créateur : falsification (aucun flux ne les distingue, 0014) — lot X-C, T3 |
+| `ENROLMENT_REQUIRED` | D, S | Niveau d’enrôlement insuffisant : N1 pour initier une demande en demandeur, N2 en prestataire, N1 avant N2 ou N3 (detail : `required`, `current` ; lot X v2, X4). Remplace `INITIATION_NOT_ALLOWED` (`can_initiate_requests`, supprimée par 0020) |
 | `VALIDATOR_ONLY` | D, S | Réservé aux validateurs |
 | `VALIDATOR_IS_PARTY` | D, S | Un validateur ou administrateur partie au dossier ne peut pas décider |
 | `ADMIN_ONLY` | D, S | Réservé aux administrateurs (litiges, RG-09) |
@@ -51,6 +54,7 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `AMOUNT_NOT_CHECKED` | S | Approbation sans la case « J’ai vérifié que le montant correspond aux pièces » (D6, lot 5 : `decide_tx`) |
 | `BAD_DATE` | D | Date invalide |
 | `PHONE_INVALID` | D, S | Numéro de téléphone invalide |
+| `SELF_PAYER` | D, S | Un prestataire initiateur ne se désigne pas lui-même payeur (lot X) |
 | `REASON_REQUIRED` | S, C | Motif obligatoire (rejet, décision de litige) |
 | `REASON_TOO_SHORT` | D, S | Description de litige trop courte (10 caractères) |
 | `PROFILE_INVALID` | C | Nom ou pays de résidence manquant |
@@ -76,14 +80,21 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `FILE_TYPE` | D, S | Format autre que JPEG, PNG ou PDF |
 | `UPLOAD_FAILED` | C | Envoi du fichier interrompu |
 | `AUDITED_FILE` | S, C | Dossier audité : ni suppression ni effacement de fichier |
+| `HASH_INVALID` | D, S | Empreinte de pièce mal formée : SHA-256 en hexadécimal (64 caractères) attendu (lot X, X4) |
+| `HASH_REQUIRED` | D, S | Empreinte de pièce obligatoire quand le réglage `require_content_hash` vaut `true` (lot X, X4) |
+| `HASH_IMMUTABLE` | S | L’empreinte d’une pièce ne se modifie pas, ni ne s’ajoute après coup (lot X, X4) |
+| `DOCUMENT_LOCKED` | D, S | Pièce d’un dossier soumis : ni modification ni suppression (sauf pièce de réponse pendant `INFO_REQUESTED` ; lot X, X4) |
 
 ## Jetons et confirmation
 
 | Code | Origine | Signification |
 |---|---|---|
-| `NO_TOKEN` | C | Jeton pas encore émis pour cette tranche |
+| `NO_TOKEN` | C, S | Aucun jeton actif : demande pas encore soumise, ou au statut final (lot X-C, T7 : un jeton par demande soumise, en `DIRECT` comme en `CONDITIONAL`) |
 | `EQR_MALFORMED` | D | QR illisible ou étranger à DiasPay |
-| `UNKNOWN_REFERENCE` | D, S | Référence d’eQR inconnue |
+| `UNKNOWN_REFERENCE` | D, S | Référence d’eQR inconnue, ou d’un dossier dont l’utilisateur n’est pas partie : même réponse, pour ne pas révéler l’existence de la référence (lot X). `resolve_reference_info` renvoie `null` dans ces deux cas, que le client traduit par ce code |
+| `TOKEN_REVOKED` | D, S | eQR révoqué par l’initiateur ou un administrateur, ou après rejet de la demande (lot X) ; lot X-C (T7) : paiement refusé quand la demande n’a pas de jeton actif |
+| `NOT_REVOCABLE` | D, S | Tranche déjà payée : seul un administrateur non partie révoque ou réémet son jeton (lot X) |
+| `TOO_MANY_ATTEMPTS` | D, S | Plus de 10 résolutions de référence échouées par l’utilisateur dans l’heure ; événement `SUSPICIOUS_ACTIVITY` dans `security_events` (lot X) |
 | `TOKEN_USED` | D, S | EQR déjà utilisé |
 | `TOKEN_EXPIRED` | D, S | EQR expiré |
 | `DEVICE_TIME_INVALID` | D, S | Heure de l’appareil incohérente |
@@ -95,6 +106,68 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `EVIDENCE_MISSING` | D, S | Aucune pièce probante déposée |
 | `NO_EVIDENCE_PENDING` | S | Aucune preuve en attente de décision |
 | `NOT_RELEASED` | S, C | Reçu demandé pour une tranche non débloquée |
+
+## Paiements et journal financier (lot X, X5)
+
+| Code | Origine | Signification |
+|---|---|---|
+| `IDEMPOTENCY_CONFLICT` | D, S | Clé d’idempotence déjà utilisée pour un autre paiement (autre tranche, autre payeur) ou un autre remboursement (autre montant) |
+| `PAYMENT_IN_PROGRESS` | D, S | Un paiement est déjà en cours pour cette tranche (une seule tentative en cours ou réussie par tranche) |
+| `PAYMENT_NOT_FOUND` | D, S | Tentative de paiement ou référence du partenaire introuvable |
+| `NOT_REFUNDABLE` | D, S | Aucun paiement réussi à rembourser, ou tranche déjà débloquée (fonds versés au prestataire) |
+| `REFUND_EXCEEDS_PAID` | D, S | Remboursement au-delà du montant payé (`detail` : `{refunded, paid}`) |
+| `LEDGER_UNBALANCED` | D, S | Journal financier déséquilibré pour une devise, ou de moins de deux lignes |
+| `QUOTE_UNAVAILABLE` | D, S | Aucune cotation pour ces devises : le partenaire n’en fournit pas encore et aucun taux simulé n’est configuré (point ouvert 7) ; jamais de taux inventé |
+| `QUOTE_INVALID` | D, S | Devis inconnu, d’un autre payeur, d’une autre demande, ou montant de la demande changé depuis |
+| `QUOTE_USED` | D, S | Devis déjà utilisé pour un paiement (un devis ne sert qu’une fois) |
+| `QUOTE_EXPIRED` | D, S | Devis expiré (réglage `fx_quote_ttl_seconds`, point ouvert 8) : en demander un nouveau |
+| `REQUEST_EXPIRED` | D, S | Demande échue (`expires_at` passée, durée par module : point ouvert 3) : `get_quote` et `accept_and_pay` la refusent même avant le passage horaire d’`expire_due_requests` ; après ce passage (statut `EXPIRED`), le code reste `NOT_PAYABLE`. Même nom que l’événement de journal — lot X-C, T6 |
+| `QUOTE_FROZEN` | S | Un devis ne se modifie ni ne se supprime : il est conservé avec le paiement |
+| `REFUND_NOT_PENDING` | D, S | Remboursement déjà exécuté ou refusé (`mark_refund_executed` avec une autre référence) |
+| `LEDGER_IMMUTABLE` | S | Journal financier et événements reçus en ajout seul : une correction est une contrepassation |
+
+Les résultats de `apply_payment_event` (`APPLIED`, `IGNORED`, `REJECTED`, `INVALID_SIGNATURE`, `DUPLICATE`) et leurs précisions (`UNKNOWN_ATTEMPT`, `AMOUNT_MISMATCH`, `CONTRADICTS_FINAL_STATE`, `STALE_EVENT`, `ALREADY_APPLIED`, `TRANCHE_NOT_AWAITING`…) ne sont pas des erreurs : la fonction répond toujours, pour que l’événement reçu reste enregistré. Voir `docs/specs/ledger.md`.
+
+## Plusieurs payeurs (lot X, X7)
+
+| Code | Origine | Signification |
+|---|---|---|
+| `MULTIPLE_PAYERS_NOT_ALLOWED` | D, S | Un second payeur n’est accepté que si le type de besoin l’autorise (`request_modules.multiple_payers`, faux partout) |
+
+## Noyau v2 (lot X version 2)
+
+| Code | Origine | Signification |
+|---|---|---|
+| `REQUEST_ON_HOLD` | D, S | Demande suspendue par un litige ouvert avant paiement : ni demande d’informations ni paiement |
+| `DISPUTE_OPEN` | D, S | Un litige est en cours : confirmation et libération des fonds attendent son issue (CONDITIONAL) |
+| `ALREADY_CONFIRMED` | D, S | Prestation déjà confirmée (CONDITIONAL) |
+| `NOT_CONFIRMED` | D, S | Prestation pas encore confirmée : libération anticipée impossible (CONDITIONAL) |
+| `NOT_CONFIGURED` | S | Réglage non configuré (point ouvert, voir `docs/open-parameters.md`) : la fonction refuse par prudence |
+
+## Types de besoin et données minimales (lot X version 2, X6)
+
+| Code | Origine | Sens |
+|---|---|---|
+| `BENEFICIARY_NAME_NOT_ALLOWED` | D, S | Nom du bénéficiaire envoyé pour un type de besoin qui ne l’enregistre pas (`beneficiary_mode` REFERENCE_ONLY ou NONE ; santé, K13) |
+| `BENEFICIARY_REFERENCE_INVALID` | D, S | Référence du bénéficiaire : code ou initiales, sans espace, 16 caractères au plus (jamais un nom complet) |
+| `BENEFICIARY_REFERENCE_REQUIRED` | D, S | Soumission d’un dossier REFERENCE_ONLY sans référence du bénéficiaire |
+| `DOCUMENT_KIND_NOT_ALLOWED` | D, S | Type de pièce non prévu par le type de besoin (detail : type de pièce) ; la santé n’accepte plus ni pièce d’identité ni certificat médical |
+
+## Enrôlement et plafonds (lot X version 2, X4)
+
+| Code | Origine | Sens |
+|---|---|---|
+| `PROFILE_PROTECTED` | S | Rôle de plateforme, statut KYC, niveau d’enrôlement, téléphone (lot X-C, 0025) ou, à partir de N1, nom (0030) modifiés par l’utilisateur lui-même (déclencheur `guard_profile`) |
+| `ENROLMENT_PENDING` | D, S | Un dossier d’enrôlement est déjà en cours (SUBMITTED ou IN_REVIEW) |
+| `ALREADY_ENROLLED` | D, S | Niveau demandé déjà atteint |
+| `SELF_REVIEW` | S | Le personnel n’examine pas son propre dossier d’enrôlement |
+| `CASE_CLOSED` | S | Dossier d’enrôlement déjà tranché (APPROVED ou REJECTED) |
+| `NOT_CLAIMED` | S | Décision sans prise en charge préalable du dossier |
+| `ALREADY_CLAIMED` | S | Dossier pris en charge par un autre relecteur |
+| `KYC_PENDING` | S | Prise en charge d’un dossier N1 ou N2 avant le résultat de l’adaptateur KYC (seul REVIEW passe au bureau) |
+| `AUDIT_IMMUTABLE` | S | Journal d’enrôlement (`enrolment_events`) en ajout seul |
+| `LIMITS_NOT_CONFIGURED` | D, S | Aucune ligne de plafonds pour le niveau du payeur et la devise : paiement refusé par prudence (réglage `limits_when_missing`, point ouvert 1) |
+| `LIMIT_EXCEEDED` | D, S | Plafond du niveau dépassé (detail : `window` OPERATION, DAY ou MONTH, `limit`, `used`) |
 
 ## Litiges
 
@@ -144,3 +217,9 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `NOT_FOUND` (transaction, brouillon, tranche) | `TX_NOT_FOUND`, `TRANCHE_NOT_FOUND` |
 
 Un validateur qui tente une transition réservée reçoit désormais `VALIDATOR_ONLY` (non validateur) ou `VALIDATOR_IS_PARTY` (partie au dossier), comme `transition_tx()`, au lieu de `TRANSITION_FORBIDDEN`. Le règlement d’un litige exige un administrateur (`ADMIN_ONLY`), comme `resolve_dispute()` depuis 0003.
+
+## Codes renommés au lot X version 2
+
+| Ancien code | Nouveau code |
+|---|---|
+| `INITIATION_NOT_ALLOWED` | `ENROLMENT_REQUIRED` (X4, 0020 : le niveau d’enrôlement remplace `can_initiate_requests` ; l’ancien code reste écrit dans 0008 et 0011, déjà appliquées, mais plus aucune fonction en vigueur ne le lève) |

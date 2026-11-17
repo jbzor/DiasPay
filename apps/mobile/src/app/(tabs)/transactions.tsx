@@ -80,7 +80,8 @@ export default function Transactions() {
           );
         }) : null}
         {txs.map((tx) => {
-          const evidence = tx.tranches.some((r) => r.status === 'EVIDENCE_SUBMITTED');
+          // Preuve à examiner (déblocage conditionnel, règle EVIDENCE_REVIEW) : tranche payée, fonds bloqués, preuve déposée.
+          const evidence = tx.tranches.some((r) => r.status === 'PAID' && r.fundsState === 'HELD' && r.releaseMode === 'EVIDENCE_REVIEW' && r.evidenceCount > 0 && !r.confirmedAt);
           const statusText = evidence ? t('evidenceToValidate') : t(txStatusKey(tx.status));
           const focused = params.focus === tx.id;
           const n = tx.tranches.length;

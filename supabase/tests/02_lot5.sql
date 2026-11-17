@@ -1,7 +1,9 @@
 -- Test de la migration 0006 (lot 5, bureau de contrôle). Même format que 00_smoke.sql et 01_lot4.sql :
 -- utilisateurs fictifs, rôles réels (authenticated, anon), jetons aal1 / aal2, tout est annulé à la fin
 -- (ROLLBACK), le résumé échoue au moindre FAIL. Variante pour l’éditeur SQL : 02_lot5_editor.sql (générée).
--- Prérequis : 0001 à 0006 appliquées, app_config.mock_mode = 'true' (projet de développement).
+-- Prérequis : 0001 à 0016 appliquées, app_config.mock_mode = 'true' (projet de développement).
+-- Lot X version 2 (0014) : la file ne reçoit plus que les dossiers PENDING_REVIEW (platform_review ≠ NEVER) ; l’approbation
+-- active l’opération (ACTIVE), le rejet l’annule (CANCELLED) ; preuves de jalon en CONDITIONAL seulement ; litige distinct.
 begin;
 create schema t;
 create table t.results (n serial primary key, ok boolean not null, label text not null);
@@ -62,11 +64,17 @@ from (values ('f1000000-0000-4000-8000-000000000001'::uuid, 'Marie N. (test)', '
              ('f1000000-0000-4000-8000-000000000007'::uuid, 'Paul T. (test)', 'USER', 'PAYER'),
              ('f1000000-0000-4000-8000-000000000008'::uuid, 'Validateur partie (test)', 'VALIDATOR', null)) v(id, n, r, pr)
 where p.id = v.id;
+-- Lot X v2 (X4, 0020) : niveau d’enrôlement réglé ici comme après la revue d’un dossier (N1 requis pour initier en demandeur).
+update profiles set enrolment_level = 'N1' where id = 'f1000000-0000-4000-8000-000000000002';
 insert into providers(id, name, city, verticals, verified, phone) values
  ('f2000000-0000-4000-8000-000000000001', 'Lycée de la Réunification (test)', 'Yaoundé', '{EDUCATION}', true, '+237622220003'),
  ('f2000000-0000-4000-8000-000000000002', 'Institut Non Vérifié (test)', 'Douala', '{EDUCATION}', false, null);
--- Pas d’émission simulée du jeton, sauf dans la section dédiée ; second facteur non exigé, sauf dans sa section.
-update app_config set value = 'false' where key in ('auto_issue_token', 'require_staff_mfa');
+-- Second facteur non exigé, sauf dans sa section. (Lot X v2 : plus d’émission simulée du jeton, auto_issue_token inutile.)
+update app_config set value = 'false' where key = 'require_staff_mfa';
+-- Lot X v2 (K2) : platform_review vaut NEVER par défaut (soumission → ACTIVE, hors file ; vérifié plus bas avec tx10).
+-- Ce test exerce la file du bureau : le type Scolarité passe en revue systématique avant les soumissions.
+select t.check((select bool_and(platform_review = 'NEVER') from request_modules), 'platform_review : NEVER par défaut pour tous les modules (lot X v2, K2)');
+update request_modules set platform_review = 'ALWAYS' where code = 'EDUCATION';
 
 -- ---------- Structure et droits ----------
 select t.check((select value from app_config where key = 'require_staff_mfa') is not null, 'clé require_staff_mfa présente');
@@ -158,15 +166,16 @@ select t.admin();
 -- ---------- File des dossiers et contrôles automatiques (D6) ----------
 select t.login('f1000000-0000-4000-8000-000000000004');
 select t.check(t.n($$select * from bo_dossiers where id::text like 'f3000000-%'$$) = 6, 'bo_dossiers : les six dossiers soumis');
-select t.check((select status = 'SUBMITTED' and validations_required = 1 and validations_received = 0 and not decided_by_me and not is_party
+select t.check((select status = 'PENDING_REVIEW' and validations_required = 1 and validations_received = 0 and not decided_by_me and not is_party
                   and requester_name = 'Jean K. (test)' and payer_name = 'Marie N. (test)' and provider_name = 'Lycée de la Réunification (test)'
                   and reference = 'F3000000' and submitted_at is not null
                 from bo_dossiers where id = 'f3000000-0000-4000-8000-000000000001'),
-  'bo_dossiers : statut, validations 0 sur 1, noms des parties, référence, date de soumission');
+  'bo_dossiers : statut PENDING_REVIEW, validations 0 sur 1, noms des parties, référence, date de soumission');
 select t.check((select validations_required from bo_dossiers where id = 'f3000000-0000-4000-8000-000000000002') = 2, 'bo_dossiers : double validation au-delà du seuil (RG-04)');
 select t.check((select is_party from bo_dossiers where id = 'f3000000-0000-4000-8000-000000000003') = false, 'is_party : faux pour un validateur non partie');
 select t.check((select string_agg(code || '=' || result, ',' order by code) from dossier_checks('f3000000-0000-4000-8000-000000000001'))
-  = 'DOCUMENTS=OK,DUPLICATE=ATTENTION,PLAN_SUM=OK,PROVIDER_VERIFIED=OK', 'contrôles tx1 : pièces, prestataire vérifié, somme ; doublon possible (tx5)');
+  = 'DOCUMENT_REUSED=OK,DOCUMENTS=OK,DUPLICATE=ATTENTION,PLAN_SUM=OK,PROVIDER_VERIFIED=OK',
+  'contrôles tx1 : pièces, prestataire vérifié, somme ; doublon possible (tx5) ; justificatif non réutilisé (lot X, X4)');
 select t.check((select detail->'references' from dossier_checks('f3000000-0000-4000-8000-000000000005') where code = 'DUPLICATE') = '["F3000000"]'::jsonb
            and (select result from dossier_checks('f3000000-0000-4000-8000-000000000005') where code = 'DUPLICATE') = 'ATTENTION',
   'doublon possible : même payeur, même prestataire, même montant (référence de l’autre dossier)');
@@ -178,6 +187,8 @@ select t.check((select result || ':' || (detail->>'reason') from dossier_checks(
 select t.hint($$select * from dossier_checks('f3000000-0000-4000-8000-0000000000ff')$$, 'TX_NOT_FOUND', 'contrôles d’un dossier inconnu');
 select t.admin();
 -- Pièce obligatoire retirée en base (cas anormal) : le contrôle échoue ; somme faussée : échec avec l’écart.
+-- Lot X (X4) : les pièces d’un dossier soumis sont immuables ; le cas anormal se fabrique en suspendant le déclencheur.
+alter table documents disable trigger documents_immutable_trg;
 update documents set deleted_at = now() where tx_id = 'f3000000-0000-4000-8000-000000000004' and kind = 'ENROLMENT_CERTIFICATE';
 update tranches set amount_minor = 150000 where tx_id = 'f3000000-0000-4000-8000-000000000004';
 select t.login('f1000000-0000-4000-8000-000000000004');
@@ -187,6 +198,7 @@ select t.check((select result || ':' || (detail->>'gap') from dossier_checks('f3
   'somme des tranches différente : échec avec l’écart');
 select t.admin();
 update documents set deleted_at = null where tx_id = 'f3000000-0000-4000-8000-000000000004';
+alter table documents enable trigger documents_immutable_trg;
 update tranches set amount_minor = 200000 where tx_id = 'f3000000-0000-4000-8000-000000000004';
 
 -- ---------- Validateur partie au dossier (RG-03) ----------
@@ -203,9 +215,9 @@ select t.admin();
 
 -- ---------- Prise en charge (D8) ----------
 select t.login('f1000000-0000-4000-8000-000000000004');
-select t.check((select status from claim_dossier('f3000000-0000-4000-8000-000000000001')) = 'IN_REVIEW', 'claim_dossier : SUBMITTED → IN_REVIEW');
+select t.check((select status from claim_dossier('f3000000-0000-4000-8000-000000000001')) = 'IN_REVIEW', 'claim_dossier : PENDING_REVIEW → IN_REVIEW');
 select t.admin();
-select t.check((select actor_id = 'f1000000-0000-4000-8000-000000000004' and from_status = 'SUBMITTED' from audit_log
+select t.check((select actor_id = 'f1000000-0000-4000-8000-000000000004' and from_status = 'PENDING_REVIEW' from audit_log
                 where tx_id = 'f3000000-0000-4000-8000-000000000001' and to_status = 'IN_REVIEW'), 'prise en charge journalisée au nom du validateur');
 select t.login('f1000000-0000-4000-8000-000000000005');
 select t.check((select status from claim_dossier('f3000000-0000-4000-8000-000000000001')) = 'IN_REVIEW', 'dossier déjà IN_REVIEW : reste ouvert à un autre validateur');
@@ -219,7 +231,7 @@ select t.hint($$select decide_tx('f3000000-0000-4000-8000-000000000001', true, f
 select t.hint($$select decide_tx('f3000000-0000-4000-8000-000000000001', true, null)$$, 'AMOUNT_NOT_CHECKED', 'case non renseignée : approbation refusée');
 select t.hint($$select decide_tx('f3000000-0000-4000-8000-000000000001', false, false, ' ')$$, 'REASON_REQUIRED', 'rejet sans motif refusé');
 select t.check((select count(*) from validations where tx_id = 'f3000000-0000-4000-8000-000000000001') = 0, 'aucune validation enregistrée après un refus');
-select t.check((select status from decide_tx('f3000000-0000-4000-8000-000000000001', true, true)) = 'VALIDATED', 'approbation avec la case : dossier validé (une validation requise)');
+select t.check((select status from decide_tx('f3000000-0000-4000-8000-000000000001', true, true)) = 'ACTIVE', 'approbation avec la case : opération active (une validation requise)');
 select t.admin();
 select t.check((select amount_checked and approved from validations where tx_id = 'f3000000-0000-4000-8000-000000000001'), 'case enregistrée avec la validation');
 select t.check((select payload->>'amount_checked' = 'true' and actor_id = 'f1000000-0000-4000-8000-000000000004' from audit_log
@@ -229,7 +241,7 @@ select t.check((select array_agg(user_id order by user_id)::text from notificati
   'alerte TX_VALIDATED au payeur, au demandeur et au prestataire');
 select t.fails($$insert into validations(tx_id, validator_id, approved, amount_checked) values ('f3000000-0000-4000-8000-000000000004', 'f1000000-0000-4000-8000-000000000005', true, false)$$,
   'la base refuse une approbation de dossier sans la case, même en écriture directe');
-select t.check((select status from bo_dossiers where id = 'f3000000-0000-4000-8000-000000000001') is null, 'dossier validé sorti de la file');
+select t.check((select status from bo_dossiers where id = 'f3000000-0000-4000-8000-000000000001') is null, 'dossier approuvé (ACTIVE) sorti de la file');
 
 -- ---------- Double validation de bout en bout (RG-04, deux validateurs distincts) ----------
 select t.login('f1000000-0000-4000-8000-000000000004');
@@ -245,22 +257,22 @@ select t.check((select validations_received = 1 and not decided_by_me from bo_do
 select t.check((select string_agg(validator_name || ':' || approved::text || ':' || is_me::text, ',') from bo_decisions('f3000000-0000-4000-8000-000000000002'))
   = 'Validateur A (test):true:false', 'bo_decisions : qui a déjà validé (nom), vu par l’autre validateur');
 select t.hint($$select decide_tx('f3000000-0000-4000-8000-000000000002', true, false)$$, 'AMOUNT_NOT_CHECKED', 'second validateur : la case est exigée aussi');
-select t.check((select status from decide_tx('f3000000-0000-4000-8000-000000000002', true, true)) = 'VALIDATED', 'second validateur distinct : dossier validé');
+select t.check((select status from decide_tx('f3000000-0000-4000-8000-000000000002', true, true)) = 'ACTIVE', 'second validateur distinct : opération active');
 select t.check((select count(*) from bo_decisions('f3000000-0000-4000-8000-000000000002')) = 2, 'bo_decisions : deux validations');
 select t.admin();
 
 -- ---------- Rejet avec motif ----------
 select t.login('f1000000-0000-4000-8000-000000000005');
 select claim_dossier('f3000000-0000-4000-8000-000000000004');
-select t.check((select status = 'REJECTED' and reject_reason = 'Attestation illisible' from decide_tx('f3000000-0000-4000-8000-000000000004', false, false, '  Attestation illisible ')),
-  'rejet avec motif (espaces retirés)');
+select t.check((select status = 'CANCELLED' and reject_reason = 'Attestation illisible' from decide_tx('f3000000-0000-4000-8000-000000000004', false, false, '  Attestation illisible ')),
+  'rejet avec motif (espaces retirés) : opération annulée (CANCELLED, plus de retour en correction)');
 select t.admin();
 select t.check((select count(*) from notifications where tx_id = 'f3000000-0000-4000-8000-000000000004' and event = 'TX_REJECTED'
                 and payload->>'reason' = 'Attestation illisible') = 3, 'alerte TX_REJECTED avec le motif');
 -- Un doublon possible n’empêche pas d’approuver (il alerte).
 select t.login('f1000000-0000-4000-8000-000000000005');
 select claim_dossier('f3000000-0000-4000-8000-000000000005');
-select t.check((select status from decide_tx('f3000000-0000-4000-8000-000000000005', true, true)) = 'VALIDATED', 'doublon possible : approbation permise');
+select t.check((select status from decide_tx('f3000000-0000-4000-8000-000000000005', true, true)) = 'ACTIVE', 'doublon possible : approbation permise');
 select t.admin();
 
 -- ---------- Pièces : liste, ouverture journalisée, lecture du stockage ----------
@@ -290,28 +302,36 @@ select t.login('f1000000-0000-4000-8000-000000000005');
 select t.check((select count(*) from storage.objects where name like 'f3000000-0000-4000-8000-000000000001/%') = 0, 'stockage : illisible pour un validateur sans ouverture journalisée');
 select t.admin();
 select t.login('f1000000-0000-4000-8000-000000000001');
-select t.check((select count(*) from storage.objects where name like 'f3000000-0000-4000-8000-000000000001/%') = 1, 'stockage : toujours lisible par une partie');
+-- Lot X (X4) : une partie ne lit plus le fichier d’un dossier soumis qu’après une consultation journalisée (avant : toujours lisible).
+select t.check((select count(*) from storage.objects where name like 'f3000000-0000-4000-8000-000000000001/%') = 0, 'stockage : illisible pour une partie sans consultation journalisée');
+select get_document_access((select v from t.ids where k = 'doc1'));
+select t.check((select count(*) from storage.objects where name like 'f3000000-0000-4000-8000-000000000001/%') = 1, 'stockage : lisible par une partie après consultation journalisée');
 select t.admin();
 select t.login('f1000000-0000-4000-8000-000000000007');
 select t.check((select count(*) from storage.objects where name like 'f3000000-0000-4000-8000-000000000001/%') = 0, 'stockage : illisible pour un tiers');
 select t.admin();
 
--- ---------- Preuve de jalon (vague 2 : données créées directement) ----------
-insert into transactions(id, vertical, purpose, amount_minor, currency, status, created_by, provider_name, plan_type)
-values ('f3000000-0000-4000-8000-000000000007', 'LAND', 'Terrain Odza (test lot 5)', 6000000, 'XAF', 'IN_PROGRESS', 'f1000000-0000-4000-8000-000000000002', 'Étude notariale (test)', 'PARTIAL');
+-- ---------- Preuve de jalon (vague 2, CONDITIONAL : opération et paiement créés directement) ----------
+-- Lot X v2 : la preuve ne sert qu’en CONDITIONAL ; demande PAID avec fonds bloqués (HELD), le prestataire dépose sa pièce
+-- puis demande l’examen (submit_evidence). Avant : statut de tranche EVIDENCE_SUBMITTED écrit directement.
+insert into transactions(id, vertical, purpose, amount_minor, currency, status, created_by, provider_name, plan_type, settlement_mode)
+values ('f3000000-0000-4000-8000-000000000007', 'LAND', 'Terrain Odza (test lot 5)', 6000000, 'XAF', 'ACTIVE', 'f1000000-0000-4000-8000-000000000002', 'Étude notariale (test)', 'PARTIAL', 'CONDITIONAL');
 insert into transaction_parties(tx_id, user_id, role) values
  ('f3000000-0000-4000-8000-000000000007', 'f1000000-0000-4000-8000-000000000002', 'REQUESTER'),
  ('f3000000-0000-4000-8000-000000000007', 'f1000000-0000-4000-8000-000000000001', 'PAYER'),
  ('f3000000-0000-4000-8000-000000000007', 'f1000000-0000-4000-8000-000000000003', 'PROVIDER');
-insert into tranches(id, tx_id, seq, label, amount_minor, status, release_mode, contest_hours)
-values ('f4000000-0000-4000-8000-000000000001', 'f3000000-0000-4000-8000-000000000007', 1, 'Remise du titre foncier', 6000000, 'EVIDENCE_SUBMITTED', 'EVIDENCE_REVIEW', 0);
+insert into tranches(id, tx_id, seq, label, amount_minor, status, funds_state, paid_at, release_mode, contest_hours)
+values ('f4000000-0000-4000-8000-000000000001', 'f3000000-0000-4000-8000-000000000007', 1, 'Remise du titre foncier', 6000000, 'PAID', 'HELD', now(), 'EVIDENCE_REVIEW', 0);
+-- Jeton de la demande (CONDITIONAL : émis à la soumission ; ici données directes), pour la recherche par référence d’eQR.
+select _issue_tranche_token('f4000000-0000-4000-8000-000000000001');
+insert into payments(tx_id, tranche_id, provider, status) values ('f3000000-0000-4000-8000-000000000007', 'f4000000-0000-4000-8000-000000000001', 'MOCK', 'SUCCEEDED');
+select t.login('f1000000-0000-4000-8000-000000000003');
 insert into documents(tx_id, tranche_id, kind, storage_path, mime_type, size_bytes, uploaded_by, file_name)
 values ('f3000000-0000-4000-8000-000000000007', 'f4000000-0000-4000-8000-000000000001', 'EVIDENCE', 'f3000000-0000-4000-8000-000000000007/EVIDENCE/titre.pdf',
         'application/pdf', 5000, 'f1000000-0000-4000-8000-000000000003', 'titre_foncier.pdf');
-insert into payments(tx_id, tranche_id, provider, status) values ('f3000000-0000-4000-8000-000000000007', 'f4000000-0000-4000-8000-000000000001', 'MOCK', 'SUCCEEDED');
-insert into audit_log(tx_id, tranche_id, actor_id, event, payload)
-values ('f3000000-0000-4000-8000-000000000007', 'f4000000-0000-4000-8000-000000000001', 'f1000000-0000-4000-8000-000000000003', 'TRANCHE_CHANGE',
-        '{"tranche_from":"PAID_LOCKED","tranche_to":"EVIDENCE_SUBMITTED"}');
+select t.check((select evidence_submitted_at is not null and status = 'PAID' and funds_state = 'HELD' from submit_evidence('f4000000-0000-4000-8000-000000000001')),
+  'submit_evidence : le prestataire demande l’examen de sa preuve (PAID, fonds bloqués)');
+select t.admin();
 select t.login('f1000000-0000-4000-8000-000000000004');
 select t.check((select validations_required = 2 and validations_received = 0 and label = 'Remise du titre foncier' and submitted_at is not null
                 from bo_evidence_queue where tranche_id = 'f4000000-0000-4000-8000-000000000001'), 'bo_evidence_queue : preuve en attente, 2 validations requises (terrain)');
@@ -319,63 +339,77 @@ select t.check((select string_agg(code || '=' || result, ',' order by code) from
   = 'EVIDENCE_PRESENT=OK,PROVIDER_VERIFIED=ATTENTION', 'evidence_checks : preuve déposée, prestataire hors annuaire');
 select t.check(jsonb_array_length(dossier_documents('f3000000-0000-4000-8000-000000000007')) = 1, 'dossier_documents : la preuve de la tranche');
 select t.hint($$select decide_tranche('f4000000-0000-4000-8000-000000000001', false, '')$$, 'REASON_REQUIRED', 'rejet de preuve sans motif');
-select t.check((select status from decide_tranche('f4000000-0000-4000-8000-000000000001', true)) = 'EVIDENCE_SUBMITTED', 'preuve : première approbation, en attente de la seconde');
+select t.check((select status = 'PAID' and funds_state = 'HELD' and evidence_submitted_at is not null from decide_tranche('f4000000-0000-4000-8000-000000000001', true)),
+  'preuve : première approbation, fonds toujours bloqués, en attente de la seconde');
 select t.hint($$select decide_tranche('f4000000-0000-4000-8000-000000000001', true)$$, 'ALREADY_DECIDED', 'preuve : même validateur refusé');
 select t.check((select validations_received from bo_evidence_queue where tranche_id = 'f4000000-0000-4000-8000-000000000001') = 1, 'bo_evidence_queue : 1 sur 2');
 select t.admin();
 select t.login('f1000000-0000-4000-8000-000000000005');
-select t.check((select status from decide_tranche('f4000000-0000-4000-8000-000000000001', true)) = 'RELEASED', 'preuve : second validateur, tranche débloquée');
+select t.check((select status = 'PAID' and funds_state = 'RELEASED' from decide_tranche('f4000000-0000-4000-8000-000000000001', true)),
+  'preuve : second validateur, fonds libérés (PAID, RELEASED)');
 select t.check(t.n($$select * from bo_evidence_queue where tranche_id = 'f4000000-0000-4000-8000-000000000001'$$) = 0, 'preuve sortie de la file');
 select t.admin();
+select t.check(exists (select 1 from release_events where tranche_id = 'f4000000-0000-4000-8000-000000000001' and trigger = 'VALIDATOR_APPROVAL')
+           and exists (select 1 from notifications where tx_id = 'f3000000-0000-4000-8000-000000000007' and event = 'TRANCHE_RELEASED'),
+  'libération par le bureau : release_events VALIDATOR_APPROVAL et alerte TRANCHE_RELEASED');
 
 -- ---------- Litiges (RG-09) : réponse de la partie adverse, administrateur seulement ----------
+-- Lot X v2 : tx1 (Scolarité, DIRECT) est active depuis son approbation ; la première tranche due est soumise, la seconde
+-- programmée. Le paiement simulé passe par start_payment et l’événement du partenaire ; le litige est un dossier distinct.
 select t.login('f1000000-0000-4000-8000-000000000001');
-select simulate_system_transition('f3000000-0000-4000-8000-000000000001', 'TOKEN_ISSUED');
-select simulate_system_transition('f3000000-0000-4000-8000-000000000001', 'IN_PROGRESS');
 insert into t.ids select 'tr1', id from tranches where tx_id = 'f3000000-0000-4000-8000-000000000001' and seq = 1;
 insert into t.ids select 'tr2', id from tranches where tx_id = 'f3000000-0000-4000-8000-000000000001' and seq = 2;
-select simulate_tranche_system((select v from t.ids where k = 'tr1'), 'AWAITING_PAYMENT');
-select simulate_tranche_system((select v from t.ids where k = 'tr1'), 'PAID_LOCKED');
+select simulate_tranche_system((select v from t.ids where k = 'tr1'), 'PAID');
 insert into t.ids select 'd1', id from open_dispute((select v from t.ids where k = 'tr1'), 'Les cours n’ont pas commencé à la date prévue.', 'NOT_DELIVERED');
 select t.hint($$select respond_dispute((select v from t.ids where k = 'd1'), 'Je réponds à mon propre litige.')$$, 'NOT_RESPONDENT', 'l’auteur du litige ne se répond pas');
 select t.admin();
 select t.login('f1000000-0000-4000-8000-000000000003');
 select t.hint($$select respond_dispute((select v from t.ids where k = 'd1'), 'Non.')$$, 'REASON_TOO_SHORT', 'réponse trop courte');
-select t.check((select response from respond_dispute((select v from t.ids where k = 'd1'), 'Les cours ont commencé le 4 novembre, liste d’appel jointe.')) is not null,
-  'le prestataire donne sa version');
+select t.check((select response is not null and status = 'IN_MEDIATION' from respond_dispute((select v from t.ids where k = 'd1'), 'Les cours ont commencé le 4 novembre, liste d’appel jointe.')),
+  'le prestataire donne sa version (litige en médiation)');
 select t.hint($$select respond_dispute((select v from t.ids where k = 'd1'), 'Une seconde réponse refusée.')$$, 'ALREADY_ANSWERED', 'une seule réponse');
 select t.admin();
 select t.login('f1000000-0000-4000-8000-000000000004');
 select t.check(t.n('select * from bo_disputes') = 0, 'bo_disputes : vide pour un validateur (administrateurs seulement)');
-select t.hint($$select resolve_dispute((select v from t.ids where k = 'd1'), 'REFUND_PAYER', 'Remboursement')$$, 'ADMIN_ONLY', 'un validateur ne tranche pas un litige');
+select t.hint($$select resolve_dispute((select v from t.ids where k = 'd1'), 'REFUND_FULL', 'Remboursement')$$, 'ADMIN_ONLY', 'un validateur ne tranche pas un litige');
 select t.admin();
 select t.login('f1000000-0000-4000-8000-000000000006');
 select t.check((select opened_by_role = 'PAYER' and reason_code = 'NOT_DELIVERED' and response like 'Les cours ont commencé%' and notified_at is not null
-                  and status = 'OPEN' and not is_party and tranche_seq = 1 and amount_minor = 400000 and payer_name = 'Marie N. (test)'
+                  and status = 'IN_MEDIATION' and not is_party and tranche_seq = 1 and amount_minor = 400000 and payer_name = 'Marie N. (test)'
+                  and tranche_status = 'PAID' and not before_payment and not on_hold and settlement_mode = 'DIRECT' and funds_state = 'NONE'
                 from bo_disputes where id = (select v from t.ids where k = 'd1')),
-  'bo_disputes : auteur, motif, version du prestataire, partie adverse informée, montant de la tranche');
-select t.hint($$select resolve_dispute((select v from t.ids where k = 'd1'), 'REFUND_PAYER', '')$$, 'REASON_REQUIRED', 'note de décision obligatoire');
-select t.check((select status from resolve_dispute((select v from t.ids where k = 'd1'), 'REFUND_PAYER', 'Prestation non réalisée, remboursement.')) = 'REFUNDED_TO_PAYER',
-  'administrateur : remboursement du payeur');
+  'bo_disputes : auteur, motif, version du prestataire, partie adverse informée, montant ; litige après paiement (DIRECT, demande PAID)');
+select t.hint($$select resolve_dispute((select v from t.ids where k = 'd1'), 'REFUND_FULL', '')$$, 'REASON_REQUIRED', 'note de décision obligatoire');
+select t.check((select status = 'RESOLVED' and outcome = 'REFUND_FULL' and refund_amount_minor = 400000 and refund_id is not null
+                from resolve_dispute((select v from t.ids where k = 'd1'), 'REFUND_FULL', 'Prestation non réalisée, remboursement.')),
+  'administrateur : remboursement intégral du payeur (REFUND_FULL, remboursement lié)');
 select t.admin();
-select t.check((select status from tranches where id = (select v from t.ids where k = 'tr1')) = 'CANCELLED'
-           and (select status from payments where tranche_id = (select v from t.ids where k = 'tr1')) = 'REFUNDED', 'tranche annulée, paiement remboursé');
+select t.check((select status from tranches where id = (select v from t.ids where k = 'tr1')) = 'PAID'
+           and (select status = 'REQUESTED' and amount_minor = 400000 from refunds where tranche_id = (select v from t.ids where k = 'tr1')),
+  'litige tranché : la demande payée reste PAID tant que le remboursement n’est pas exécuté (K7)');
+select t.login('f1000000-0000-4000-8000-000000000006');
+select demo_settle_refund((select id from refunds where tranche_id = (select v from t.ids where k = 'tr1')));
+select t.admin();
+select t.check((select status = 'REFUNDED' and refunded_minor = 400000 from tranches where id = (select v from t.ids where k = 'tr1'))
+           and (select status from payments where tranche_id = (select v from t.ids where k = 'tr1')) = 'REFUNDED', 'remboursement exécuté : demande REFUNDED, paiement remboursé');
 select t.check(exists (select 1 from audit_log where tranche_id = (select v from t.ids where k = 'tr1') and event = 'DISPUTE_RESOLVED'
-                 and actor_id = 'f1000000-0000-4000-8000-000000000006' and payload->>'outcome' = 'REFUND_PAYER'), 'journal : litige tranché par l’administrateur (remboursement)');
--- Second litige, ouvert par le prestataire, tranché en sa faveur.
+                 and actor_id = 'f1000000-0000-4000-8000-000000000006' and payload->>'outcome' = 'REFUND_FULL'), 'journal : litige tranché par l’administrateur (remboursement)');
+-- Second litige, ouvert par le prestataire, tranché en sa faveur (DIRECT : le paiement exécuté reste acquis, sans action).
 select t.login('f1000000-0000-4000-8000-000000000001');
-select simulate_tranche_system((select v from t.ids where k = 'tr2'), 'AWAITING_PAYMENT');
-select simulate_tranche_system((select v from t.ids where k = 'tr2'), 'PAID_LOCKED');
+select simulate_tranche_system((select v from t.ids where k = 'tr2'), 'SUBMITTED');
+select simulate_tranche_system((select v from t.ids where k = 'tr2'), 'PAID');
 select t.admin();
 select t.login('f1000000-0000-4000-8000-000000000003');
 insert into t.ids select 'd2', id from open_dispute((select v from t.ids where k = 'tr2'), 'Le payeur conteste une prestation pourtant livrée.', 'OTHER');
 select t.admin();
 select t.login('f1000000-0000-4000-8000-000000000006');
 select t.check((select opened_by_role = 'PROVIDER' and response is null from bo_disputes where id = (select v from t.ids where k = 'd2')), 'litige ouvert par le prestataire, sans réponse');
-select t.check((select status from resolve_dispute((select v from t.ids where k = 'd2'), 'RELEASE_TO_PROVIDER', 'Prestation attestée.')) = 'RELEASED_TO_PROVIDER',
-  'administrateur : fonds libérés au prestataire');
-select t.check((select tranche_status = 'RELEASED' and status = 'RELEASED_TO_PROVIDER' and resolved_by_name = 'Administratrice (test)'
-                from bo_disputes where id = (select v from t.ids where k = 'd2')), 'bo_disputes : tranche débloquée, décision et auteur');
+select t.hint($$select resolve_dispute((select v from t.ids where k = 'd2'), 'FUNDS_RELEASED', 'Prestation attestée.')$$, 'INVALID_OUTCOME',
+  'règlement direct : fonds déjà versés, aucune libération à décider');
+select t.check((select status = 'RESOLVED' and outcome = 'NO_ACTION' from resolve_dispute((select v from t.ids where k = 'd2'), 'NO_ACTION', 'Prestation attestée.')),
+  'administrateur : litige tranché en faveur du prestataire (NO_ACTION, paiement acquis)');
+select t.check((select tranche_status = 'PAID' and status = 'RESOLVED' and outcome = 'NO_ACTION' and resolved_by_name = 'Administratrice (test)'
+                from bo_disputes where id = (select v from t.ids where k = 'd2')), 'bo_disputes : demande payée inchangée, décision et auteur');
 select t.admin();
 select t.check((select status from transactions where id = 'f3000000-0000-4000-8000-000000000001') = 'CLOSED', 'toutes les tranches terminées : transaction close');
 
@@ -383,8 +417,8 @@ select t.check((select status from transactions where id = 'f3000000-0000-4000-8
 select t.login('f1000000-0000-4000-8000-000000000004');
 select t.check((select count(*) from bo_audit('f3000000-0000-4000-8000-000000000001')) = (select (bo_audit_verify('f3000000-0000-4000-8000-000000000001')->>'count')::int),
   'bo_audit : toutes les lignes de la transaction');
-select t.check((select actor_role = 'REQUESTER' and actor_name = 'Jean K. (test)' and event = 'STATUS_CHANGE' and to_status = 'SUBMITTED'
-                from bo_audit('f3000000-0000-4000-8000-000000000001') where to_status = 'SUBMITTED'), 'bo_audit : acteur affiché avec son rôle au dossier');
+select t.check((select actor_role = 'REQUESTER' and actor_name = 'Jean K. (test)' and event = 'STATUS_CHANGE' and to_status = 'PENDING_REVIEW'
+                from bo_audit('f3000000-0000-4000-8000-000000000001') where to_status = 'PENDING_REVIEW'), 'bo_audit : acteur affiché avec son rôle au dossier');
 select t.check((select actor_role from bo_audit('f3000000-0000-4000-8000-000000000001') where event = 'VALIDATION_DECISION') = 'VALIDATOR', 'bo_audit : rôle de plateforme du validateur');
 select t.check((select tranche_seq from bo_audit('f3000000-0000-4000-8000-000000000001') where event = 'DISPUTE_OPENED' limit 1) = 1, 'bo_audit : numéro de tranche');
 select t.check((select bool_and(length(hash) = 64) from bo_audit('f3000000-0000-4000-8000-000000000001')), 'bo_audit : empreintes entières');
@@ -397,31 +431,31 @@ select t.check(exists (select 1 from bo_find_transactions('UNIVERSITE PRIVEE') w
 select t.check(exists (select 1 from bo_find_transactions('marie n.') where id = 'f3000000-0000-4000-8000-000000000001'), 'recherche par nom d’une partie');
 select t.check(exists (select 1 from bo_find_transactions('F3000000') where id = 'f3000000-0000-4000-8000-000000000001'), 'recherche par référence du dossier');
 select t.check(exists (select 1 from bo_find_transactions('Étude notariale') where id = 'f3000000-0000-4000-8000-000000000007'), 'recherche par prestataire');
-select t.check(exists (select 1 from bo_find_transactions((select k.reference from tranche_tokens k where k.tranche_id = (select v from t.ids where k = 'tr1')))
-                       where id = 'f3000000-0000-4000-8000-000000000001'), 'recherche par référence d’eQR (18 caractères)');
+select t.check(exists (select 1 from bo_find_transactions((select k.reference from tranche_tokens k where k.tranche_id = 'f4000000-0000-4000-8000-000000000001'))
+                       where id = 'f3000000-0000-4000-8000-000000000007'), 'recherche par référence d’eQR (18 caractères ; jeton en CONDITIONAL seulement)');
 select t.hint($$select * from bo_audit('f3000000-0000-4000-8000-0000000000ff')$$, 'TX_NOT_FOUND', 'journal d’une transaction inconnue');
 select t.admin();
 
--- ---------- Émission simulée du jeton à la validation (développement) ----------
-update app_config set value = 'true' where key = 'auto_issue_token';
+-- ---------- Approbation : opération active et première demande soumise (lot X v2 : plus d’émission simulée du jeton) ----------
 select t.login('f1000000-0000-4000-8000-000000000005');
 select claim_dossier('f3000000-0000-4000-8000-000000000006');
-select t.check((select status from decide_tx('f3000000-0000-4000-8000-000000000006', true, true)) = 'IN_PROGRESS', 'auto_issue_token (mock_mode) : jeton émis, transaction en cours');
+select t.check((select status from decide_tx('f3000000-0000-4000-8000-000000000006', true, true)) = 'ACTIVE', 'approbation : opération active directement (sans jeton ni auto_issue_token)');
 select t.admin();
-select t.check((select status from tranches where tx_id = 'f3000000-0000-4000-8000-000000000006' and seq = 1) = 'AWAITING_PAYMENT'
-           and exists (select 1 from notifications where tx_id = 'f3000000-0000-4000-8000-000000000006' and event = 'PAYMENT_READY'),
-  'première tranche activée (RG-12) et alerte PAYMENT_READY');
+select t.check((select status from tranches where tx_id = 'f3000000-0000-4000-8000-000000000006' and seq = 1) = 'SUBMITTED'
+           and exists (select 1 from notifications where tx_id = 'f3000000-0000-4000-8000-000000000006' and event = 'PAYMENT_REQUEST_RECEIVED'
+                       and user_id = 'f1000000-0000-4000-8000-000000000001'),
+  'première demande due soumise (RG-12) et alerte PAYMENT_REQUEST_RECEIVED au payeur (non initiateur)');
 select t.login('f1000000-0000-4000-8000-000000000005');
-select t.check((select count(*) = 3 and bool_and(actor_name is null and actor_role is null) from bo_audit('f3000000-0000-4000-8000-000000000006') where actor_id is null),
-  'bo_audit : étapes du système (jeton, en cours, activation) sans acteur');
+select t.check((select array_agg(event order by event) = array['REQUEST_SUBMITTED','TOKEN_ISSUED'] and bool_and(actor_name is null and actor_role is null)
+                 from bo_audit('f3000000-0000-4000-8000-000000000006') where actor_id is null),
+  'bo_audit : étapes du système (jeton émis puis demande soumise, lot X-C T7) sans acteur');
 select t.admin();
--- Hors mock_mode (production), même avec la clé : le dossier validé attend l’émission du jeton (TrustEngine).
+-- Hors mock_mode (production) : même parcours, aucune simulation (l’approbation active l’opération).
 update app_config set value = 'false' where key = 'mock_mode';
 select t.login('f1000000-0000-4000-8000-000000000004');
-select t.check((select status from decide_tx('f3000000-0000-4000-8000-000000000003', true, true)) = 'VALIDATED', 'hors mock_mode : aucune émission simulée, dossier VALIDATED');
+select t.check((select status from decide_tx('f3000000-0000-4000-8000-000000000003', true, true)) = 'ACTIVE', 'hors mock_mode : approbation → ACTIVE, sans simulation');
 select t.admin();
 update app_config set value = 'true' where key = 'mock_mode';
-update app_config set value = 'false' where key = 'auto_issue_token';
 
 -- ---------- Validation de démonstration : case cochée par le validateur simulé ----------
 do $$ begin
@@ -443,7 +477,7 @@ select save_draft(jsonb_build_object('id','f3000000-0000-4000-8000-000000000009'
   'tranches',jsonb_build_array(jsonb_build_object('label','Année','amountMinor','70000','dueDate',(current_date + 30)::text))));
 select add_document('f3000000-0000-4000-8000-000000000009', 'ENROLMENT_CERTIFICATE', 'f3000000-0000-4000-8000-000000000009/ENROLMENT_CERTIFICATE/a.pdf', 'a.pdf', 'application/pdf', 1000);
 select transition_tx('f3000000-0000-4000-8000-000000000009', 'SUBMITTED');
-select t.check((select status from demo_review('f3000000-0000-4000-8000-000000000008', true)) = 'IN_PROGRESS', 'demo_review : parcours inchangé (jeton, en cours)');
+select t.check((select status from demo_review('f3000000-0000-4000-8000-000000000008', true)) = 'ACTIVE', 'demo_review : approbation → ACTIVE (lot X v2)');
 select t.admin();
 select t.check((select bool_and(amount_checked) from validations where tx_id = 'f3000000-0000-4000-8000-000000000008'), 'demo_review : case cochée par le validateur simulé');
 
@@ -464,7 +498,7 @@ select t.admin();
 select t.login('f1000000-0000-4000-8000-000000000005', 'aal2');
 select t.check(is_validator() and t.n($$select * from bo_dossiers where id = 'f3000000-0000-4000-8000-000000000009'$$) = 1, 'aal2 : validateur admis, file visible');
 select t.check((select status from claim_dossier('f3000000-0000-4000-8000-000000000009')) = 'IN_REVIEW', 'aal2 : prise en charge acceptée');
-select t.check((select status from decide_tx('f3000000-0000-4000-8000-000000000009', true, true)) = 'VALIDATED', 'aal2 : décision acceptée');
+select t.check((select status from decide_tx('f3000000-0000-4000-8000-000000000009', true, true)) = 'ACTIVE', 'aal2 : décision acceptée');
 select t.admin();
 select t.login('f1000000-0000-4000-8000-000000000006', 'aal2');
 select t.check(is_admin(), 'aal2 : administrateur admis');
@@ -472,6 +506,27 @@ select t.admin();
 update app_config set value = 'false' where key = 'require_staff_mfa';
 select t.login('f1000000-0000-4000-8000-000000000004', 'aal1');
 select t.check(is_validator(), 'second facteur non exigé : aal1 suffit (développement)');
+select t.admin();
+
+-- ---------- Parcours par défaut (platform_review = NEVER) : la file ne reçoit plus le dossier ----------
+update request_modules set platform_review = 'NEVER' where code = 'EDUCATION';
+select t.login('f1000000-0000-4000-8000-000000000002');
+select save_draft(jsonb_build_object('id','f3000000-0000-4000-8000-000000000010','vertical','EDUCATION','step','recap','amountMinor','60000','currency','XAF',
+  'purpose','Activités périscolaires (test lot 5)','beneficiaryName','Awa','counterpartyPhone','+33 6 22 22 00 01',
+  'provider',jsonb_build_object('id','f2000000-0000-4000-8000-000000000001','name','Lycée de la Réunification (test)'),'planType','SINGLE',
+  'tranches',jsonb_build_array(jsonb_build_object('label','Année','amountMinor','60000','dueDate',(current_date + 3)::text))));
+select add_document('f3000000-0000-4000-8000-000000000010', 'ENROLMENT_CERTIFICATE', 'f3000000-0000-4000-8000-000000000010/ENROLMENT_CERTIFICATE/a.pdf', 'a.pdf', 'application/pdf', 1000);
+select t.check((select status from transition_tx('f3000000-0000-4000-8000-000000000010', 'SUBMITTED')) = 'ACTIVE', 'platform_review NEVER : soumission → ACTIVE directement');
+select t.admin();
+select t.check(exists (select 1 from audit_log where tx_id = 'f3000000-0000-4000-8000-000000000010' and event = 'AUTO_ACTIVATED' and from_status = 'DRAFT' and to_status = 'ACTIVE')
+           and not exists (select 1 from notifications where tx_id = 'f3000000-0000-4000-8000-000000000010' and event = 'TX_VALIDATED'),
+  'activation automatique journalisée (AUTO_ACTIVATED), sans alerte TX_VALIDATED (aucune décision du bureau)');
+select t.login('f1000000-0000-4000-8000-000000000004');
+select t.check(t.n($$select * from bo_dossiers where id = 'f3000000-0000-4000-8000-000000000010'$$) = 0, 'bo_dossiers : un dossier activé automatiquement n’entre pas dans la file');
+select t.check((select status from claim_dossier('f3000000-0000-4000-8000-000000000010')) = 'ACTIVE'
+           and not exists (select 1 from audit_log where tx_id = 'f3000000-0000-4000-8000-000000000010' and to_status = 'IN_REVIEW'),
+  'claim_dossier sur un dossier actif : sans effet (reste ACTIVE, aucune prise en charge)');
+select t.hint($$select decide_tx('f3000000-0000-4000-8000-000000000010', true, true)$$, 'NOT_IN_REVIEW', 'aucune décision sur un dossier hors revue');
 select t.admin();
 
 -- ---------- Chaîne rompue : une ligne altérée est détectée ----------

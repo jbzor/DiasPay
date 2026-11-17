@@ -7,44 +7,50 @@ import type { TxRole } from '@diaspay/domain';
 import type { Tranche, Transaction } from '@diaspay/api-client';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { trancheStatusKey, txStatusKey, useI18n, verticalLabel } from '@/i18n';
-import { api, usePersona } from '@/state/api';
-import { useDemo, useTransactionsQuery } from '@/state/queries';
+import type { Key } from '@/i18n/messages';
+import { trancheInfo } from '@/features/tx/trancheInfo';
+import { api, getCurrentUser, usePersona } from '@/state/api';
+import { useDemo, useDisputeQuery, useTransactionsQuery } from '@/state/queries';
 import { QueryGate } from '@/ui/states';
 import { Banner, Button, Divider, Field, Icon, Row, Screen, StatusLabel, TopBar, txStatusKind } from '@/ui';
 import { Dialog } from '@/ui/Dialog';
-import { openDraft } from '@/state/needWizard';
+import { receiptAvailable } from '@/features/receipt/receipt';
+import { showToast } from '@/ui/Toast';
 
-/** Dossier soumis, en validation ou rejeté : bandeau, motif, correction ; simulation du bureau de contrôle (démo). */
+/**
+ * Lot X version 2 : opération en revue (bandeau, simulation du bureau de contrôle en démonstration), suspendue (litige
+ * ouvert avant paiement) ou rejetée par le bureau (CANCELLED avec motif : motif affiché, aucune correction possible).
+ * L’initiateur peut annuler une opération active (cancelOperation) : à la place de l’ancien « Abandonner ».
+ */
 function ReviewPanel({ tx }: { tx: Transaction }) {
   const { t, errorText } = useI18n();
   const demo = useDemo();
   const [rejecting, setRejecting] = useState(false);
-  const [abandoning, setAbandoning] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const inReview = tx.status === 'SUBMITTED' || tx.status === 'IN_REVIEW';
+  const inReview = tx.status === 'PENDING_REVIEW' || tx.status === 'IN_REVIEW';
+  const rejected = tx.status === 'CANCELLED' && !!tx.rejectionReason;
+  const me = getCurrentUser();
+  // Initiateur seulement ; pas pendant un paiement en cours (ACCEPTED), que l’annulation ne peut pas interrompre.
+  const canCancel = tx.status === 'ACTIVE' && !!me && tx.ownerId === me.id && !tx.tranches.some((r) => r.status === 'ACCEPTED');
   const run = async (fn: () => Promise<unknown>) => { setError(null); try { await fn(); } catch (e) { setError(errorText(e)); } };
 
-  async function correct() {
-    await run(async () => {
-      const draft = await api.reopenForCorrection(tx.id);
-      const step = openDraft(draft);
-      router.replace(`/need/${step}`);
-    });
-  }
-
-  if (!inReview && tx.status !== 'REJECTED') return null;
+  if (!inReview && !rejected && !canCancel && tx.status !== 'SUSPENDED') return null;
   return (
     <View style={{ gap: spacing.sm }}>
       {inReview ? <Banner text={t('inReviewBanner')} /> : null}
-      {tx.status === 'REJECTED' ? (
+      {tx.status === 'SUSPENDED' ? <Banner tone="error" text={t('txSuspendedBanner')} /> : null}
+      {rejected ? (
         <View style={st.rejected}>
           <Text style={st.statusLabel}>{t('rejectionReason')}</Text>
           <Text style={st.reason}>{tx.rejectionReason ?? ''}</Text>
-          <View style={st.actions}>
-            <Button small tone="secondary" label={t('abandon')} onPress={() => setAbandoning(true)} />
-            <Button small label={t('correct')} onPress={() => void correct()} />
-          </View>
+          <Text style={st.statusLabel}>{t('rejectedFinal')}</Text>
+        </View>
+      ) : null}
+      {canCancel ? (
+        <View style={st.actions}>
+          <Button small tone="secondary" label={t('cancelOperation')} onPress={() => setCancelling(true)} />
         </View>
       ) : null}
       {demo && inReview ? (
@@ -54,9 +60,9 @@ function ReviewPanel({ tx }: { tx: Transaction }) {
         </View>
       ) : null}
       {error ? <Banner tone="error" text={error} /> : null}
-      <Dialog visible={abandoning} danger title={t('abandonTitle')} message={t('abandonConfirm')} confirmLabel={t('abandon')} cancelLabel={t('cancel')}
-        onCancel={() => setAbandoning(false)}
-        onConfirm={() => { setAbandoning(false); void run(() => api.abandonRejected(tx.id)); }} />
+      <Dialog visible={cancelling} danger title={t('cancelOperation')} message={t('cancelOperationConfirm')} confirmLabel={t('cancelOperation')} cancelLabel={t('cancel')}
+        onCancel={() => setCancelling(false)}
+        onConfirm={() => { setCancelling(false); void run(() => api.cancelOperation(tx.id)); }} />
       <Dialog visible={rejecting} danger title={t('simReject')} confirmLabel={t('confirmReject')} cancelLabel={t('cancel')}
         confirmDisabled={reason.trim().length < 3} onCancel={() => setRejecting(false)}
         onConfirm={() => { setRejecting(false); void run(() => api.simulateReview(tx.id, { approved: false, reason })); }}>
@@ -66,61 +72,72 @@ function ReviewPanel({ tx }: { tx: Transaction }) {
   );
 }
 
-const dotColor = (s: Tranche['status']) =>
-  s === 'RELEASED' ? palette.green : s === 'AWAITING_PAYMENT' ? palette.yellow : s === 'DISPUTED' ? palette.red : s === 'PLANNED' ? palette.disabled : palette.green;
+/** Tranche terminée côté payeur : payée en règlement direct, ou fonds traités en déblocage conditionnel. */
+const settled = (tx: Transaction, tr: Tranche) =>
+  (tr.status === 'PAID' || tr.status === 'REFUNDED') && (tx.settlementMode === 'DIRECT' || tr.fundsState !== 'HELD');
+
+const dotColor = (tx: Transaction, tr: Tranche) =>
+  tr.onHold ? palette.red
+  : settled(tx, tr) || tr.status === 'PAID' ? palette.green
+  : tr.status === 'SUBMITTED' || tr.status === 'INFO_REQUESTED' || tr.status === 'ACCEPTED' ? palette.yellow
+  : palette.disabled;
+
+/** Litige possible à cette étape (avant ou après paiement) : on lit le dossier de litige éventuel. */
+const DISPUTABLE: readonly Tranche['status'][] = ['SUBMITTED', 'INFO_REQUESTED', 'ACCEPTED', 'PAID', 'REFUNDED'];
 
 function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boolean }) {
-  const { t, shortDate: date, dateTime, money } = useI18n();
+  const { t, shortDate: date, dateTime, money, errorText } = useI18n();
   const persona = usePersona();
   const roles: TxRole[] = persona === 'PAYER' ? ['PAYER'] : ['PROVIDER'];
-  const canDispute = canOpenDispute({
-    status: tr.status, releaseMode: tr.releaseMode, contestHours: tr.contestHours,
-    contestEndsAt: tr.contestEndsAt ? new Date(tr.contestEndsAt) : undefined,
-  }, roles, new Date());
+  const dq = useDisputeQuery(DISPUTABLE.includes(tr.status) || tr.onHold ? tr.id : undefined);
+  const dispute = dq.data ?? null;
+  const disputeOpen = !!dispute && dispute.status !== 'RESOLVED';
+  const canDispute = !disputeOpen && canOpenDispute(tr.status, roles);
+  const conditional = tx.settlementMode === 'CONDITIONAL';
+  const held = conditional && tr.status === 'PAID' && tr.fundsState === 'HELD';
   const amount = money({ amountMinor: tr.amountMinor, currency: tx.amount.currency });
+  const act = (fn: () => Promise<unknown>) => { void fn().catch((e) => showToast(errorText(e))); };
 
-  const info =
-    tr.status === 'RELEASED' ? t('releasedOn', { date: tr.releasedAt ? date(tr.releasedAt) : '' })
-    : tr.status === 'PLANNED' ? (tr.dueDate ? t('plannedOn', { date: date(tr.dueDate) }) : t('milestone'))
-    : tr.status === 'AWAITING_PAYMENT' ? (tr.dueDate ? t('payBefore', { date: date(tr.dueDate) }) : '')
-    : tr.status === 'PAID_LOCKED' ? t('awaitingProvider')
-    : tr.status === 'CONFIRMED' ? t('confirmedAutoBy', { provider: tx.providerName, date: tr.contestEndsAt ? dateTime(tr.contestEndsAt) : '' })
-    : tr.status === 'EVIDENCE_SUBMITTED' ? t('evidencePending')
-    : tr.status === 'DISPUTED' ? t('disputed') : '';
+  // Ligne d’état extraite et testée (features/tx/trancheInfo, lot X-C T2) : ACCEPTED = « paiement en cours »,
+  // mis à jour par le temps réel (tranches) quand l’événement du partenaire arrive.
+  const d = trancheInfo(tx, tr, {
+    date, dateTime, statusKey: trancheStatusKey,
+    money: (amountMinor) => money({ amountMinor, currency: tx.amount.currency }),
+  });
+  const info = d.key ? t(d.key as Key, d.params) : '';
 
+  const canPay = persona === 'PAYER' && tx.status === 'ACTIVE' && tr.status === 'SUBMITTED' && !tr.onHold;
   return (
     <View style={st.item}>
       <View style={st.rail}>
-        <View style={[st.dot, { backgroundColor: dotColor(tr.status) }]}>
-          {tr.status === 'RELEASED' ? <Icon name="check" size={16} color="#fff" /> : <Text style={[st.dotText, { color: tr.status === 'AWAITING_PAYMENT' ? palette.ink : '#fff' }]}>{tr.seq}</Text>}
+        <View style={[st.dot, { backgroundColor: dotColor(tx, tr) }]}>
+          {settled(tx, tr) ? <Icon name="check" size={16} color="#fff" /> : <Text style={[st.dotText, { color: dotColor(tx, tr) === palette.yellow ? palette.ink : '#fff' }]}>{tr.seq}</Text>}
         </View>
         {last ? null : <View style={st.line} />}
       </View>
       <View style={st.body}>
         <Text style={st.itemTitle}>{t('trancheTitle', { n: tr.seq, amount })}</Text>
         <Text style={st.itemInfo}>{info}</Text>
-        {persona === 'PAYER' && tr.status === 'AWAITING_PAYMENT' ? (
+        {canPay || canDispute ? (
           <View style={st.actions}>
-            <Button small tone="accent" label={t('pay')} onPress={() => router.push(`/pay/${tr.id}`)} />
-            <Button small tone="secondary" label={t('showQr')} onPress={() => router.push(`/token/${tr.id}`)} />
-          </View>
-        ) : null}
-        {persona === 'PAYER' && tr.status === 'CONFIRMED' ? (
-          <View style={st.actions}>
+            {canPay ? <Button small tone="accent" label={t('pay')} onPress={() => router.push(`/pay/${tr.id}`)} /> : null}
             {canDispute ? <Button small tone="danger" label={t('openDispute')} onPress={() => router.push(`/dispute/${tr.id}`)} /> : null}
-            <Button small label={t('release')} onPress={() => api.approveRelease(tr.id)} />
           </View>
         ) : null}
-        {persona === 'PAYER' && tr.status === 'PAID_LOCKED' ? (
+        {/* Déblocage conditionnel seulement : QR à présenter, confirmation par le payeur, déblocage anticipé. */}
+        {persona === 'PAYER' && held && !disputeOpen ? (
           <View style={st.actions}>
-            {canDispute ? <Button small tone="danger" label={t('openDispute')} onPress={() => router.push(`/dispute/${tr.id}`)} /> : null}
-            <Button small tone="secondary" label={t('showQr')} onPress={() => router.push(`/token/${tr.id}`)} />
+            {!tr.confirmedAt && tr.releaseMode === 'PROVIDER_CONFIRM'
+              ? <Button small tone="secondary" label={t('showQr')} onPress={() => router.push(`/token/${tr.id}`)} /> : null}
+            {!tr.confirmedAt && tr.releaseMode === 'PAYER_CONFIRM'
+              ? <Button small label={t('confirmService')} onPress={() => act(() => api.confirmService(tr.id))} /> : null}
+            {tr.confirmedAt ? <Button small label={t('release')} onPress={() => act(() => api.approveRelease(tr.id))} /> : null}
           </View>
         ) : null}
-        {tr.status === 'DISPUTED' || tr.status === 'CANCELLED' ? (
+        {dispute ? (
           <View style={st.actions}><Button small tone="secondary" label={t('viewDispute')} onPress={() => router.push(`/dispute/view/${tr.id}`)} /></View>
         ) : null}
-        {tr.status === 'RELEASED' ? (
+        {receiptAvailable(tx, tr) ? (
           <View style={st.actions}><Button small tone="secondary" label={t('viewReceipt')} onPress={() => router.push(`/receipt/${tr.id}`)} /></View>
         ) : null}
       </View>
@@ -138,7 +155,7 @@ export default function TransactionDetail() {
     if (q.data === undefined) return <Screen><TopBar title={t('loadingData')} /><QueryGate query={q} rows={4}>{null}</QueryGate></Screen>;
     return <Screen><TopBar title={t('notFound')} /></Screen>;
   }
-  // Arrivée par un lien /t/<référence> sur une tranche qui n’appelle aucune action immédiate : on explique son état.
+  // Arrivée par un lien interne (/tranche/<id>, depuis une notification) : on rappelle l’état de la tranche.
   const linked = linkedTranche ? tx.tranches.find((x) => x.id === linkedTranche) : undefined;
   return (
     <Screen refreshing={q.isRefetching} onRefresh={() => void q.refetch()}>
@@ -147,7 +164,8 @@ export default function TransactionDetail() {
       <Divider />
       {linked ? <Banner tone="pending" text={t('linkNotice', { n: linked.seq, status: t(trancheStatusKey(linked.status)) })} /> : null}
       <View>
-        <Row label={t('beneficiary')} value={tx.beneficiaryName} />
+        {tx.beneficiaryReference ? <Row label={t('beneficiaryReference')} value={tx.beneficiaryReference} />
+          : tx.beneficiaryName ? <Row label={t('beneficiary')} value={tx.beneficiaryName} /> : null}
         <Row label={t('providerLabel')} value={tx.providerName} />
         <Row label={t('purpose')} value={tx.purpose} />
         <View style={{ paddingTop: spacing.xs }}><StatusLabel kind={txStatusKind(tx.status)} label={t(txStatusKey(tx.status))} /></View>

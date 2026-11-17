@@ -1,17 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DomainError, RELEASE_RULES, addMonths, canOpenDispute, canTransitionTx, evidenceOutcome,
-  formatMoney, generateRecurringTranches, isAutoReleasable, requiredValidations,
-  shouldCloseTransaction, transitionTranche, transitionTx, validatePlan,
+  DomainError, RELEASE_RULES, addMonths, evidenceOutcome, formatMoney, generateRecurringTranches, requiredValidations, validatePlan,
 } from '../src';
-import type { Actor, TrancheState } from '../src';
-
-const payer: Actor = { kind: 'USER', roles: ['PAYER'], isValidator: false };
-const requester: Actor = { kind: 'USER', roles: ['REQUESTER'], isValidator: false };
-const provider: Actor = { kind: 'USER', roles: ['PROVIDER'], isValidator: false };
-const validator: Actor = { kind: 'USER', roles: [], isValidator: true };
-const validatorAndParty: Actor = { kind: 'USER', roles: ['PAYER'], isValidator: true };
-const system: Actor = { kind: 'SYSTEM' };
+// Lot X version 2 : les machines d’états de l’opération et de la demande sont testées dans lotx2.test.ts.
 
 describe('plan de tranches', () => {
   it('accepte une somme exacte', () => {
@@ -47,95 +38,7 @@ describe('plan de tranches', () => {
   });
 });
 
-describe('machine d’états de la transaction', () => {
-  const ctx = { totalMinor: 900, tranches: [{ label: 'a', amountMinor: 900 }], hasSupportingDocument: true };
-  it('soumet un brouillon valide', () => {
-    expect(transitionTx('DRAFT', 'SUBMITTED', requester, ctx)).toBe('SUBMITTED');
-  });
-  it('refuse la soumission sans pièce ou sans plan cohérent', () => {
-    expect(() => transitionTx('DRAFT', 'SUBMITTED', payer, { ...ctx, hasSupportingDocument: false })).toThrow(/pièce/);
-    expect(() => transitionTx('DRAFT', 'SUBMITTED', payer, { ...ctx, totalMinor: 1000 })).toThrow(/doit égaler/);
-    expect(() => transitionTx('DRAFT', 'SUBMITTED', payer)).toThrow(DomainError);
-  });
-  it('le prestataire ne soumet pas', () => {
-    expect(() => transitionTx('DRAFT', 'SUBMITTED', provider, ctx)).toThrow(/non autorisé/);
-  });
-  it('seul un validateur non partie décide', () => {
-    expect(transitionTx('IN_REVIEW', 'VALIDATED', validator)).toBe('VALIDATED');
-    expect(() => transitionTx('IN_REVIEW', 'VALIDATED', validatorAndParty)).toThrow(DomainError);
-    expect(() => transitionTx('IN_REVIEW', 'VALIDATED', payer)).toThrow(DomainError);
-  });
-  it('un dossier rejeté peut être corrigé', () => {
-    expect(transitionTx('REJECTED', 'DRAFT', requester)).toBe('DRAFT');
-  });
-  it('les étapes système sont réservées au système', () => {
-    expect(transitionTx('VALIDATED', 'TOKEN_ISSUED', system)).toBe('TOKEN_ISSUED');
-    expect(transitionTx('TOKEN_ISSUED', 'IN_PROGRESS', system)).toBe('IN_PROGRESS');
-    expect(canTransitionTx('VALIDATED', 'TOKEN_ISSUED', payer)).toBe(false);
-  });
-  it('refuse les sauts d’étape', () => {
-    expect(() => transitionTx('DRAFT', 'VALIDATED', system)).toThrow(/non autorisée/);
-    expect(() => transitionTx('CLOSED', 'DRAFT', requester)).toThrow(DomainError);
-  });
-});
 
-describe('machine d’états de la tranche', () => {
-  const now = new Date('2026-11-10T12:00:00Z');
-  const base = (over: Partial<TrancheState> = {}): TrancheState => ({
-    status: 'PAID_LOCKED', releaseMode: 'PROVIDER_CONFIRM', contestHours: 72, ...over,
-  });
-  it('le prestataire confirme et le délai de contestation démarre', () => {
-    const r = transitionTranche(base(), 'CONFIRMED', provider, now);
-    expect(r.status).toBe('CONFIRMED');
-    expect(r.contestEndsAt?.toISOString()).toBe('2026-11-13T12:00:00.000Z');
-  });
-  it('le payeur ne confirme pas une tranche à confirmation prestataire', () => {
-    expect(() => transitionTranche(base(), 'CONFIRMED', payer, now)).toThrow(/ne peut pas confirmer/);
-  });
-  it('en agro, le payeur confirme et pas le prestataire', () => {
-    const agro = base({ releaseMode: 'PAYER_CONFIRM' });
-    expect(transitionTranche(agro, 'CONFIRMED', payer, now).status).toBe('CONFIRMED');
-    expect(() => transitionTranche(agro, 'CONFIRMED', provider, now)).toThrow(DomainError);
-  });
-  it('une preuve exige le mode preuve et une pièce déposée', () => {
-    expect(() => transitionTranche(base(), 'EVIDENCE_SUBMITTED', provider, now)).toThrow(/ne requiert pas/);
-    const re = base({ releaseMode: 'EVIDENCE_REVIEW', contestHours: 0 });
-    expect(() => transitionTranche(re, 'EVIDENCE_SUBMITTED', provider, now)).toThrow(/pièce/);
-    expect(transitionTranche({ ...re, hasEvidence: true }, 'EVIDENCE_SUBMITTED', provider, now).status).toBe('EVIDENCE_SUBMITTED');
-  });
-  it('seul le payeur approuve un déblocage anticipé', () => {
-    const c = base({ status: 'CONFIRMED', contestEndsAt: new Date('2026-11-13T12:00:00Z') });
-    expect(transitionTranche(c, 'RELEASED', payer, now).status).toBe('RELEASED');
-    expect(() => transitionTranche(c, 'RELEASED', provider, now)).toThrow(DomainError);
-  });
-  it('le paiement est une étape système', () => {
-    const w = base({ status: 'AWAITING_PAYMENT' });
-    expect(transitionTranche(w, 'PAID_LOCKED', system, now).status).toBe('PAID_LOCKED');
-    expect(() => transitionTranche(w, 'PAID_LOCKED', payer, now)).toThrow(DomainError);
-  });
-  it('déblocage automatique après le délai, jamais en mode preuve', () => {
-    const c = base({ status: 'CONFIRMED', contestEndsAt: new Date('2026-11-10T11:00:00Z') });
-    expect(isAutoReleasable(c, now)).toBe(true);
-    expect(isAutoReleasable({ ...c, contestEndsAt: new Date('2026-11-11T00:00:00Z') }, now)).toBe(false);
-    expect(isAutoReleasable({ ...c, releaseMode: 'EVIDENCE_REVIEW' }, now)).toBe(false);
-  });
-  it('règles d’ouverture de litige', () => {
-    const open = new Date('2026-11-12T00:00:00Z');
-    const late = new Date('2026-11-14T00:00:00Z');
-    const c = base({ status: 'CONFIRMED', contestEndsAt: new Date('2026-11-13T12:00:00Z') });
-    expect(canOpenDispute(base(), ['PROVIDER'], now)).toBe(true);
-    expect(canOpenDispute(c, ['PAYER'], open)).toBe(true);
-    expect(canOpenDispute(c, ['PAYER'], late)).toBe(false);
-    expect(canOpenDispute(c, ['PROVIDER'], open)).toBe(false);
-    expect(canOpenDispute(base(), ['REQUESTER'], now)).toBe(false);
-  });
-  it('clôture la transaction quand toutes les tranches sont terminées', () => {
-    expect(shouldCloseTransaction(['RELEASED', 'CANCELLED'])).toBe(true);
-    expect(shouldCloseTransaction(['RELEASED', 'PLANNED'])).toBe(false);
-    expect(shouldCloseTransaction(['DISPUTED'])).toBe(false);
-    expect(shouldCloseTransaction([])).toBe(false);
-  });
-});
 
 describe('double validation', () => {
   it('immobilier et terrain exigent toujours deux validateurs', () => {

@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { buildInstallmentsPlan, emptyDraft } from '@diaspay/domain';
-import type { NeedDraft } from '@diaspay/domain';
+import { DEFAULT_MODULES, buildInstallmentsPlan, emptyDraft } from '@diaspay/domain';
+import type { NeedDraft, RequestModule } from '@diaspay/domain';
 import { ApiError, MemoryDraftStore, MockApi } from '../src';
 
 const T0 = new Date('2026-11-10T09:00:00');
 const DAY = 86_400_000;
 
-function make(opts: { failureRate?: number; random?: () => number } = {}) {
+function make(opts: { failureRate?: number; random?: () => number; modules?: readonly RequestModule[] } = {}) {
   let now = new Date(T0);
   const store = new MemoryDraftStore();
-  const api = new MockApi(() => now, undefined, { drafts: store, uploadFailureRate: opts.failureRate, random: opts.random });
+  const api = new MockApi(() => now, undefined, { drafts: store, uploadFailureRate: opts.failureRate, random: opts.random, modules: opts.modules });
   api.setUser({ id: 'u-marie', role: 'PAYER' });
   return { api, store, advance: (ms: number) => { now = new Date(now.getTime() + ms); } };
 }
@@ -24,11 +24,10 @@ const file = (kind: string, name = `${kind}.pdf`, sizeBytes = 120_000) => ({ kin
 async function healthDraft(api: MockApi, dueDate = '2026-11-15'): Promise<NeedDraft> {
   const d = await api.saveDraft({
     ...emptyDraft('need-h', T0), vertical: 'HEALTH', amountMinor: 180_000, currency: 'XAF', purpose: 'Opération du genou',
-    beneficiaryName: 'Rose M.', desiredDate: dueDate, provider: { id: 'pv-hopital-central', name: 'Hôpital Central' },
+    beneficiaryReference: 'RM-12', desiredDate: dueDate, provider: { id: 'pv-hopital-central', name: 'Hôpital Central' },
     planType: 'SINGLE', tranches: [{ label: 'Soins', amountMinor: 180_000, dueDate }],
   });
   await api.attachDocument(d.id, file('QUOTE'));
-  await api.attachDocument(d.id, file('BENEFICIARY_ID', 'cni.jpg'));
   return api.getDraft(d.id);
 }
 
@@ -92,16 +91,18 @@ describe('pièces', () => {
 });
 
 describe('soumission', () => {
-  it('passe un dossier valide en validation', async () => {
+  // Lot X v2 : platform_review NEVER par défaut (K2) ; l’opération est active dès la soumission, la demande due est soumise au payeur.
+  it('active un dossier valide dès la soumission (règlement direct, sans revue par défaut)', async () => {
     const { api } = make();
     const d = await healthDraft(api);
     const tx = await api.submitNeed(d.id);
-    expect(tx.status).toBe('IN_REVIEW');
-    expect(tx.tranches.map((t) => [t.status, t.releaseMode, t.contestHours])).toEqual([['PLANNED', 'PROVIDER_CONFIRM', 48]]);
-    expect(tx.documentCount).toBe(2);
+    expect(tx).toMatchObject({ status: 'ACTIVE', settlementMode: 'DIRECT' });
+    expect(tx.tranches.map((t) => [t.status, t.releaseMode, t.contestHours, t.fundsState])).toEqual([['SUBMITTED', 'PROVIDER_CONFIRM', 48, 'NONE']]);
+    expect(tx.documentCount).toBe(1);   // santé : le devis seul (K13)
     expect(await api.listDrafts()).toEqual([]);
     expect((await api.listTransactions()).some((t) => t.id === tx.id)).toBe(true);
-    expect((await api.timeline(tx.id)).map((e) => e.event)).toEqual(['NEED_SUBMITTED', 'REVIEW_STARTED']);
+    // Lot X-C (T7) : « TrustToken généré » juste avant la soumission de la demande, comme le serveur (_submit_request).
+    expect((await api.timeline(tx.id)).map((e) => e.event)).toEqual(['NEED_SUBMITTED', 'AUTO_ACTIVATED', 'TOKEN_ISSUED', 'REQUEST_SUBMITTED', 'PAYMENT_READY']);
   });
   it('refuse un écart de plan', async () => {
     const { api } = make();
@@ -121,7 +122,7 @@ describe('soumission', () => {
       expect((e as ApiError).code).toBe('DOCUMENT_REQUIRED');
       expect((e as ApiError).details).toEqual({ kind: 'QUOTE' });
     }
-    const rent = await api.saveDraft({ ...d, id: 'need-r', vertical: 'RENT', documents: [] });
+    const rent = await api.saveDraft({ ...d, id: 'need-r', vertical: 'RENT', documents: [], beneficiaryName: 'Rose M.', beneficiaryReference: undefined });
     await api.attachDocument(rent.id, file('LAST_RECEIPT'));
     expect(await code(api.submitNeed(rent.id))).toBe('DOCUMENT_REQUIRED');
     await api.attachDocument(rent.id, file('LEASE'));
@@ -136,65 +137,73 @@ describe('soumission', () => {
       expect((e as ApiError).details.issues).toEqual([{ path: 'purpose', code: 'PURPOSE_TOO_SHORT', params: undefined }]);
     }
     await api.saveDraft({ ...d, vertical: 'LAND' });
-    expect(await code(api.submitNeed(d.id))).toBe('VALIDATION');
+    // Lot X (X6) : même code que le serveur (transition_tx), au lieu de VALIDATION.
+    expect(await code(api.submitNeed(d.id))).toBe('VERTICAL_UNAVAILABLE');
   });
-  it('le domaine refuse la soumission par un prestataire', async () => {
+  // Lot X : comme save_draft, un profil « prestataire » sans rôle explicite crée en payeur (le simulateur refusait, le serveur acceptait).
+  it('un profil prestataire sans rôle explicite soumet en payeur, comme le serveur', async () => {
     const { api } = make();
     const d = await healthDraft(api);
     api.setUser({ id: 'u-marie', role: 'PROVIDER' });
-    expect(await code(api.submitNeed(d.id))).toBe('TRANSITION_FORBIDDEN');
+    expect((await api.submitNeed(d.id)).status).toBe('ACTIVE');
+  });
+  it('rôle PROVIDER explicite : niveau N2 exigé (ENROLMENT_REQUIRED), jamais soi-même payeur (SELF_PAYER)', async () => {
+    const { api } = make();
+    api.setUser({ id: 'u-ecole', role: 'PROVIDER', phone: '+237699000777' });
+    expect(await code(api.createDraft({ vertical: 'EDUCATION', creatorRole: 'PROVIDER' }))).toBe('ENROLMENT_REQUIRED');
+    api.setUser({ id: 'u-ecole', role: 'PROVIDER', phone: '+237699000777', enrolmentLevel: 'N2' });
+    const d = await api.createDraft({ vertical: 'EDUCATION', creatorRole: 'PROVIDER' });
+    expect(d).toMatchObject({ vertical: 'EDUCATION', creatorRole: 'PROVIDER', ownerId: 'u-ecole' });
+    expect(await code(api.saveDraft({ ...d, counterpartyPhone: '+237 6 99 00 07 77' }))).toBe('SELF_PAYER');
   });
 });
 
-describe('bureau de contrôle simulé', () => {
-  it('approuve : jeton émis, en cours, première tranche à payer si l’échéance est dans les 7 jours', async () => {
-    const { api } = make();
+// Lot X v2 : la revue par le bureau ne concerne plus que les types de besoin réglés en ALWAYS (ou RISK_BASED avec un risque).
+const REVIEWED: readonly RequestModule[] = DEFAULT_MODULES.map((m) => ({ ...m, platformReview: 'ALWAYS' as const }));
+
+describe('bureau de contrôle simulé (platform_review ALWAYS)', () => {
+  it('la soumission attend la revue ; l’approbation active, la demande due est soumise, payable directement', async () => {
+    const { api } = make({ modules: REVIEWED });
     const tx = await api.submitNeed((await healthDraft(api, '2026-11-15')).id);
+    expect(tx.status).toBe('PENDING_REVIEW');
+    expect(tx.tranches[0]?.status).toBe('DRAFT');
     const done = await api.simulateReview(tx.id, { approved: true });
-    expect(done.status).toBe('IN_PROGRESS');
-    expect(done.tranches[0]?.status).toBe('AWAITING_PAYMENT');
-    const token = await api.getToken(done.tranches[0]!.id);
-    expect(token.reference).toMatch(/^[0-9a-f]{18}$/);
+    expect(done.status).toBe('ACTIVE');
+    expect(done.tranches[0]?.status).toBe('SUBMITTED');
+    expect((await api.getToken(done.tranches[0]!.id)).reference).toMatch(/^[0-9a-f]{18}$/);   // lot X-C (T7) : jeton en DIRECT aussi
     const types = (await api.listNotifications()).filter((n) => n.event.txId === tx.id).map((n) => n.event.type);
     expect(types.sort()).toEqual(['PAYMENT_READY', 'TX_VALIDATED']);
-    // Le paiement du lot 2 s’enchaîne.
-    expect((await api.payTranche(done.tranches[0]!.id)).tranches[0]?.status).toBe('PAID_LOCKED');
+    expect((await api.payTranche(done.tranches[0]!.id)).tranches[0]).toMatchObject({ status: 'PAID', fundsState: 'NONE' });
   });
-  it('approuve sans activer une première échéance lointaine (RG-12)', async () => {
-    const { api } = make();
+  it('approuve sans soumettre une première échéance lointaine (RG-12)', async () => {
+    const { api } = make({ modules: REVIEWED });
     const tx = await api.submitNeed((await healthDraft(api, '2026-12-20')).id);
     const done = await api.simulateReview(tx.id, { approved: true });
-    expect(done.tranches[0]?.status).toBe('PLANNED');
-    expect(await code(api.getToken(done.tranches[0]!.id))).toBe('NO_TOKEN');
+    expect(done.tranches[0]?.status).toBe('DRAFT');
+    expect(await code(api.payTranche(done.tranches[0]!.id))).toBe('NOT_PAYABLE');
   });
-  it('rejette avec motif, se corrige et se soumet à nouveau', async () => {
-    const { api } = make();
-    const d = await api.saveDraft({
-      ...emptyDraft('need-s', T0), vertical: 'EDUCATION', amountMinor: 900_000, currency: 'XAF', purpose: 'Scolarité 2026-2027',
+  it('rejette avec motif : opération annulée (plus de correction, D4 remplacée) ; l’initiateur recrée une demande', async () => {
+    const { api } = make({ modules: REVIEWED });
+    const make1 = (id: string) => api.saveDraft({
+      ...emptyDraft(id, T0), vertical: 'EDUCATION', amountMinor: 900_000, currency: 'XAF', purpose: 'Scolarité 2026-2027',
       beneficiaryName: 'Aïcha N.', provider: { id: 'pv-palmiers', name: 'École Les Palmiers' }, planType: 'INSTALLMENTS',
       tranches: buildInstallmentsPlan(900_000, ['2026-11-15', '2027-01-15', '2027-04-15'], 'Tranche'),
     });
+    const d = await make1('need-s');
     await api.attachDocument(d.id, file('ENROLMENT_CERTIFICATE'));
     const tx = await api.submitNeed(d.id);
     expect(await code(api.simulateReview(tx.id, { approved: false }))).toBe('REASON_REQUIRED');
     const rejected = await api.simulateReview(tx.id, { approved: false, reason: 'Attestation illisible' });
-    expect(rejected.status).toBe('REJECTED');
-    expect(rejected.rejectionReason).toBe('Attestation illisible');
-
-    const fix = await api.reopenForCorrection(tx.id);
-    expect(fix).toMatchObject({ correctionOf: tx.id, rejectionReason: 'Attestation illisible', step: 'recap', vertical: 'EDUCATION' });
-    expect((await api.listTransactions()).some((t) => t.id === tx.id)).toBe(false); // brouillon : invisible
-    expect(await code(api.reopenForCorrection(tx.id))).toBe('NOT_REJECTED');
-
-    const again = await api.submitNeed(fix.id);
-    expect(again.id).toBe(tx.id);
-    expect(again.status).toBe('IN_REVIEW');
-    expect(again.rejectionReason).toBeUndefined();
-    expect((await api.timeline(tx.id)).map((e) => e.event)).toContain('NEED_RESUBMITTED');
+    expect(rejected).toMatchObject({ status: 'CANCELLED', rejectionReason: 'Attestation illisible' });
+    expect(rejected.tranches.every((t) => t.status === 'CANCELLED')).toBe(true);
+    expect(await code(api.cancelOperation(tx.id))).toBe('TRANSITION_UNKNOWN');   // déjà annulée, aucune correction
     expect((await api.listNotifications()).filter((n) => n.event.txId === tx.id).map((n) => n.event.type)).toEqual(['TX_REJECTED']);
+    const d2 = await make1('need-s2');
+    await api.attachDocument(d2.id, file('ENROLMENT_CERTIFICATE'));
+    expect((await api.submitNeed(d2.id)).status).toBe('PENDING_REVIEW');
   });
-  it('n’agit que sur un dossier en validation', async () => {
+  it('n’agit que sur une opération en revue', async () => {
     const { api } = make();
-    expect(await code(api.simulateReview('tx-school', { approved: true }))).toBe('TRANSITION_UNKNOWN');
+    expect(await code(api.simulateReview('tx-school', { approved: true }))).toBe('NOT_IN_REVIEW');
   });
 });

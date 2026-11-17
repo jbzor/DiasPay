@@ -19,8 +19,10 @@ describe('décisions du bureau de contrôle (miroir de decide_tx, decide_tranche
   });
   it('litige : issue connue et note obligatoire', () => {
     expect(disputeDecisionError({ outcome: 'PARTAGE', note: 'Note' })).toBe('INVALID_OUTCOME');
-    expect(disputeDecisionError({ outcome: 'REFUND_PAYER', note: '' })).toBe('REASON_REQUIRED');
-    expect(disputeDecisionError({ outcome: 'RELEASE_TO_PROVIDER', note: 'Prestation attestée' })).toBeNull();
+    expect(disputeDecisionError({ outcome: 'REFUND_FULL', note: '' })).toBe('REASON_REQUIRED');
+    expect(disputeDecisionError({ outcome: 'FUNDS_RELEASED', note: 'Prestation attestée' })).toBeNull();
+    // Lot X v2 : les anciennes issues n’existent plus.
+    expect(disputeDecisionError({ outcome: 'REFUND_PAYER', note: 'Note' })).toBe('INVALID_OUTCOME');
   });
   it('assertNoError lève une DomainError au code stable', () => {
     expect(() => assertNoError('AMOUNT_NOT_CHECKED')).toThrow(DomainError);

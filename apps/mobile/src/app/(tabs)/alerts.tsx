@@ -9,6 +9,7 @@ import { useTransactions } from '@/state/queries';
 import { useNotificationsQuery } from '@/state/queries';
 import { QueryGate } from '@/ui/states';
 import { alertKeys, groupByDay } from '@/features/alerts/alerts';
+import type { DisputeResolvedOutcome } from '@/features/alerts/alerts';
 import { IllustrationBellCheck, Screen } from '@/ui';
 import { Text } from '@/ui/text';
 
@@ -23,7 +24,7 @@ export default function Alerts() {
     vertical: (tx: { vertical: Parameters<typeof verticalLabel>[0] }) => verticalLabel(tx.vertical, locale),
     date: shortDate,
     dateTime,
-    outcome: (o: 'RELEASED' | 'REFUNDED') => t(`outcome_${o}`),
+    outcome: (o: DisputeResolvedOutcome) => t(`outcome_${o}`),
   };
   const groupLabel = (key: string, day: string) => (key === 'today' ? t('today') : key === 'yesterday' ? t('yesterday') : date(day));
 

@@ -51,19 +51,24 @@ export function useI18n() {
   return { t, locale: loc, date, shortDate, dateTime, money, errorText };
 }
 
+// Lot X version 2 : statuts de l’opération (section 3.1 du modèle cible) et de la demande de paiement (section 3.2).
 export const txStatusKey = (s: TxStatus): Key => ({
-  DRAFT: 'txDraft', SUBMITTED: 'txSubmitted', IN_REVIEW: 'txReview', REJECTED: 'txRejected', VALIDATED: 'txValidated',
-  TOKEN_ISSUED: 'txToken', IN_PROGRESS: 'txActive', CLOSED: 'txClosed', DISPUTED: 'txDisputed', CANCELLED: 'txCancelled',
-} as const)[s];
+  DRAFT: 'txDraft', PENDING_REVIEW: 'txPendingReview', IN_REVIEW: 'txReview', ACTIVE: 'txActive', SUSPENDED: 'txSuspended',
+  CLOSED: 'txClosed', CANCELLED: 'txCancelled',
+} as const satisfies Record<TxStatus, Key>)[s];
 
 export const trancheStatusKey = (s: TrancheStatus): Key => ({
-  PLANNED: 'trPlanned', AWAITING_PAYMENT: 'trAwaiting', PAID_LOCKED: 'trPaid', EVIDENCE_SUBMITTED: 'trEvidence',
-  CONFIRMED: 'trConfirmed', RELEASED: 'trReleased', DISPUTED: 'trDisputed', CANCELLED: 'trCancelled', EXPIRED: 'trExpired',
-} as const)[s];
+  DRAFT: 'trPlanned', SUBMITTED: 'trAwaiting', INFO_REQUESTED: 'trInfoRequested', ACCEPTED: 'trAccepted', PAID: 'trPaid',
+  REJECTED: 'trRejected', CANCELLED: 'trCancelled', EXPIRED: 'trExpired', REFUNDED: 'trRefunded',
+} as const satisfies Record<TrancheStatus, Key>)[s];
 
+import { findModule } from '@diaspay/domain';
 import type { Vertical } from '@diaspay/domain';
+import { getModules } from '../state/modules';
 const VERTICALS: Record<Vertical, { fr: string; en: string }> = {
   EDUCATION: { fr: 'Scolarité', en: 'Education' }, HEALTH: { fr: 'Santé', en: 'Health' }, RENT: { fr: 'Loyer', en: 'Rent' },
   AGRO: { fr: 'Agro', en: 'Agri' }, REAL_ESTATE: { fr: 'Immobilier', en: 'Real estate' }, LAND: { fr: 'Terrain', en: 'Land' },
 };
-export const verticalLabel = (v: Vertical, l: Locale) => VERTICALS[v][l];
+/** Libellé d’un type de besoin : textes de l’application pour les six connus, sinon ceux du module (lot X, X6), sinon le code. */
+export const verticalLabel = (v: string, l: Locale): string =>
+  (VERTICALS as Partial<Record<string, { fr: string; en: string }>>)[v]?.[l] ?? findModule(v, getModules())?.labels[l] ?? v;

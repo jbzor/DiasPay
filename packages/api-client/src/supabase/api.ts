@@ -1,13 +1,19 @@
-import { checkFile, checkFileCount, normalizeReference } from '@diaspay/domain';
-import type { DisputeOutcome, DraftDocument, DraftDocumentInput, NeedDraft, Vertical } from '@diaspay/domain';
+import { checkContentHash, checkFile, checkFileCount, emptyDraft, normalizeReference } from '@diaspay/domain';
+import type {
+  CreatorRole, Currency, DisputeOutcome, DraftDocument, DraftDocumentInput, EnrolmentDocumentInput, EnrolmentLevel, ModuleCode, NeedDraft, PaymentMethod,
+  RequestModule,
+} from '@diaspay/domain';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { ApiError, newUuid } from '../need';
-import type { ProviderSummary } from '../need';
-import type { AppNotification, AuditEntry, DisputeView, Receipt, ReferenceInfo, Tranche, TrancheToken, Transaction, TransactionApi } from '../types';
-import type { Database } from './database.types';
+import { ApiError, fetchHasher, newUuid } from '../need';
+import type { FileHasher, ProviderSummary } from '../need';
+import type {
+  AppNotification, AuditEntry, DisputeView, DocumentAccess, DocumentReuse, EnrolmentCaseView, EnrolmentView, PaymentQuote, Receipt, ReferenceInfo, RequestMessage, Tranche, TrancheToken, Transaction,
+  TransactionApi,
+} from '../types';
+import type { Database, Json } from './database.types';
 import {
-  TX_SELECT, draftFromServer, draftToServer, storagePath, storagePathOf, toAuditEntry, toDispute, toNotification, toProvider,
-  toReceipt, toReferenceInfo, toToken, toTransaction,
+  TX_SELECT, draftFromServer, draftToServer, storagePath, storagePathOf, toAuditEntry, toDispute, toMessage, toModule, toNotification, toProvider,
+  toReceipt, toReferenceInfo, toToken, toTransaction, toEnrolment, toEnrolmentCase, toQuote,
 } from './convert';
 import type { TxWithRelations } from './convert';
 import { toDomainError, unwrap, unwrapMaybe } from './errors';
@@ -38,8 +44,16 @@ export const fetchUploader: FileUploader = async (target, file, onProgress) => {
 
 export interface SupabaseApiOptions {
   uploader?: FileUploader;
+  /** Lot X (X4) : empreinte SHA-256 du fichier avant l’envoi (application : expo-crypto ; défaut : fetchHasher). */
+  hashFile?: FileHasher;
   /** Clé publique (publishable) : en-tête apikey de l’envoi signé. */
   anonKey: string;
+  /**
+   * Lot X-C (T2) : démonstration côté client (EXPO_PUBLIC_DEMO=1). Le partenaire simulé confirme alors chaque tentative
+   * aussitôt (demo_settle_payment ; mock_mode du serveur requis, DEMO_DISABLED sinon). Défaut : faux — la tentative reste
+   * en cours (INITIATED ou PENDING) jusqu’à l’événement du partenaire, reçu par le temps réel (table tranches).
+   */
+  demoSettle?: boolean;
 }
 
 /**
@@ -48,11 +62,15 @@ export interface SupabaseApiOptions {
  */
 export class SupabaseApi implements TransactionApi {
   private readonly uploader: FileUploader;
+  private readonly hashFile: FileHasher;
+  private readonly demoSettle: boolean;
   /** URL d’envoi signée par pièce : une reprise réutilise le même chemin (upsert) au lieu de créer un doublon. */
   private readonly pendingUploads = new Map<string, { path: string; url: string; at: number }>();
 
   constructor(private readonly sb: DiasPayClient, private readonly opts: SupabaseApiOptions) {
     this.uploader = opts.uploader ?? fetchUploader;
+    this.hashFile = opts.hashFile ?? fetchHasher;
+    this.demoSettle = opts.demoSettle ?? false;
   }
 
   private async userId(): Promise<string> {
@@ -88,14 +106,35 @@ export class SupabaseApi implements TransactionApi {
     return { tx, tranche };
   }
 
-  /** Paiement simulé (mock_mode du serveur uniquement ; DEMO_DISABLED sinon). */
-  async payTranche(trancheId: string): Promise<Transaction> {
-    const tr = unwrap(await this.sb.rpc('simulate_tranche_system', { p_tranche: trancheId, p_to: 'PAID_LOCKED' }), 'payTranche');
-    return this.getTransaction(tr.tx_id);
+  /**
+   * Lot X (X5) : tentative idempotente (start_payment), puis réponse du partenaire. Lot X-C (T2) : hors démonstration,
+   * la tentative reste en cours (INITIATED ou PENDING) jusqu’à l’événement du partenaire, reçu par le temps réel ;
+   * en démonstration (demoSettle), le partenaire simulé répond aussitôt par le même chemin (demo_settle_payment →
+   * apply_payment_event ; mock_mode du serveur requis). Même clé : même tentative, aucun nouveau paiement.
+   */
+  async payTranche(trancheId: string, idempotencyKey: string = newUuid()): Promise<Transaction> {
+    const a = unwrap(await this.sb.rpc('start_payment', { p_tranche: trancheId, p_idempotency_key: idempotencyKey }), 'payTranche') as Record<string, unknown>;
+    return this.afterPayment(a, 'payTranche');
+  }
+
+  /** Après la tentative : confirmation immédiate par le partenaire simulé en démonstration seulement (demoSettle). */
+  private async afterPayment(a: Record<string, unknown>, op: string): Promise<Transaction> {
+    if (this.demoSettle && (a.status === 'INITIATED' || a.status === 'PENDING')) unwrap(await this.sb.rpc('demo_settle_payment', { p_attempt: String(a.id) }), op);
+    return this.getTransaction(String(a.txId));
+  }
+
+  async getQuote(trancheId: string, debitCurrency?: Currency, method: PaymentMethod = 'SIMULATED'): Promise<PaymentQuote> {
+    return toQuote(unwrap(await this.sb.rpc('get_quote', { p_request: trancheId, ...(debitCurrency ? { p_debit_currency: debitCurrency } : {}), p_method: method }), 'getQuote'));
+  }
+
+  async acceptAndPay(trancheId: string, quoteId: string, idempotencyKey: string = newUuid()): Promise<Transaction> {
+    const a = unwrap(await this.sb.rpc('accept_and_pay', { p_request: trancheId, p_idempotency_key: idempotencyKey, p_quote_id: quoteId }), 'acceptAndPay') as Record<string, unknown>;
+    return this.afterPayment(a, 'acceptAndPay');
   }
 
   async getToken(trancheId: string): Promise<TrancheToken> {
-    const row = unwrapMaybe(await this.sb.from('tranche_tokens').select('*').eq('tranche_id', trancheId).maybeSingle(), 'getToken');
+    // Lot X : seul le jeton actif ; la RLS ne le montre qu’au payeur de la tranche.
+    const row = unwrapMaybe(await this.sb.from('tranche_tokens').select('*').eq('tranche_id', trancheId).is('revoked_at', null).maybeSingle(), 'getToken');
     if (!row) {
       await this.txOfTranche(trancheId); // TRANCHE_NOT_FOUND si la tranche est inaccessible
       throw new ApiError('NO_TOKEN', 'Jeton pas encore émis');
@@ -103,8 +142,11 @@ export class SupabaseApi implements TransactionApi {
     return toToken(row);
   }
 
+  /** Lot X : le serveur répond null pour une référence inconnue comme pour un dossier étranger (échec enregistré). */
   async resolveReference(reference: string): Promise<ReferenceInfo> {
-    return toReferenceInfo(unwrap(await this.sb.rpc('resolve_reference_info', { p_ref: normalizeReference(reference) }), 'resolveReference'));
+    const info = unwrapMaybe(await this.sb.rpc('resolve_reference_info', { p_ref: normalizeReference(reference) }), 'resolveReference');
+    if (info === null) throw new ApiError('UNKNOWN_REFERENCE', 'Référence inconnue');
+    return toReferenceInfo(info);
   }
 
   async confirmByReference(reference: string, deviceTime?: string): Promise<Transaction> {
@@ -114,9 +156,20 @@ export class SupabaseApi implements TransactionApi {
     return this.getTransaction(tr.tx_id);
   }
 
+  /** Lot X v2 : libération anticipée par le payeur (CONDITIONAL, après confirmation). */
   async approveRelease(trancheId: string): Promise<Transaction> {
-    const tr = unwrap(await this.sb.rpc('transition_tranche', { p_tranche: trancheId, p_to: 'RELEASED' }), 'approveRelease');
+    const tr = unwrap(await this.sb.rpc('approve_release', { p_tranche: trancheId }), 'approveRelease');
     return this.getTransaction(tr.tx_id);
+  }
+
+  async confirmService(trancheId: string): Promise<Transaction> {
+    const tr = unwrap(await this.sb.rpc('confirm_service', { p_tranche: trancheId }), 'confirmService');
+    return this.getTransaction(tr.tx_id);
+  }
+
+  async acceptPlan(txId: string): Promise<Transaction> {
+    unwrap(await this.sb.rpc('accept_plan', { p_operation: txId }), 'acceptPlan');
+    return this.getTransaction(txId);
   }
 
   /** Même convention que le simulateur : `reason` est le code du motif quand une description est fournie. */
@@ -134,7 +187,7 @@ export class SupabaseApi implements TransactionApi {
 
   // ——— Création d’un besoin ———
 
-  async searchProviders(query: string, vertical: Vertical): Promise<ProviderSummary[]> {
+  async searchProviders(query: string, vertical: ModuleCode): Promise<ProviderSummary[]> {
     return unwrap(await this.sb.rpc('search_providers', { p_query: query, p_vertical: vertical }), 'searchProviders').map(toProvider);
   }
 
@@ -178,6 +231,13 @@ export class SupabaseApi implements TransactionApi {
     const mimeType = checkFile(file);
     const current = await this.getDraft(draftId);
     checkFileCount(current.documents.filter((x) => x.kind === file.kind && x.id !== file.id).length);
+    // Lot X (X4) : empreinte calculée avant l’envoi, enregistrée avec la pièce (add_document), immuable ensuite.
+    let contentHash: string | undefined;
+    try {
+      contentHash = checkContentHash(file.contentHash ?? await this.hashFile({ uri: file.uri, mimeType, sizeBytes: file.sizeBytes }));
+    } catch (e) {
+      throw e instanceof ApiError || (e as { code?: string }).code === 'HASH_INVALID' ? e : new ApiError('UPLOAD_FAILED', 'Lecture du fichier impossible');
+    }
     const fileId = file.id ?? newUuid();
     const key = `${draftId}/${fileId}`;
     let pending = this.pendingUploads.get(key);
@@ -198,12 +258,13 @@ export class SupabaseApi implements TransactionApi {
     }
     const doc = unwrap(await this.sb.rpc('add_document', {
       p_tx: draftId, p_kind: file.kind, p_path: pending.path, p_name: file.name, p_mime: mimeType, p_size: file.sizeBytes,
+      ...(contentHash ? { p_hash: contentHash } : {}),
     }), 'addDocument');
     this.pendingUploads.delete(key);
     onProgress?.(1);
     const o = doc as Record<string, unknown>;
     return {
-      id: String(o.id), kind: file.kind, name: file.name, mimeType, sizeBytes: file.sizeBytes, uri: file.uri, status: 'UPLOADED',
+      id: String(o.id), kind: file.kind, name: file.name, mimeType, sizeBytes: file.sizeBytes, uri: file.uri, status: 'UPLOADED', contentHash,
       uploadedAt: typeof o.uploadedAt === 'string' ? new Date(o.uploadedAt).toISOString() : new Date().toISOString(),
     };
   }
@@ -222,27 +283,42 @@ export class SupabaseApi implements TransactionApi {
     unwrap(await this.sb.rpc('remove_document', { p_doc: documentId }), 'removeDocument');
   }
 
-  /** URL signée de courte durée pour consulter une pièce (bucket privé). */
+  /** URL signée de courte durée pour consulter une pièce (bucket privé), après consultation journalisée (lot X, X4). */
   async documentUrl(documentId: string): Promise<string> {
-    const row = unwrapMaybe(await this.sb.from('documents').select('storage_path').eq('id', documentId).maybeSingle(), 'documentUrl');
-    if (!row) throw new ApiError('NOT_FOUND', 'Pièce introuvable');
-    return unwrap(await this.sb.storage.from(BUCKET).createSignedUrl(row.storage_path, VIEW_URL_TTL_S), 'createSignedUrl').signedUrl;
+    return (await this.getDocumentAccess(documentId)).url;
   }
 
-  /** Le brouillon a été synchronisé par save_draft ; le serveur revérifie tout (codes D2, plan, verticale). */
+  /**
+   * Lot X (X4) : get_document_access journalise DOCUMENT_VIEWED (qui, rôle, quelle pièce), puis le stockage autorise la lecture
+   * du fichier pendant 2 minutes : l’URL signée est créée aussitôt (60 secondes).
+   */
+  async getDocumentAccess(documentId: string): Promise<DocumentAccess> {
+    const o = unwrap(await this.sb.rpc('get_document_access', { p_document: documentId }), 'getDocumentAccess') as Record<string, unknown>;
+    const path = String(o.path ?? '');
+    const url = unwrap(await this.sb.storage.from(BUCKET).createSignedUrl(path, VIEW_URL_TTL_S), 'createSignedUrl').signedUrl;
+    return {
+      id: String(o.id ?? documentId), url, name: String(o.name ?? ''), mimeType: String(o.mimeType ?? ''),
+      contentHash: typeof o.contentHash === 'string' ? o.contentHash : undefined,
+    };
+  }
+
+  async documentReuse(contentHash: string, txId?: string): Promise<DocumentReuse> {
+    const o = unwrap(await this.sb.rpc('document_reuse', { p_hash: contentHash, ...(txId ? { p_tx: txId } : {}) }), 'documentReuse') as Record<string, unknown>;
+    return { reused: o.reused === true, count: Number(o.count ?? 0) };
+  }
+
+  /**
+   * Soumission (lot X v2, submit_operation) : le serveur revérifie tout (codes D2, plan, type), puis active l’opération
+   * (platform_review NEVER, défaut) ou la place en revue (PENDING_REVIEW).
+   */
   async submitNeed(draftId: string): Promise<Transaction> {
-    unwrap(await this.sb.rpc('transition_tx', { p_tx: draftId, p_to: 'SUBMITTED' }), 'submitNeed');
+    unwrap(await this.sb.rpc('submit_operation', { p_tx: draftId }), 'submitNeed');
     return this.getTransaction(draftId);
   }
 
-  /** REJECTED → DRAFT : la correction garde l’identifiant du dossier (correctionOf = id). */
-  async reopenForCorrection(txId: string): Promise<NeedDraft> {
-    unwrap(await this.sb.rpc('transition_tx', { p_tx: txId, p_to: 'DRAFT' }), 'reopenForCorrection');
-    return this.getDraft(txId);
-  }
-
-  async abandonRejected(txId: string): Promise<Transaction> {
-    unwrap(await this.sb.rpc('transition_tx', { p_tx: txId, p_to: 'CANCELLED' }), 'abandonRejected');
+  /** Initiateur : annule l’opération (DRAFT ou ACTIVE ; en ACTIVE, les demandes non payées seulement). */
+  async cancelOperation(txId: string, reason?: string): Promise<Transaction> {
+    unwrap(await this.sb.rpc('transition_tx', { p_tx: txId, p_to: 'CANCELLED', ...(reason ? { p_reason: reason } : {}) }), 'cancelOperation');
     return this.getTransaction(txId);
   }
 
@@ -269,6 +345,71 @@ export class SupabaseApi implements TransactionApi {
 
   async getReceipt(trancheId: string): Promise<Receipt> {
     return toReceipt(unwrap(await this.sb.rpc('get_receipt', { p_tranche: trancheId }), 'getReceipt'));
+  }
+
+  // ——— Lot X : sécurité du TrustLink, décisions du payeur, création par un prestataire ———
+
+  async revokeToken(trancheId: string, reason: string): Promise<void> {
+    unwrap(await this.sb.rpc('revoke_token', { p_tranche: trancheId, p_reason: reason }), 'revokeToken');
+  }
+
+  async reissueToken(trancheId: string, reason?: string): Promise<void> {
+    unwrap(await this.sb.rpc('reissue_token', { p_tranche: trancheId, ...(reason ? { p_reason: reason } : {}) }), 'reissueToken');
+  }
+
+  /** app_config.eqr_image_enabled (lisible par tout utilisateur connecté). Lot X-C (T9) : absent = image masquée (X1.8). */
+  async eqrImageEnabled(): Promise<boolean> {
+    const row = unwrapMaybe(await this.sb.from('app_config').select('value').eq('key', 'eqr_image_enabled').maybeSingle(), 'eqrImageEnabled');
+    return row?.value === 'true';
+  }
+
+  async markReceived(trancheId: string): Promise<void> {
+    unwrap(await this.sb.rpc('mark_received', { p_tranche: trancheId }), 'markReceived');
+  }
+
+  async requestInfo(trancheId: string, message: string): Promise<Transaction> {
+    const tr = unwrap(await this.sb.rpc('request_info', { p_tranche: trancheId, p_message: message }), 'requestInfo');
+    return this.getTransaction(tr.tx_id);
+  }
+
+  async answerInfo(trancheId: string, message: string): Promise<Transaction> {
+    const tr = unwrap(await this.sb.rpc('answer_info', { p_tranche: trancheId, p_message: message }), 'answerInfo');
+    return this.getTransaction(tr.tx_id);
+  }
+
+  async rejectRequest(trancheId: string, reason: string): Promise<Transaction> {
+    const tr = unwrap(await this.sb.rpc('reject_request', { p_tranche: trancheId, p_reason: reason }), 'rejectRequest');
+    return this.getTransaction(tr.tx_id);
+  }
+
+  async listMessages(trancheId: string): Promise<RequestMessage[]> {
+    const { data } = await this.sb.auth.getSession();
+    const rows = unwrap(await this.sb.from('request_messages').select('*').eq('tranche_id', trancheId).order('created_at').order('id'), 'listMessages');
+    return rows.map((r) => toMessage(r, data.session?.user.id));
+  }
+
+  /** Brouillon vide enregistré avec son rôle de créateur (save_draft vérifie l’autorisation d’un prestataire). */
+  async createDraft(input: { vertical: ModuleCode; creatorRole: CreatorRole }): Promise<NeedDraft> {
+    return this.saveDraft({ ...emptyDraft(newUuid(), new Date()), vertical: input.vertical, creatorRole: input.creatorRole });
+  }
+
+  /** Lot X (X6) : types de besoin (request_modules, lisible par tout utilisateur connecté), dans l’ordre d’affichage. */
+  async listModules(): Promise<RequestModule[]> {
+    const rows = unwrap(await this.sb.from('request_modules').select('*').order('display_order').order('code'), 'listModules');
+    return rows.map(toModule);
+  }
+
+  // ——— Lot X v2 (X4) : enrôlement ———
+
+  async getEnrolment(): Promise<EnrolmentView> {
+    return toEnrolment(unwrap(await this.sb.rpc('my_enrolment'), 'getEnrolment'));
+  }
+
+  async submitEnrolment(input: { level: EnrolmentLevel; documents: EnrolmentDocumentInput[]; data?: Record<string, string> }): Promise<EnrolmentCaseView> {
+    const o = unwrap(await this.sb.rpc('submit_enrolment', {
+      p_level: input.level, p_documents: input.documents as unknown as Json, p_data: (input.data ?? {}) as Json,
+    }), 'submitEnrolment');
+    return toEnrolmentCase(o);
   }
 
   // ——— Temps réel ———

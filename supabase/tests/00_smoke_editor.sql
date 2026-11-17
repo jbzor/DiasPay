@@ -62,16 +62,14 @@ update request_modules set platform_review = 'ALWAYS' where code in ('EDUCATION'
 -- ---------- Structure et droits ----------
 select t.check((select count(*) from pg_tables where schemaname='public' and not rowsecurity)=0,
   'RLS activée sur toutes les tables publiques');
-select t.check(not exists (select 1 from information_schema.routine_privileges
-   where grantee='anon' and routine_schema='public' and routine_name in
-   ('transition_tx','decide_tx','create_tranches','transition_tranche','decide_tranche','confirm_by_reference',
-    'open_dispute','resolve_dispute','simulate_tranche_system','simulate_system_transition','_set_tranche_status',
-    'release_due_tranches','activate_due_tranches',
-    -- Lot X v2 (0014, 0016)
-    'submit_operation','claim_dossier','request_info','answer_info','reject_request','confirm_service','submit_evidence',
-    'approve_release','start_payment','request_refund','respond_dispute','lift_suspension','suspend_operation',
-    'expire_due_requests','accept_plan')),
-  'aucune fonction sensible exécutable par anon');
+-- Lot X-C (T8) : contrôle générique, à la place de la liste fermée : aucune fonction du schéma public n’est exécutable par
+-- anon (directement ou par PUBLIC). Exceptions explicites, attendues vides. Indépendant de la présence de rls_auto_enable.
+create temporary table anon_exec_exceptions (proname text primary key);   -- vide : aucune exception
+select t.check(not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                            where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'EXECUTE')
+                              and p.proname not in (select proname from anon_exec_exceptions)),
+  'aucune fonction du schéma public exécutable par anon (contrôle générique, lot X-C T8)');
+select t.check((select count(*) from anon_exec_exceptions) = 0, 'liste d’exceptions du contrôle anon : vide');
 select t.check(not exists (select 1 from information_schema.routine_privileges
    where grantee='authenticated' and routine_schema='public' and routine_name in
    ('_set_tranche_status','_issue_tranche_token','release_due_tranches','activate_due_tranches',
@@ -116,7 +114,8 @@ select t.check((select count(*) from audit_log)=0, 'un étranger ne voit pas le 
 select t.fails($$select transition_tx('10000000-0000-0000-0000-000000000001','DRAFT')$$, 'un étranger ne peut pas agir sur le dossier');
 select t.admin();
 select t.anon();
-select t.check((select count(*) from transactions)=0, 'anon ne voit aucune transaction');
+-- Lot X-C (T8) : anon n’exécute plus les fonctions des politiques (is_party…) : la lecture est refusée au lieu de rendre 0 ligne.
+select t.fails($$select count(*) from transactions$$, 'anon ne lit aucune transaction (lecture refusée, lot X-C T8)');
 select t.fails($$select transition_tx('10000000-0000-0000-0000-000000000001','DRAFT')$$, 'anon ne peut pas appeler transition_tx');
 select t.admin();
 select t.login('00000000-0000-0000-0000-000000000003');

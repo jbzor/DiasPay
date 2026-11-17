@@ -418,3 +418,20 @@ silence, un `UPDATE` interdit est vérifié par le nombre de lignes touchées (`
   Hors SQL : contrat X1 réécrit (jeton émis, réémission, révocation, paiement refusé puis accepté, étranger sans
   information), contrôle de la soumission ; simulateur (`mockApi`, `need`, `lot3b` : jeton et référence en DIRECT,
   `TOKEN_ISSUED` dans la chronologie, référence sur le reçu).
+
+### T8 (0029) : droits de anon et lecture des réglages — 9 vérifications dans 07, 2 dans 00
+- `00_smoke.sql` : la **liste fermée** « aucune fonction sensible exécutable par anon » est **remplacée** par un contrôle
+  **générique** (aucune fonction du schéma `public` exécutable par `anon`, directement ou par `PUBLIC`) avec une table
+  d’exceptions explicite, attendue vide (+1 contrôle : 93 → 94). Il ne dépend pas de la présence de `rls_auto_enable`.
+- `00_smoke.sql`, contrôle **modifié** : « anon ne voit aucune transaction » (0 ligne) devient « anon ne lit aucune
+  transaction » (lecture **refusée**). La politique de `transactions` appelle `is_party`, qu’`anon` n’exécute plus :
+  PostgreSQL refuse la requête au lieu de rendre une liste vide. Aucune donnée n’est exposée dans les deux cas, et aucun
+  écran ne lit de table avant la connexion.
+- `07_lotxc.sql`, section T8 : aucune fonction pour `anon` ; `authenticated` garde les fonctions des politiques ; aucune
+  fonction de déclencheur exécutable ; privilèges par défaut de `postgres` sans `anon` ni `PUBLIC`, vérifiés par une
+  fonction créée pendant le test ; `app_config` réservé à `authenticated` (droit et politique), refusé à `anon`, lu par un
+  utilisateur connecté ; profil toujours créé à l’inscription (`handle_new_user`).
+
+### T9 : valeurs sûres côté client (aucune migration)
+- Aucun contrôle SQL. Tests du client : `MockAuth` (D5 : `OTP_WRONG` sans compteur ni verrouillage ; 2 tests remplacés,
+  ils décrivaient le verrouillage retiré), garde de production `apiReleaseViolation` (2 tests).

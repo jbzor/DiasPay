@@ -374,6 +374,45 @@ select t.check(not exists (select 1 from tranches tr join transactions x on x.id
 -- Aucun lien, aucune image : le réglage d’image reste faux.
 select t.check((select value from app_config where key = 'eqr_image_enabled') = 'false', 'T7 : image du QR toujours désactivée');
 
+-- ===================== T8 : droits de anon et lecture des réglages (R7, D.6) =====================
+select t.check(not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                            where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'EXECUTE')),
+  'T8 : aucune fonction du schéma public exécutable par anon');
+select t.check(has_function_privilege('authenticated', 'has_role(uuid, tx_role)', 'EXECUTE')
+           and has_function_privilege('authenticated', 'is_party(uuid)', 'EXECUTE')
+           and has_function_privilege('authenticated', 'is_validator()', 'EXECUTE')
+           and has_function_privilege('authenticated', 'is_admin()', 'EXECUTE'),
+  'T8 : authenticated garde les fonctions des politiques RLS');
+select t.check(not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace join pg_type ty on ty.oid = p.prorettype
+                            where n.nspname = 'public' and ty.typname in ('trigger','event_trigger')
+                              and has_function_privilege('authenticated', p.oid, 'EXECUTE')),
+  'T8 : aucune fonction de déclencheur exécutable par authenticated');
+select t.check(not exists (select 1 from pg_default_acl d, aclexplode(d.defaclacl) a
+                            where d.defaclrole = 'postgres'::regrole and d.defaclobjtype = 'f'
+                              and (d.defaclnamespace = 'public'::regnamespace or d.defaclnamespace = 0)
+                              and a.grantee in (0, 'anon'::regrole) and a.privilege_type = 'EXECUTE'),
+  'T8 : fonctions futures de postgres : aucun EXECUTE par défaut pour anon ni PUBLIC');
+-- Une fonction créée maintenant (comme par une migration future) n’est pas exécutable par anon.
+create function public.xc_t8_probe() returns int language sql as $$ select 1 $$;
+select t.check(not has_function_privilege('anon', 'public.xc_t8_probe()', 'EXECUTE')
+           and has_function_privilege('authenticated', 'public.xc_t8_probe()', 'EXECUTE'),
+  'T8 : fonction nouvelle : anon exclu, authenticated conservé');
+drop function public.xc_t8_probe();
+-- app_config : rien pour anon (droit de table et politique), lecture pour authenticated.
+select t.check(not has_table_privilege('anon', 'app_config', 'SELECT')
+           and (select polroles = array['authenticated'::regrole::oid] from pg_policy where polrelid = 'app_config'::regclass and polname = 'config_read'),
+  'T8 : app_config réservé à authenticated (droit et politique)');
+set local role anon;
+select t.fails($$select value from app_config where key = 'mock_mode'$$, 'T8 : anon ne lit pas app_config');
+select t.admin();
+select t.login('fdc00000-0000-4000-8000-000000000001');
+select t.check((select value from app_config where key = 'mock_mode') = 'true', 'T8 : un utilisateur connecté lit app_config');
+select t.admin();
+-- Création du profil par le déclencheur d’inscription (handle_new_user) : inchangée.
+insert into auth.users(id, phone) values ('fdc00000-0000-4000-8000-000000000009', '33625560009');
+select t.check(exists (select 1 from profiles where id = 'fdc00000-0000-4000-8000-000000000009' and phone = '33625560009'),
+  'T8 : le profil est toujours créé à l’inscription');
+
 -- ===================== Fin =====================
 -- ---------- Résumé ----------
 do $$

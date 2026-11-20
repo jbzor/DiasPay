@@ -577,6 +577,7 @@ export const frErrors: Record<ErrorCode, string> = {
   NOT_CONFIRMED: 'La prestation n’est pas encore confirmée.',
   NOT_CONFIGURED: 'Réglage non configuré sur ce serveur : action refusée par prudence.',
   NOT_REVOCABLE: 'Tranche déjà payée : seul un administrateur peut révoquer son QR.',
+  REQUEST_CLOSED: 'Demande terminée : aucun jeton ne peut être réémis.',
   TOO_MANY_ATTEMPTS: 'Trop de tentatives : réessayez plus tard.',
   TOKEN_USED: 'Ce jeton a déjà été utilisé.',
   TOKEN_EXPIRED: 'Ce jeton a expiré.',

@@ -5,7 +5,7 @@ import {
   otherDossiersWithHash,
   formatReference, isAutoReleasable, messageError, normalizeReference, paymentOutcome, rejectRequestDecision, requestInfoDecision,
   resolveDisputeDecision, shouldActivateTranche, shouldCloseOperation, toIsoDate, tokenRevocationError, tooManyAttempts, transitionOperation,
-  transitionPaymentRequest, validateNeed, verifyChain, validatorDecisionError,
+  transitionPaymentRequest, tokenReissueClosed, validateNeed, verifyChain, validatorDecisionError,
   SimulatedKycAdapter, applyKycResult, checkBeneficiary, isAllowedKind, checkEnrolmentSubmission, checkInitiation, enrolmentRoute, checkLimits, DEV_ENROLMENT_LIMITS,
 } from '@diaspay/domain';
 import type {
@@ -1121,6 +1121,8 @@ export class MockApi implements TransactionApi {
   async reissueToken(trancheId: string, reason = 'Réémission du jeton'): Promise<void> {
     const { tx, tr } = this.manageToken(trancheId);
     if (tr.status === 'DRAFT') throw new DomainError('NO_TOKEN', 'Demande pas encore soumise : aucun jeton');
+    // Lot A (T2, 0032) : demande terminée, aucune réémission.
+    if (tokenReissueClosed(tr.status, tx.settlementMode, tr.fundsState)) throw new DomainError('REQUEST_CLOSED', 'Demande terminée : aucun jeton ne peut être réémis');
     if (messageError(reason) === 'REASON_REQUIRED') throw new DomainError('REASON_REQUIRED', 'Motif de réémission obligatoire');
     this.withdrawToken(tx, tr, reason);
     this.withdrawn.delete(tr.id);

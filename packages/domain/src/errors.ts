@@ -66,6 +66,7 @@ export const ERROR_CODES = {
   UNKNOWN_REFERENCE: 'D S — référence d’eQR inconnue, ou d’un dossier étranger (même réponse, lot X)',
   TOKEN_REVOKED: 'D S — eQR révoqué (lot X)',
   NOT_REVOCABLE: 'D S — tranche déjà payée : seul un administrateur révoque son jeton (lot X)',
+  REQUEST_CLOSED: 'D S — demande terminée : aucun jeton ne peut être réémis (lot A, 0032)',
   TOO_MANY_ATTEMPTS: 'D S — plus de 10 résolutions échouées en une heure (lot X)',
   TOKEN_USED: 'D S — eQR déjà utilisé',
   TOKEN_EXPIRED: 'D S — eQR expiré',

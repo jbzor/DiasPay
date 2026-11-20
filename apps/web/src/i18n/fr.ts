@@ -578,6 +578,7 @@ export const frErrors: Record<ErrorCode, string> = {
   NOT_CONFIGURED: 'Réglage non configuré sur ce serveur : action refusée par prudence.',
   NOT_REVOCABLE: 'Tranche déjà payée : seul un administrateur peut révoquer son QR.',
   REQUEST_CLOSED: 'Demande terminée : aucun jeton ne peut être réémis.',
+  SIMULATOR_DISABLED: 'Simulateur de paiement indisponible sur ce serveur.',
   TOO_MANY_ATTEMPTS: 'Trop de tentatives : réessayez plus tard.',
   TOKEN_USED: 'Ce jeton a déjà été utilisé.',
   TOKEN_EXPIRED: 'Ce jeton a expiré.',

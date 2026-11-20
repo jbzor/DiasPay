@@ -60,11 +60,12 @@ if (URL && KEY) {
     timeout: 30_000,
   });
 
-  // Lot X-C (T2) : hors démonstration, aucune erreur DEMO_DISABLED ; la tentative reste en cours jusqu’à
-  // l’événement du partenaire. Propre à Supabase : le simulateur joue lui-même le partenaire (écart documenté,
-  // docs/supabase-setup.md §9).
-  describe('lot X-C (T2) : paiement hors démonstration', () => {
-    it('la tentative reste en cours (demande ACCEPTED), rejouable ; l’événement simulé la confirme ensuite', async () => {
+  // Lot A (T3) : hors démonstration, la tentative est en cours (ACCEPTED), rejouable, puis le simulateur du partenaire
+  // (tâche planifiée du serveur, scénario SUCCESS par défaut) la confirme par le chemin des événements signés :
+  // la demande passe « payée » sans aucun appel de démonstration. Propre à Supabase : le simulateur de l’appareil
+  // confirme aussitôt (écart documenté, docs/supabase-setup.md).
+  describe('lot A (T3) : paiement hors démonstration, confirmé par le simulateur du serveur', () => {
+    it('ACCEPTED, rejouable, puis PAID par la tâche planifiée', async () => {
       const requester = await signedIn('REQUESTER');
       const id = newUuid();
       await requester.saveDraft(healthDraft(id, { counterpartyPhone: PHONES.PAYER.phone }));
@@ -76,12 +77,18 @@ if (URL && KEY) {
       const key = newUuid();
       const after = await payer.payTranche(tr.id, key);
       expect(after.tranches[0]).toMatchObject({ status: 'ACCEPTED', fundsState: 'NONE' }); // en cours, pas PAID
-      // Rejeu de la même clé : même tentative, toujours en cours, aucun nouveau paiement.
-      expect((await payer.payTranche(tr.id, key)).tranches[0]!.status).toBe('ACCEPTED');
-      // En démonstration, la même clé retrouve la tentative et le partenaire simulé la confirme (nettoyage inclus).
-      const demo = await signedIn('PAYER');
-      expect((await demo.payTranche(tr.id, key)).tranches[0]!.status).toBe('PAID');
-    }, 30_000);
+      // Rejeu de la même clé : même tentative, aucun nouveau paiement.
+      expect(['ACCEPTED', 'PAID']).toContain((await payer.payTranche(tr.id, key)).tranches[0]!.status);
+      // Délai du simulateur (sim_payment_delay_seconds) + période de la tâche (10 s) : moins d’une minute.
+      let status = '';
+      for (let i = 0; i < 30 && status !== 'PAID'; i++) {
+        await new Promise((r) => setTimeout(r, 2_000));
+        status = (await payer.getTranche(tr.id)).tranche.status;
+      }
+      expect(status).toBe('PAID');
+      const receipt = await payer.getReceipt(tr.id);
+      expect(receipt.amountMinor).toBe(tr.amountMinor);
+    }, 90_000);
   });
 
   // Nettoyage : dossiers, journal et alertes des comptes de test (demo_reset, permis en mock_mode uniquement).

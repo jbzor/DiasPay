@@ -197,6 +197,141 @@ select t.check(not has_function_privilege('anon', 'reissue_token(uuid, text)', '
            and not has_function_privilege('authenticated', '_token_reissue_closed(uuid)', 'EXECUTE'),
   'T2 : droits : reissue_token fermé à anon, _token_reissue_closed fermé à authenticated');
 
+-- ===================== T3 : simulateur du partenaire de paiement (0033) =====================
+-- Fonctions appelées avec les droits du propriétaire (t.admin) : aucune n’est exécutable par anon ni authenticated.
+-- Paye la demande seq 1 du dossier (payeur), range la tentative sous p_key.
+create function t.start_pay(p_tx uuid, p_key text) returns void language plpgsql as $$
+begin
+  perform t.submit_health(p_tx, 'tr_' || p_key);
+  perform t.login('fda00000-0000-4000-8000-000000000001');
+  insert into t.res select p_key, start_payment((select id from tranches where tx_id = p_tx), 'lota-t3-' || p_key || '-0001');
+  perform t.admin();
+end $$;
+create function t.attempt(p_key text) returns payment_attempts language sql as $$
+  select * from payment_attempts where id = (select (v->>'id')::uuid from t.res where k = p_key)
+$$;
+create function t.req_status(p_key text) returns text language sql as $$
+  select status::text from tranches where id = (select v from t.ids where k = 'tr_' || p_key)
+$$;
+create function t.events(p_key text) returns bigint language sql as $$
+  select count(*) from webhook_events where event_id like 'simsvc-' || (select v->>'id' from t.res where k = p_key) || '-%'
+$$;
+
+select t.check(exists (select 1 from payment_partner_keys where provider = 'SIMULATED' and dev_only),
+  'T3 : clé du simulateur présente, marquée dev_only');
+select t.check(exists (select 1 from cron.job where jobname = 'diaspay-payment-simulator' and active),
+  'T3 : tâche planifiée diaspay-payment-simulator active (mock_mode)');
+update app_config set value = 'SUCCESS' where key = 'sim_payment_scenario';
+
+-- ---------- Délai : une tentative trop récente n’est pas traitée ----------
+update app_config set value = '600' where key = 'sim_payment_delay_seconds';
+select t.start_pay('fda10000-0000-4000-8000-000000000011', 'sOk');
+select t.check((t.attempt('sOk')).status = 'INITIATED' and t.req_status('sOk') = 'ACCEPTED', 'T3 : après start_payment : tentative INITIATED, demande ACCEPTED (paiement en cours)');
+select payment_simulator_tick();
+select t.check((t.attempt('sOk')).status = 'INITIATED' and t.events('sOk') = 0, 'T3 : délai non écoulé : la tâche ne touche pas la tentative');
+update app_config set value = '0' where key = 'sim_payment_delay_seconds';
+
+-- ---------- SUCCESS (défaut), par la tâche planifiée ----------
+select payment_simulator_tick();
+select t.check((t.attempt('sOk')).status = 'CONFIRMED' and t.req_status('sOk') = 'PAID', 'T3 : SUCCESS : tentative CONFIRMED, demande PAID');
+select t.check((select signature_valid and result = 'APPLIED' from webhook_events
+                 where event_id = 'simsvc-' || (select v->>'id' from t.res where k = 'sOk') || '-PAYMENT_SUCCEEDED'),
+  'T3 : SUCCESS : événement à identifiant stable, signature vérifiée valide, appliqué par apply_payment_event');
+select t.check((select count(*) from ledger_journals where attempt_id = (t.attempt('sOk')).id and kind = 'PAYMENT') = 1,
+  'T3 : SUCCESS : une seule écriture de paiement au journal financier');
+select t.check((select simulate_payment_attempt((t.attempt('sOk')).id) ->> 'step') = 'DONE' and t.events('sOk') = 1,
+  'T3 : tentative terminée : le simulateur ne renvoie plus rien');
+
+-- ---------- FAILURE ----------
+update app_config set value = 'FAILURE' where key = 'sim_payment_scenario';
+select t.start_pay('fda10000-0000-4000-8000-000000000012', 'sKo');
+select simulate_payment_attempt((t.attempt('sKo')).id);
+select t.check((t.attempt('sKo')).status = 'FAILED' and (t.attempt('sKo')).error_code = 'SIMULATED_DECLINE', 'T3 : FAILURE : tentative FAILED (SIMULATED_DECLINE)');
+select t.check(t.req_status('sKo') <> 'PAID' and not exists (select 1 from audit_log where tranche_id = (select v from t.ids where k = 'tr_sKo') and event = 'REQUEST_PAID')
+           and not exists (select 1 from ledger_journals where attempt_id = (t.attempt('sKo')).id),
+  'T3 : FAILURE : demande non payée, aucune écriture financière');
+
+-- ---------- LATE : « en attente », puis succès après le délai ----------
+update app_config set value = 'LATE' where key = 'sim_payment_scenario';
+update app_config set value = '600' where key = 'sim_payment_late_seconds';
+select t.start_pay('fda10000-0000-4000-8000-000000000013', 'sLate');
+select t.check(simulate_payment_attempt((t.attempt('sLate')).id) ->> 'step' = 'PENDING' and (t.attempt('sLate')).status = 'PENDING'
+           and t.req_status('sLate') = 'ACCEPTED', 'T3 : LATE : d’abord PENDING, demande toujours en cours (ACCEPTED)');
+select t.check(simulate_payment_attempt((t.attempt('sLate')).id) ->> 'step' = 'WAITING' and (t.attempt('sLate')).status = 'PENDING',
+  'T3 : LATE : délai non écoulé : rien de plus');
+update app_config set value = '0' where key = 'sim_payment_late_seconds';
+select payment_simulator_tick();
+select t.check((t.attempt('sLate')).status = 'CONFIRMED' and t.req_status('sLate') = 'PAID' and t.events('sLate') = 2,
+  'T3 : LATE : succès après le délai (tâche planifiée), demande PAID, deux événements');
+
+-- ---------- DUPLICATE : le même événement reçu deux fois ----------
+update app_config set value = 'DUPLICATE' where key = 'sim_payment_scenario';
+select t.start_pay('fda10000-0000-4000-8000-000000000014', 'sDup');
+insert into t.res select 'rDup', simulate_payment_attempt((t.attempt('sDup')).id);
+select t.check((select v #>> '{results,0,result}' from t.res where k = 'rDup') = 'APPLIED'
+           and (select v #>> '{results,1,result}' from t.res where k = 'rDup') = 'DUPLICATE',
+  'T3 : DUPLICATE : premier appliqué, second reconnu comme doublon');
+select t.check(t.events('sDup') = 1 and t.req_status('sDup') = 'PAID'
+           and (select count(*) from ledger_journals where attempt_id = (t.attempt('sDup')).id and kind = 'PAYMENT') = 1
+           and (select count(*) from audit_log where tranche_id = (select v from t.ids where k = 'tr_sDup') and event = 'REQUEST_PAID') = 1
+           and (select count(*) from payments where tranche_id = (select v from t.ids where k = 'tr_sDup')) = 1,
+  'T3 : DUPLICATE : un seul effet (un événement, un paiement, une écriture, un REQUEST_PAID)');
+
+-- ---------- OUT_OF_ORDER : succès, puis un « en attente » périmé ----------
+update app_config set value = 'OUT_OF_ORDER' where key = 'sim_payment_scenario';
+select t.start_pay('fda10000-0000-4000-8000-000000000015', 'sOoo');
+insert into t.res select 'rOoo', simulate_payment_attempt((t.attempt('sOoo')).id);
+select t.check((select v #>> '{results,1,result}' from t.res where k = 'rOoo') = 'IGNORED'
+           and (select v #>> '{results,1,error}' from t.res where k = 'rOoo') = 'STALE_EVENT',
+  'T3 : OUT_OF_ORDER : l’événement périmé est ignoré (STALE_EVENT)');
+select t.check((t.attempt('sOoo')).status = 'CONFIRMED' and t.req_status('sOoo') = 'PAID', 'T3 : OUT_OF_ORDER : tentative CONFIRMED, demande PAID');
+
+-- ---------- Signature : vérifiée, jamais contournée ----------
+update app_config set value = 'SUCCESS' where key = 'sim_payment_scenario';
+select t.start_pay('fda10000-0000-4000-8000-000000000016', 'sSig');
+insert into t.res select 'rawSig', to_jsonb(jsonb_build_object('provider', 'SIMULATED', 'eventId', 'lota-forged-0001', 'occurredAt', '2026-11-19T10:00:00.000Z',
+  'payload', jsonb_build_object('type', 'PAYMENT_SUCCEEDED', 'idempotencyKey', (t.attempt('sSig')).idempotency_key,
+    'amountMinor', (t.attempt('sSig')).amount_minor, 'currency', (t.attempt('sSig')).currency))::text);
+select t.check(receive_payment_webhook((select v #>> '{}' from t.res where k = 'rawSig'), repeat('0', 64)) ->> 'result' = 'INVALID_SIGNATURE',
+  'T3 : signature fausse : INVALID_SIGNATURE');
+select t.check((t.attempt('sSig')).status = 'INITIATED' and t.req_status('sSig') = 'ACCEPTED'
+           and (select not signature_valid and result = 'INVALID_SIGNATURE' from webhook_events where event_id = 'lota-forged-0001'),
+  'T3 : signature fausse : enregistrée, jamais appliquée (valeurs relues)');
+select t.check(receive_payment_webhook(replace((select v #>> '{}' from t.res where k = 'rawSig'), 'lota-forged-0001', 'lota-forged-0002'),
+                 _sim_sign((select v #>> '{}' from t.res where k = 'rawSig'))) ->> 'result' = 'INVALID_SIGNATURE',
+  'T3 : signature d’un autre corps : INVALID_SIGNATURE');
+select t.check(receive_payment_webhook(replace((select v #>> '{}' from t.res where k = 'rawSig'), 'lota-forged-0001', 'lota-signed-0003'), null) ->> 'result' = 'INVALID_SIGNATURE',
+  'T3 : signature absente : INVALID_SIGNATURE');
+select t.check(receive_payment_webhook(replace((select v #>> '{}' from t.res where k = 'rawSig'), '"SIMULATED"', '"TRUSTPAYWAY"'), repeat('0', 64)) ->> 'result' = 'INVALID_SIGNATURE',
+  'T3 : fournisseur sans clé : INVALID_SIGNATURE');
+select t.hint($$select receive_payment_webhook('pas du json', 'x')$$, 'VALIDATION', 'T3 : corps illisible refusé');
+select t.hint($$select simulate_payment_attempt(gen_random_uuid())$$, 'PAYMENT_NOT_FOUND', 'T3 : tentative inconnue refusée');
+update app_config set value = 'INCONNU' where key = 'sim_payment_scenario';
+select t.hint($$select simulate_payment_attempt((t.attempt('sSig')).id)$$, 'VALIDATION', 'T3 : scénario inconnu refusé');
+update app_config set value = 'SUCCESS' where key = 'sim_payment_scenario';
+
+-- ---------- Hors mock_mode : rien ----------
+update app_config set value = 'false' where key = 'mock_mode';
+select t.check(payment_simulator_tick() = 0 and (t.attempt('sSig')).status = 'INITIATED' and t.events('sSig') = 0,
+  'T3 : hors mock_mode : la tâche ne fait rien (tentative intacte)');
+select t.hint($$select simulate_payment_attempt((t.attempt('sSig')).id)$$, 'SIMULATOR_DISABLED', 'T3 : hors mock_mode : appel direct refusé');
+update app_config set value = 'true' where key = 'mock_mode';
+select payment_simulator_tick();
+select t.check((t.attempt('sSig')).status = 'CONFIRMED', 'T3 : mock_mode rétabli : la tâche confirme la tentative');
+
+-- ---------- Droits ----------
+select t.check(not exists (select 1 from unnest(array['receive_payment_webhook(text,text)', 'simulate_payment_attempt(uuid)', 'payment_simulator_tick()',
+                                                    '_sim_sign(text)', '_sim_send(uuid,text)', '_sim_setting(text,text)']) f
+                          where has_function_privilege('anon', f, 'EXECUTE') or has_function_privilege('authenticated', f, 'EXECUTE')),
+  'T3 : aucune fonction du simulateur ni du point d’entrée n’est exécutable par anon ou authenticated');
+select t.check(not has_table_privilege('authenticated', 'payment_partner_keys', 'SELECT') and not has_table_privilege('anon', 'payment_partner_keys', 'SELECT'),
+  'T3 : clé du partenaire illisible par anon et authenticated');
+select t.login('fda00000-0000-4000-8000-000000000001');
+select t.fails($$select payment_simulator_tick()$$, 'T3 : payeur connecté : tâche du simulateur refusée');
+select t.fails($$select simulate_payment_attempt((select (v->>'id')::uuid from t.res where k = 'sSig'))$$, 'T3 : payeur connecté : simulation refusée');
+select t.fails($$select secret from payment_partner_keys$$, 'T3 : payeur connecté : clé du partenaire illisible');
+select t.admin();
+
 -- ===================== Fin =====================
 -- ---------- Résumé ----------
 do $$

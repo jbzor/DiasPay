@@ -24,6 +24,7 @@ TrustToken pour chaque demande (exigence 5.1) : le cahier a prévalu.
 | (2) Message du Dr | Point de vue du client sur le terrain de la santé (contexte de K13) | non cité nommément dans le dépôt | `docs/client/` |
 | (3) Dossier institutionnel | Présentation du projet et de ses partenaires | non cité nommément dans le dépôt | `docs/client/` |
 | (4) Réponses écrites aux questions K1 à K14 (kickoff) | Les décisions de cadrage : paiement direct par défaut (K1), décision du payeur et bureau hors du flux par défaut (K2), enrôlement N0 à N3 (K3), QR en présentiel (K4), statuts et litige distinct (K5), autorisation à chaque échéance (K6), paiement exécuté irréversible (K7), contributions (K9), devise (K10), adaptateur de paiement (K12), données de santé minimales (K13) | `docs/specs/modele-cible-v2.md` §1 ; entrées X*-v2 de `docs/decisions.md` | `docs/client/` |
+| (5) Validation écrite des livrables de la vague 1 | Accord du Dr sur les livrables de cadrage (cas d’usage, matrice des rôles, machine à états, TrustToken et DiasPay Link, backlog) | `docs/dossier/livrables/` | `docs/client/05-validation-vague-1.md` (date et canal à compléter par Jean-Baptiste) |
 
 Les questions K8, K11 et K14 n’ont pas d’effet décrit dans `docs/specs/modele-cible-v2.md` : leurs réponses sont à
 reprendre depuis le document du client quand un lot les concerne. Le document d’analyse `ALIGNEMENT-CAHIER-EXTENSION.md`
@@ -48,8 +49,9 @@ s’inventent pas).
 
 ## Emplacement des documents
 
-- **`docs/client/`** : dossier prévu pour les documents du client, à remplir par Jean-Baptiste.
-- **En attendant** : projet claude.ai « DiasPayQR ».
+- **`docs/client/`** : documents du client, déposés tels quels (01 à 04, et 05 : validation écrite de la vague 1).
+- **`docs/dossier/livrables/`** : livrables de cadrage soumis au Dr et validés par écrit (05). Pour le TrustToken, la
+  version retenue est celle qui prévoit, en règle 3, la révocation « dès que la demande est payée » en mode direct (lot A, T0).
 
 ## À compléter
 

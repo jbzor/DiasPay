@@ -433,8 +433,10 @@ select save_draft(t.op('fd300000-0000-4000-8000-000000000061', 'HEALTH', 80000, 
 select t.hint($$select submit_operation('fd300000-0000-4000-8000-000000000061')$$, 'BENEFICIARY_REFERENCE_REQUIRED', 'X6 : santé : référence requise à la soumission');
 select save_draft(t.op('fd300000-0000-4000-8000-000000000061', 'HEALTH', 80000, '+33625550001') - 'beneficiaryName'
                   || '{"purpose":"Consultation de cardiologie","beneficiaryReference":"jd-07"}');
-select t.check((select beneficiary_reference = 'JD-07' and beneficiary_name is null and not (draft_data ? 'beneficiaryName')
-                from transactions where id = 'fd300000-0000-4000-8000-000000000061'),
+-- draft_data n’est plus lisible directement (0035) : le brouillon est relu par get_draft, comme l’application.
+select t.check((select beneficiary_reference = 'JD-07' and beneficiary_name is null
+                from transactions where id = 'fd300000-0000-4000-8000-000000000061')
+           and not (get_draft('fd300000-0000-4000-8000-000000000061') ? 'beneficiaryName'),
   'X6 : référence enregistrée (majuscules), aucun nom, ni dans le brouillon');
 select t.hint($$select add_document('fd300000-0000-4000-8000-000000000061', 'BENEFICIARY_ID', 'fd300000-0000-4000-8000-000000000061/BENEFICIARY_ID/id.jpg', 'id.jpg', 'image/jpeg', 1000)$$,
   'DOCUMENT_KIND_NOT_ALLOWED', 'X6 : pièce d’identité du bénéficiaire refusée');

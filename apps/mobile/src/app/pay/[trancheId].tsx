@@ -7,7 +7,8 @@ import { fontSize, palette, radius, spacing } from '@diaspay/ui-tokens';
 import { useI18n, verticalLabel } from '@/i18n';
 import { api } from '@/state/api';
 import { useTransactions } from '@/state/queries';
-import { biometric } from '@/lib/biometric';
+import { verifyOwner } from '@/lib/biometric';
+import { deviceAuthMessageKey } from '@/lib/deviceAuth';
 import { Banner, Button, Card, Divider, Icon, Radio, Row, Screen, TopBar } from '@/ui';
 
 export default function Pay() {
@@ -27,7 +28,9 @@ export default function Pay() {
     if (!tx || !tr) return;
     setBusy(true); setError(null);
     try {
-      if (!(await biometric(t('bioReason')))) { setError(t('bioFailed')); return; }
+      // Lot A (T8b) : jamais de paiement sans vérification (biométrie, sinon code ; aucun verrouillage : refusé).
+      const auth = await verifyOwner(t('bioReason'));
+      if (auth !== 'OK') { setError(t(deviceAuthMessageKey(auth))); return; }
       await api.payTranche(tr.id, idempotencyKey);
       router.replace(`/tx/${tx.id}`);
     } catch (e) {

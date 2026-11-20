@@ -32,7 +32,7 @@ describe('trackingLabel (lot A, T6)', () => {
   const L = (over: Partial<TrackingInput>) => trackingLabel({ ...base, ...over }, now).label;
 
   it('chaque libellé', () => {
-    expect(L({ status: 'DRAFT' })).toBe('DRAFT');
+    expect(L({ status: 'DRAFT', txStatus: 'DRAFT' })).toBe('DRAFT');
     expect(L({})).toBe('SUBMITTED');
     expect(L({ firstViewedAt: '2026-11-18T10:00:00Z' })).toBe('RECEIVED');
     expect(L({ firstViewedAt: '2026-11-18T10:00:00Z', payerDocumentsViewedAt: '2026-11-18T11:00:00Z' })).toBe('UNDER_REVIEW');
@@ -50,12 +50,12 @@ describe('trackingLabel (lot A, T6)', () => {
   });
   it('« Notification envoyée » n’existe pas : sans canal externe, la demande reste soumise', () => {
     expect(TRACKING_LABELS).not.toContain('NOTIFICATION_SENT');
-    expect(TRACKING_LABELS).toHaveLength(14);
+    expect(TRACKING_LABELS).toHaveLength(15);   // 14 du lot A (T6) + « Programmée » (T8b)
   });
   it('litige sur une demande payée : « Contestée », le statut reste payé', () => {
     const r = trackingLabel({ ...base, status: 'PAID', disputeOpen: true }, now);
     expect(r).toEqual({ label: 'DISPUTED', overdue: false, partialRefund: false });
-    expect(L({ status: 'DRAFT', disputeOpen: true })).toBe('DRAFT');
+    expect(L({ status: 'DRAFT', txStatus: 'DRAFT', disputeOpen: true })).toBe('DRAFT');
   });
   it('en retard : impayée, non finale, échéance passée', () => {
     expect(trackingLabel({ ...base, dueDate: '2026-11-18' }, now)).toMatchObject({ label: 'SUBMITTED', overdue: true });
@@ -68,5 +68,24 @@ describe('trackingLabel (lot A, T6)', () => {
   it('remboursement partiel ou total', () => {
     expect(trackingLabel({ ...base, status: 'REFUNDED', refundedMinor: 400 }, now)).toMatchObject({ label: 'REFUNDED', partialRefund: true });
     expect(trackingLabel({ ...base, status: 'REFUNDED', refundedMinor: 1000 }, now).partialRefund).toBe(false);
+  });
+});
+
+// Lot A (T8b) : « Programmée » (livrable 6, indicateurs des échéanciers).
+describe('trackingLabel : échéance programmée (lot A, T8b)', () => {
+  const now = new Date(2026, 10, 19, 12);
+  const draft: TrackingInput = { status: 'DRAFT', txStatus: 'ACTIVE', amountMinor: 1000, refundedMinor: 0, disputeOpen: false, dueDate: '2027-01-15' };
+  it('échéance en brouillon d’une opération soumise : « Programmée », jamais en retard', () => {
+    expect(trackingLabel(draft, now)).toEqual({ label: 'SCHEDULED', overdue: false, partialRefund: false });
+    expect(trackingLabel({ ...draft, txStatus: 'PENDING_REVIEW' }, now).label).toBe('SCHEDULED');
+    expect(trackingLabel({ ...draft, txStatus: 'IN_REVIEW' }, now).label).toBe('SCHEDULED');
+    expect(trackingLabel({ ...draft, dueDate: undefined }, now).label).toBe('SCHEDULED');   // jalon après le précédent
+    expect(trackingLabel({ ...draft, dueDate: '2026-11-01' }, now).overdue).toBe(false);
+  });
+  it('opération encore en brouillon (ou suspendue, close, annulée) : « Brouillon »', () => {
+    for (const s of ['DRAFT', 'SUSPENDED', 'CLOSED', 'CANCELLED'] as const) expect(trackingLabel({ ...draft, txStatus: s }, now).label, s).toBe('DRAFT');
+  });
+  it('une échéance soumise n’est plus programmée', () => {
+    expect(trackingLabel({ ...draft, status: 'SUBMITTED' }, now).label).toBe('SUBMITTED');
   });
 });

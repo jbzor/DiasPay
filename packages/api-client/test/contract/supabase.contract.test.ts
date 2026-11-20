@@ -90,6 +90,32 @@ if (URL && KEY) {
     }, 30_000);
   });
 
+  // Lot A (T8b, migration 0035) : draft_data n’est lisible par aucune partie, initiateur compris ; l’initiateur relit
+  // son brouillon par get_draft. Cahier des charges §5.3.
+  describe('lot A (T8b) : draft_data illisible par les parties', () => {
+    it('payeur partie : refusé ; initiateur : seulement par get_draft', async () => {
+      const requester = await signedIn('REQUESTER');
+      const id = newUuid();
+      await requester.saveDraft(healthDraft(id, { counterpartyPhone: PHONES.PAYER.phone }));
+      await signedIn('PAYER');
+      for (const who of ['PAYER', 'REQUESTER'] as const) {
+        const sb = clients.get(who)!;
+        const direct = await sb.from('transactions').select('id, draft_data').eq('id', id);
+        expect(direct.error).not.toBeNull();
+        expect(direct.data).toBeNull();
+        const star = await sb.from('transactions').select('*').eq('id', id);
+        expect(star.error).not.toBeNull();
+      }
+      // Le payeur, déjà partie du brouillon, lit la ligne par les colonnes autorisées.
+      const payerRow = await clients.get('PAYER')!.from('transactions').select('id, status').eq('id', id);
+      expect(payerRow.error).toBeNull();
+      expect(payerRow.data).toEqual([{ id, status: 'DRAFT' }]);
+      const draft = await requester.getDraft(id);
+      expect(draft.counterpartyPhone).toBe(PHONES.PAYER.phone);
+      await requester.deleteDraft(id);
+    }, 30_000);
+  });
+
   // Lot A (T3) : hors démonstration, la tentative est en cours (ACCEPTED), rejouable, puis le simulateur du partenaire
   // (tâche planifiée du serveur, scénario SUCCESS par défaut) la confirme par le chemin des événements signés :
   // la demande passe « payée » sans aucun appel de démonstration. Propre à Supabase : le simulateur de l’appareil

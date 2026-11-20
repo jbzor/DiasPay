@@ -1,13 +1,13 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import type { AppNotification } from '@diaspay/api-client';
-import { fontSize, palette, semantic, spacing, touchTarget } from '@diaspay/ui-tokens';
+import { fontSize, palette, spacing, touchTarget } from '@diaspay/ui-tokens';
 import { useI18n, verticalLabel } from '@/i18n';
 import type { Key } from '@/i18n';
 import { api } from '@/state/api';
 import { useTransactions } from '@/state/queries';
 import { useNotificationsQuery } from '@/state/queries';
-import { QueryGate } from '@/ui/states';
+import { EmptyState, QueryGate } from '@/ui/states';
 import { alertKeys, groupByDay } from '@/features/alerts/alerts';
 import type { DisputeResolvedOutcome } from '@/features/alerts/alerts';
 import { IllustrationBellCheck, Screen } from '@/ui';
@@ -37,14 +37,11 @@ export default function Alerts() {
     return (
       <Screen scroll={false}>
         <Text style={st.title} accessibilityRole="header">{t('alertsTitle')}</Text>
-        <View style={st.empty}>
-          <IllustrationBellCheck size={96} />
-          <Text style={st.emptyTitle}>{t('noAlertsTitle')}</Text>
-          <Text style={st.emptyText}>{t('noAlertsText')}</Text>
+        <EmptyState fill illustration={<IllustrationBellCheck size={96} />} title={t('noAlertsTitle')} text={t('noAlertsText')}>
           <Pressable accessibilityRole="link" onPress={() => router.push('/profile/security')} style={st.link}>
             <Text style={st.linkText}>{t('manageNotifications')}</Text>
           </Pressable>
-        </View>
+        </EmptyState>
       </Screen>
     );
   }
@@ -105,9 +102,6 @@ const st = StyleSheet.create({
   itemTitleUnread: { fontWeight: '600' },
   time: { fontSize: fontSize.small, color: palette.muted },
   body: { fontSize: fontSize.body - 1, lineHeight: 19, color: palette.muted },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, paddingHorizontal: spacing.lg },
-  emptyTitle: { fontSize: 20, fontWeight: '700', color: palette.ink, textAlign: 'center', marginTop: spacing.sm },
-  emptyText: { fontSize: fontSize.body, lineHeight: 22, color: semantic.textMuted, textAlign: 'center' },
-  link: { minHeight: touchTarget, justifyContent: 'center', marginTop: spacing.sm },
+  link: { minHeight: touchTarget, justifyContent: 'center' },
   linkText: { fontSize: fontSize.body, fontWeight: '600', color: palette.green },
 });

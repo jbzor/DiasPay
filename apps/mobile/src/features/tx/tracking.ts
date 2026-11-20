@@ -20,6 +20,6 @@ export type TrackingKind = 'active' | 'pending' | 'draft' | 'error';
 const KIND: Record<TrackingLabel, TrackingKind> = {
   DRAFT: 'draft', SUBMITTED: 'pending', RECEIVED: 'pending', UNDER_REVIEW: 'pending', INFO_REQUESTED: 'pending',
   AWAITING_VALIDATION: 'pending', ACCEPTED: 'pending', PAYMENT_IN_PROGRESS: 'pending', PAID: 'active', DISPUTED: 'error',
-  REJECTED: 'error', EXPIRED: 'draft', CANCELLED: 'draft', REFUNDED: 'draft',
+  REJECTED: 'error', EXPIRED: 'draft', CANCELLED: 'draft', REFUNDED: 'draft', SCHEDULED: 'draft',
 };
 export const trackingKind = (t: Tracking): TrackingKind => (t.overdue ? 'error' : KIND[t.label]);

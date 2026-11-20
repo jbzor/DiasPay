@@ -10,7 +10,9 @@ import { trancheStatusKey, useI18n } from '@/i18n';
 import { api, getCurrentUser } from '@/state/api';
 import { placeIn } from '@diaspay/api-client';
 import { assertOnline } from '@/state/queries';
-import { biometric } from '@/lib/biometric';
+import { verifyOwner } from '@/lib/biometric';
+import { deviceAuthMessageKey } from '@/lib/deviceAuth';
+import type { DeviceAuthResult } from '@/lib/deviceAuth';
 import { initialScanState, scanReducer } from '@/features/scan/reducer';
 import { Banner, Button, Field, Icon, Row, StatusLabel } from '@/ui';
 
@@ -39,7 +41,7 @@ export default function Scan() {
   const [torch, setTorch] = useState(false);
   const [manualOpen, setManualOpen] = useState(Platform.OS === 'web');
   const [manual, setManual] = useState('');
-  const [bioError, setBioError] = useState(false);
+  const [bioError, setBioError] = useState<Exclude<DeviceAuthResult, 'OK'> | null>(null);
 
   useEffect(() => { dispatch({ type: 'START' }); }, []);
 
@@ -68,8 +70,9 @@ export default function Scan() {
 
   const confirm = useCallback(async () => {
     if (s.phase !== 'ready' || !s.reference) return;
-    setBioError(false);
-    if (!(await biometric(t('bioReasonConfirm')))) { setBioError(true); return; }
+    setBioError(null);
+    const auth = await verifyOwner(t('bioReasonConfirm'));
+    if (auth !== 'OK') { setBioError(auth); return; }
     dispatch({ type: 'CONFIRM' });
     try {
       assertOnline(); // la confirmation hors connexion (file d’attente signée) arrive en vague 2
@@ -165,7 +168,7 @@ export default function Scan() {
                 <Row label={t('purpose')} value={s.info.purpose} />
                 <Row label={t('status')} value={t(trancheStatusKey(s.info.status))} />
               </View>
-              {bioError ? <Banner tone="error" text={t('bioFailed')} /> : null}
+              {bioError ? <Banner tone="error" text={t(deviceAuthMessageKey(bioError))} /> : null}
               <Button label={s.phase === 'confirming' ? t('confirmingMsg') : t('confirmService')} onPress={confirm} disabled={s.phase === 'confirming'} />
               <Text style={st.sheetMuted}>{t('contestNote', { hours: s.info.contestHours })}</Text>
               {s.phase === 'ready' ? <Button tone="text" label={t('cancel')} onPress={() => dispatch({ type: 'RESET' })} /> : null}

@@ -379,6 +379,52 @@ select t.check(not has_function_privilege('anon', '_note_payer_document_view()',
            and not has_function_privilege('anon', 'mark_received(uuid)', 'EXECUTE'),
   'T6 : droits : déclencheur et mark_received fermés à anon');
 
+-- ===================== T8b : draft_data réservé à l’initiateur (0035) =====================
+-- Brouillon enregistré, non soumis : le payeur désigné par son numéro est déjà partie (il lit la ligne).
+select t.login('fda00000-0000-4000-8000-000000000006');
+select save_draft(t.health_request('fda10000-0000-4000-8000-000000000031'));
+select t.admin();
+select t.check((select draft_data->>'counterpartyPhone' = '+33625570001' and draft_data->'provider'->>'invitedPhone' = '+237625570002'
+                from transactions where id = 'fda10000-0000-4000-8000-000000000031')
+           and exists (select 1 from transaction_parties where tx_id = 'fda10000-0000-4000-8000-000000000031'
+                       and user_id = 'fda00000-0000-4000-8000-000000000001' and role = 'PAYER'),
+  'T8b : prérequis : draft_data contient les numéros des autres parties, le payeur est partie');
+select t.login('fda00000-0000-4000-8000-000000000001');
+select t.check((select status from transactions where id = 'fda10000-0000-4000-8000-000000000031') = 'DRAFT',
+  'T8b : payeur partie : la ligne de l’opération reste lisible (colonnes autorisées)');
+select t.fails($$insert into t.res select 'leak', draft_data from transactions where id = 'fda10000-0000-4000-8000-000000000031'$$,
+  'T8b : payeur partie : lecture de draft_data refusée');
+select t.fails($$insert into t.res select 'leakAll', to_jsonb(x) from transactions x where id = 'fda10000-0000-4000-8000-000000000031'$$,
+  'T8b : payeur partie : lecture de la ligne entière (*) refusée');
+select t.hint($$select get_draft('fda10000-0000-4000-8000-000000000031')$$, 'TX_NOT_FOUND', 'T8b : payeur partie : get_draft refusé');
+select t.check(not exists (select 1 from jsonb_array_elements(get_drafts()) d where d->>'id' = 'fda10000-0000-4000-8000-000000000031'),
+  'T8b : payeur partie : brouillon absent de get_drafts');
+select t.login('fda00000-0000-4000-8000-000000000002');
+select t.fails($$insert into t.res select 'leakProv', draft_data from transactions where id = 'fda10000-0000-4000-8000-000000000031'$$,
+  'T8b : prestataire partie : lecture de draft_data refusée');
+select t.admin();
+select t.check(not exists (select 1 from t.res where k in ('leak', 'leakAll', 'leakProv')), 'T8b : valeur relue : rien n’a été lu par une autre partie');
+-- L’initiateur lit son brouillon par la fonction dédiée.
+select t.login('fda00000-0000-4000-8000-000000000006');
+select t.check((select get_draft('fda10000-0000-4000-8000-000000000031')->>'counterpartyPhone') = '+33625570001',
+  'T8b : initiateur : get_draft rend son brouillon (numéro du payeur compris)');
+select t.check(exists (select 1 from jsonb_array_elements(get_drafts()) d where d->>'id' = 'fda10000-0000-4000-8000-000000000031'),
+  'T8b : initiateur : brouillon présent dans get_drafts');
+select t.admin();
+-- Droits : aucune autre colonne perdue, rien pour anon, rien dans le temps réel.
+select t.check(not exists (select 1 from pg_attribute where attrelid = 'public.transactions'::regclass and attnum > 0 and not attisdropped
+                             and attname <> 'draft_data' and not has_column_privilege('authenticated', 'public.transactions', attname, 'SELECT')),
+  'T8b : authenticated lit toutes les colonnes de transactions sauf draft_data');
+select t.check(not has_column_privilege('authenticated', 'public.transactions', 'draft_data', 'SELECT')
+           and not has_column_privilege('anon', 'public.transactions', 'draft_data', 'SELECT'),
+  'T8b : draft_data illisible par authenticated et anon');
+select t.check(not has_function_privilege('anon', 'get_draft(uuid)', 'EXECUTE') and not has_function_privilege('anon', 'get_drafts()', 'EXECUTE')
+           and has_function_privilege('authenticated', 'get_draft(uuid)', 'EXECUTE'),
+  'T8b : get_draft et get_drafts : aucun droit pour anon');
+select t.check(not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'transactions'
+                             and 'draft_data' = any(attnames)),
+  'T8b : temps réel : draft_data absent de la publication');
+
 -- ===================== Fin =====================
 -- ---------- Résumé (éditeur SQL) ----------
 -- Le résultat est rendu par une erreur, toujours levée : elle s’affiche dans l’éditeur et annule tout le test.

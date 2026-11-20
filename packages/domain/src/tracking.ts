@@ -6,10 +6,12 @@ import { toIsoDate } from './need';
  * celui de l’opération et d’événements datés, si bien qu’aucun ne peut contredire l’état réel. « Notification envoyée »
  * n’est jamais produit tant qu’aucun canal externe n’existe (lot 6) : la demande reste « soumise ».
  * « En retard » est un indicateur à côté du libellé, jamais un statut.
+ * Lot A (T8b) : « Programmée » (SCHEDULED, livrable 6, indicateurs des échéanciers) : échéance encore en brouillon d’une
+ * opération déjà soumise, qui sera soumise automatiquement (activation_lead_days avant sa date, ou après le jalon précédent).
  */
 export const TRACKING_LABELS = [
   'DRAFT', 'SUBMITTED', 'RECEIVED', 'UNDER_REVIEW', 'INFO_REQUESTED', 'AWAITING_VALIDATION', 'ACCEPTED', 'PAYMENT_IN_PROGRESS',
-  'PAID', 'DISPUTED', 'REJECTED', 'EXPIRED', 'CANCELLED', 'REFUNDED',
+  'PAID', 'DISPUTED', 'REJECTED', 'EXPIRED', 'CANCELLED', 'REFUNDED', 'SCHEDULED',
 ] as const;
 export type TrackingLabel = (typeof TRACKING_LABELS)[number];
 
@@ -41,6 +43,9 @@ export interface Tracking {
   partialRefund: boolean;
 }
 
+/** Opération soumise dont les échéances en brouillon attendent leur soumission automatique. */
+const SCHEDULING_TX: readonly TxStatus[] = ['PENDING_REVIEW', 'IN_REVIEW', 'ACTIVE'];
+
 /** Demande sans paiement ni décision finale : encore « due ». */
 const UNPAID_OPEN: readonly PaymentRequestStatus[] = ['SUBMITTED', 'INFO_REQUESTED', 'ACCEPTED'];
 
@@ -55,7 +60,8 @@ export function trackingLabel(r: TrackingInput, now: Date): Tracking {
 }
 
 function labelOf(r: TrackingInput): TrackingLabel {
-  if (r.status === 'DRAFT') return 'DRAFT';
+  // Échéance en brouillon : « Programmée » si l’opération est soumise (soumission automatique à venir), sinon « Brouillon ».
+  if (r.status === 'DRAFT') return SCHEDULING_TX.includes(r.txStatus) ? 'SCHEDULED' : 'DRAFT';
   // Un litige ouvert prime : y compris sur une demande payée (le statut financier, lui, reste PAID).
   if (r.disputeOpen) return 'DISPUTED';
   switch (r.status) {

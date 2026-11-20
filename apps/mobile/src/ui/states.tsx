@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { chips, fontSize, neutralTint, radius, spacing } from '@diaspay/ui-tokens';
+import { chips, fontSize, neutralTint, palette, radius, semantic, spacing } from '@diaspay/ui-tokens';
 import { useI18n } from '@/i18n';
 import { Banner, Button } from './index';
 import { Text } from './text';
@@ -39,6 +39,23 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry: () => 
   );
 }
 
+/**
+ * État vide conçu (alertes, accueil) : illustration facultative, titre, texte, puis une action (bouton ou lien).
+ * `fill` : occupe la hauteur de l’écran (écran entier vide) ; sinon, bloc dans une page.
+ */
+export function EmptyState({ illustration, title, text, fill = false, children }: {
+  illustration?: ReactNode; title: string; text: string; fill?: boolean; children?: ReactNode;
+}) {
+  return (
+    <View style={[st.empty, fill && { flex: 1, justifyContent: 'center' }]}>
+      {illustration}
+      <Text style={st.emptyTitle} accessibilityRole="header">{title}</Text>
+      <Text style={st.emptyText}>{text}</Text>
+      {children ? <View style={st.emptyAction}>{children}</View> : null}
+    </View>
+  );
+}
+
 /** Bandeau « Hors connexion » : les données affichées sont les dernières connues. */
 export function OfflineBanner() {
   const { t } = useI18n();
@@ -51,6 +68,10 @@ export function OfflineBanner() {
 }
 
 const st = StyleSheet.create({
+  empty: { alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.lg },
+  emptyTitle: { fontSize: 20, fontWeight: '700', color: palette.ink, textAlign: 'center', marginTop: spacing.sm },
+  emptyText: { fontSize: fontSize.body, lineHeight: 22, color: semantic.textMuted, textAlign: 'center' },
+  emptyAction: { alignSelf: 'stretch', alignItems: 'center', marginTop: spacing.sm },
   block: { backgroundColor: neutralTint, borderRadius: radius.lg },
   offline: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: chips.pending.bg, paddingBottom: 6, paddingHorizontal: spacing.lg, zIndex: 10 },
   offlineText: { color: chips.pending.fg, fontSize: fontSize.small, fontWeight: '600', textAlign: 'center' },

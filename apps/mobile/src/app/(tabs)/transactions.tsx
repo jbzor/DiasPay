@@ -5,7 +5,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { currentTrancheIndex, filterTransactions, placeIn } from '@diaspay/api-client';
 import type { TxFilter } from '@diaspay/api-client';
 import type { NeedDraft } from '@diaspay/domain';
-import { fontSize, palette, radius, spacing, touchTarget } from '@diaspay/ui-tokens';
+import { fontSize, palette, radius, semantic, spacing, touchTarget } from '@diaspay/ui-tokens';
 import { txStatusKey, useI18n, verticalLabel } from '@/i18n';
 import { api } from '@/state/api';
 import { useTransactionsQuery } from '@/state/queries';
@@ -15,6 +15,8 @@ import { useDraftsQuery } from '@/state/queries';
 import { openDraft, removeLocalDraft } from '@/state/needWizard';
 import { showToast } from '@/ui/Toast';
 import { stepIndex, STEP_COUNT } from '@/features/need/wizard';
+import { trackingKey, trackingOf } from '@/features/tx/tracking';
+import type { Key } from '@/i18n/messages';
 import { Card, Icon, Screen, StatusLabel, Title, txStatusKind } from '@/ui';
 import { Dialog } from '@/ui/Dialog';
 
@@ -92,13 +94,18 @@ export default function Transactions() {
           const progress = n > 1 ? ` · ${t(milestones ? 'milestoneOf' : 'trancheOfLower', { n: currentTrancheIndex(tx), total: n })}` : '';
           const place = placeIn(tx, uid);
           const placeText = place.payer ? t('placeToPay') : place.initiator ? t('placeSent') : place.provider ? t('placeProvider') : '';
+          // Lot A (T6) : libellé de suivi de la demande en cours, et « en retard ».
+          const current = tx.tranches[Math.max(0, Math.min(currentTrancheIndex(tx), n) - 1)];
+          const tracking = current ? trackingOf(tx, current, new Date()) : null;
+          const trackingText = tracking ? [t(trackingKey(tracking) as Key), tracking.overdue ? t('overdue') : ''].filter(Boolean).join(' · ') : '';
+          const line = [placeText, trackingText].filter(Boolean).join(' · ');
           return (
             <Card key={tx.id} style={[st.row, focused ? st.focus : null]} onPress={() => router.push(`/tx/${tx.id}`)}
-              accessibilityLabel={`${verticalLabel(tx.vertical, locale)}, ${tx.providerName}, ${money(tx.amount)}, ${placeText ? `${placeText}, ` : ''}${statusText}`}>
+              accessibilityLabel={`${verticalLabel(tx.vertical, locale)}, ${tx.providerName}, ${money(tx.amount)}, ${line ? `${line}, ` : ''}${statusText}`}>
               <View style={{ flex: 1, gap: 2 }}>
                 <Text style={st.rowTitle}>{verticalLabel(tx.vertical, locale)} · {tx.providerName}</Text>
                 <Text style={st.sub}>{money(tx.amount)}{progress}</Text>
-                {placeText ? <Text style={st.sub}>{placeText}</Text> : null}
+                {line ? <Text style={[st.sub, tracking?.overdue ? st.overdue : null]}>{line}</Text> : null}
               </View>
               <StatusLabel kind={evidence ? 'pending' : txStatusKind(tx.status)} label={statusText} />
             </Card>
@@ -128,4 +135,5 @@ const st = StyleSheet.create({
   focus: { backgroundColor: palette.greenTint, marginHorizontal: -spacing.sm, paddingHorizontal: spacing.sm },
   rowTitle: { fontSize: fontSize.body, fontWeight: '600', color: palette.ink },
   sub: { fontSize: fontSize.small, color: palette.muted },
+  overdue: { color: semantic.error, fontWeight: '600' },
 });

@@ -332,6 +332,51 @@ select t.fails($$select simulate_payment_attempt((select (v->>'id')::uuid from t
 select t.fails($$select secret from payment_partner_keys$$, 'T3 : payeur connecté : clé du partenaire illisible');
 select t.admin();
 
+-- ===================== T6 : événements des libellés de suivi (0034) =====================
+select t.submit_health('fda10000-0000-4000-8000-000000000021', 'trV');
+insert into t.ids select 'docV', id from documents where tx_id = 'fda10000-0000-4000-8000-000000000021' limit 1;
+select t.check((select payer_documents_viewed_at from transactions where id = 'fda10000-0000-4000-8000-000000000021') is null
+           and (select first_viewed_at from tranches where id = (select v from t.ids where k = 'trV')) is null,
+  'T6 : demande soumise : ni ouverture ni consultation par le payeur (« Soumise »)');
+-- L’initiateur consulte une pièce : rien pour le payeur.
+select t.login('fda00000-0000-4000-8000-000000000006');
+select get_document_access((select v from t.ids where k = 'docV'));
+select t.admin();
+select t.check((select payer_documents_viewed_at from transactions where id = 'fda10000-0000-4000-8000-000000000021') is null,
+  'T6 : consultation par l’initiateur : payer_documents_viewed_at reste vide');
+-- « Reçue par le payeur » : mark_received, payeur seulement, une seule fois.
+select t.login('fda00000-0000-4000-8000-000000000006');
+select t.hint($$select mark_received((select v from t.ids where k = 'trV'))$$, 'PAYER_ONLY', 'T6 : mark_received refusé à l’initiateur');
+select t.login('fda00000-0000-4000-8000-000000000001');
+select mark_received((select v from t.ids where k = 'trV'));
+select mark_received((select v from t.ids where k = 'trV'));
+select t.admin();
+select t.check((select first_viewed_at from tranches where id = (select v from t.ids where k = 'trV')) is not null
+           and (select count(*) from audit_log where tranche_id = (select v from t.ids where k = 'trV') and event = 'REQUEST_VIEWED') = 1,
+  'T6 : ouverture par le payeur : first_viewed_at posé, REQUEST_VIEWED journalisé une seule fois');
+-- « En cours de vérification » : première consultation d’une pièce par le payeur.
+select t.login('fda00000-0000-4000-8000-000000000001');
+select get_document_access((select v from t.ids where k = 'docV'));
+select t.admin();
+select t.check((select payer_documents_viewed_at from transactions where id = 'fda10000-0000-4000-8000-000000000021') is not null,
+  'T6 : consultation d’une pièce par le payeur : payer_documents_viewed_at posé (déclencheur sur DOCUMENT_VIEWED)');
+update transactions set payer_documents_viewed_at = '2026-01-01T00:00:00Z' where id = 'fda10000-0000-4000-8000-000000000021';
+select t.login('fda00000-0000-4000-8000-000000000001');
+select get_document_access((select v from t.ids where k = 'docV'));
+select t.admin();
+select t.check((select payer_documents_viewed_at from transactions where id = 'fda10000-0000-4000-8000-000000000021') = '2026-01-01T00:00:00Z'::timestamptz,
+  'T6 : seule la première consultation compte (date inchangée)');
+-- Écriture directe par une partie : sans effet (RLS), valeur relue.
+select t.login('fda00000-0000-4000-8000-000000000001');
+select t.check(t.n_updated($$update transactions set payer_documents_viewed_at = null where id = 'fda10000-0000-4000-8000-000000000021'$$) = 0,
+  'T6 : payer_documents_viewed_at : écriture directe par le payeur sans effet (0 ligne)');
+select t.admin();
+select t.check((select payer_documents_viewed_at from transactions where id = 'fda10000-0000-4000-8000-000000000021') is not null, 'T6 : valeur relue inchangée');
+select t.check(not has_function_privilege('anon', '_note_payer_document_view()', 'EXECUTE')
+           and not has_function_privilege('authenticated', '_note_payer_document_view()', 'EXECUTE')
+           and not has_function_privilege('anon', 'mark_received(uuid)', 'EXECUTE'),
+  'T6 : droits : déclencheur et mark_received fermés à anon');
+
 -- ===================== Fin =====================
 -- ---------- Résumé ----------
 do $$

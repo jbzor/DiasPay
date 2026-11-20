@@ -28,3 +28,42 @@ describe('lot A (T4) : choix du serveur', () => {
     expect(src('state/auth.ts')).toMatch(/mockApi\?\.hydrate\(\)/);
   });
 });
+
+// Lot A (T6) : libellés de suivi affichés (clé i18n, couleur), dans les deux langues.
+import { trackingKey, trackingKind, trackingOf } from '../src/features/tx/tracking';
+import { en, fr } from '../src/i18n/messages';
+import { TRACKING_LABELS } from '@diaspay/domain';
+import type { Tranche, Transaction } from '@diaspay/api-client';
+
+describe('lot A (T6) : libellés de suivi', () => {
+  const tr = (over: Partial<Tranche>): Tranche => ({ id: 'r1', seq: 1, label: '', amountMinor: 1000, status: 'SUBMITTED', releaseMode: 'PROVIDER_CONFIRM',
+    contestHours: 0, evidenceCount: 0, fundsState: 'NONE', onHold: false, refundedMinor: 0, ...over });
+  const tx = (over: Partial<Transaction>, r: Tranche): Transaction => ({ id: 't1', vertical: 'HEALTH', settlementMode: 'DIRECT', purpose: '',
+    amount: { amountMinor: 1000, currency: 'XAF' }, status: 'ACTIVE', providerName: '', beneficiaryName: '', createdAt: '', tranches: [r], ...over });
+  const now = new Date(2026, 10, 19, 12);
+
+  it('chaque libellé a sa traduction en français et en anglais', () => {
+    for (const l of [...TRACKING_LABELS.map((x) => `track_${x}`), 'track_REFUNDED_PARTIAL', 'overdue']) {
+      expect((fr as Record<string, string>)[l], l).toBeTruthy();
+      expect((en as Record<string, string>)[l], l).toBeTruthy();
+    }
+  });
+  it('données de l’opération : ouverture, pièces consultées, litige, retard, remboursement partiel', () => {
+    const seen = tr({ firstViewedAt: '2026-11-18T10:00:00.000Z' });
+    expect(trackingOf(tx({}, seen), seen, now).label).toBe('RECEIVED');
+    expect(trackingOf(tx({ payerDocumentsViewedAt: '2026-11-18T11:00:00.000Z' }, seen), seen, now).label).toBe('UNDER_REVIEW');
+    const disputed = tr({ status: 'PAID', disputeOpen: true });
+    expect(trackingOf(tx({}, disputed), disputed, now).label).toBe('DISPUTED');
+    const late = tr({ dueDate: '2026-11-01' });
+    const t1 = trackingOf(tx({}, late), late, now);
+    expect(t1).toMatchObject({ label: 'SUBMITTED', overdue: true });
+    expect(trackingKind(t1)).toBe('error');
+    const partial = tr({ status: 'REFUNDED', refundedMinor: 300 });
+    expect(trackingKey(trackingOf(tx({}, partial), partial, now))).toBe('track_REFUNDED_PARTIAL');
+  });
+  it('le détail enregistre la première ouverture par le payeur (mark_received)', () => {
+    const detail = src('app/tx/[id].tsx');
+    expect(detail).toMatch(/placeIn\(tx, getCurrentUser\(\)\?\.id\)\.payer/);
+    expect(detail).toMatch(/api\.markReceived\(trId\)/);
+  });
+});

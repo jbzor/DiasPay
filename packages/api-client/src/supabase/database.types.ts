@@ -682,6 +682,20 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"payment_partner_keys": {
+                  Row: {
+                    "created_at": string,"dev_only": boolean,"provider": string,"secret": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"dev_only"?: boolean,"provider": string,"secret": string
+                  }
+                  Update: {
+                    "created_at"?: string,"dev_only"?: boolean,"provider"?: string,"secret"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"payments": {
                   Row: {
                     "created_at": string,"external_id": string | null,"fee_minor": number,"id": string,"provider": string,"status": Database["public"]['Enums']["payment_status"],"tranche_id": string | null,"tx_id": string
@@ -1158,14 +1172,14 @@ isOneToOne: false
                   ]
                 },"transactions": {
                   Row: {
-                    "accepted_at": string | null,"accepted_by": string | null,"amount_minor": number | null,"beneficiary_name": string | null,"beneficiary_reference": string | null,"created_at": string,"created_by": string,"currency": Database["public"]['Enums']["currency"] | null,"draft_data": NonNullable<Json>,"due_date": string | null,"expires_at": string | null,"id": string,"initiator_id": string | null,"plan_type": string | null,"provider_id": string | null,"provider_name": string | null,"purpose": string | null,"reject_reason": string | null,"settlement_mode": Database["public"]['Enums']["settlement_mode"],"status": Database["public"]['Enums']["tx_status"],"updated_at": string,"vertical": string
+                    "accepted_at": string | null,"accepted_by": string | null,"amount_minor": number | null,"beneficiary_name": string | null,"beneficiary_reference": string | null,"created_at": string,"created_by": string,"currency": Database["public"]['Enums']["currency"] | null,"draft_data": NonNullable<Json>,"due_date": string | null,"expires_at": string | null,"id": string,"initiator_id": string | null,"payer_documents_viewed_at": string | null,"plan_type": string | null,"provider_id": string | null,"provider_name": string | null,"purpose": string | null,"reject_reason": string | null,"settlement_mode": Database["public"]['Enums']["settlement_mode"],"status": Database["public"]['Enums']["tx_status"],"updated_at": string,"vertical": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "accepted_at"?: string | null,"accepted_by"?: string | null,"amount_minor"?: number | null,"beneficiary_name"?: string | null,"beneficiary_reference"?: string | null,"created_at"?: string,"created_by": string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"initiator_id"?: string | null,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical": string
+                    "accepted_at"?: string | null,"accepted_by"?: string | null,"amount_minor"?: number | null,"beneficiary_name"?: string | null,"beneficiary_reference"?: string | null,"created_at"?: string,"created_by": string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"initiator_id"?: string | null,"payer_documents_viewed_at"?: string | null,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical": string
                   }
                   Update: {
-                    "accepted_at"?: string | null,"accepted_by"?: string | null,"amount_minor"?: number | null,"beneficiary_name"?: string | null,"beneficiary_reference"?: string | null,"created_at"?: string,"created_by"?: string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"initiator_id"?: string | null,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical"?: string
+                    "accepted_at"?: string | null,"accepted_by"?: string | null,"amount_minor"?: number | null,"beneficiary_name"?: string | null,"beneficiary_reference"?: string | null,"created_at"?: string,"created_by"?: string,"currency"?: Database["public"]['Enums']["currency"] | null,"draft_data"?: NonNullable<Json>,"due_date"?: string | null,"expires_at"?: string | null,"id"?: string,"initiator_id"?: string | null,"payer_documents_viewed_at"?: string | null,"plan_type"?: string | null,"provider_id"?: string | null,"provider_name"?: string | null,"purpose"?: string | null,"reject_reason"?: string | null,"settlement_mode"?: Database["public"]['Enums']["settlement_mode"],"status"?: Database["public"]['Enums']["tx_status"],"updated_at"?: string,"vertical"?: string
                   }
                   Relationships: [
                     {
@@ -1529,6 +1543,7 @@ isOneToOne: false
 "expires_at": string | null,
 "id": string,
 "initiator_id": string | null,
+"payer_documents_viewed_at": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,
@@ -2073,6 +2088,7 @@ isOneToOne: false
 "expires_at": string | null,
 "id": string,
 "initiator_id": string | null,
+"payer_documents_viewed_at": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,
@@ -2089,8 +2105,14 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
-"_simulate_token_issue":
-{ Args: { "p_tx": string }; Returns: undefined
+"_sim_send":
+{ Args: { "p_attempt": string,"p_type": string }; Returns: Json
+                           },
+"_sim_setting":
+{ Args: { "p_default": string,"p_key": string }; Returns: string
+                           },
+"_sim_sign":
+{ Args: { "p_raw_body": string }; Returns: string
                            },
 "_staff_aal_ok":
 { Args: Record<PropertyKey, never>; Returns: boolean
@@ -2137,6 +2159,9 @@ isOneToOne: false
 "_token_hash":
 { Args: { "p_ref": string }; Returns: string
                            },
+"_token_reissue_closed":
+{ Args: { "p_tranche": string }; Returns: boolean
+                           },
 "_tx_ref":
 { Args: { "p_tx": string }; Returns: string
                            },
@@ -2164,6 +2189,7 @@ isOneToOne: false
 "expires_at": string | null,
 "id": string,
 "initiator_id": string | null,
+"payer_documents_viewed_at": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,
@@ -2318,6 +2344,7 @@ isOneToOne: false
 "expires_at": string | null,
 "id": string,
 "initiator_id": string | null,
+"payer_documents_viewed_at": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,
@@ -2490,6 +2517,7 @@ isOneToOne: false
 "expires_at": string | null,
 "id": string,
 "initiator_id": string | null,
+"payer_documents_viewed_at": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,
@@ -2554,6 +2582,7 @@ isOneToOne: false
 "expires_at": string | null,
 "id": string,
 "initiator_id": string | null,
+"payer_documents_viewed_at": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,
@@ -2682,6 +2711,7 @@ isOneToOne: false
 "expires_at": string | null,
 "id": string,
 "initiator_id": string | null,
+"payer_documents_viewed_at": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,
@@ -2772,6 +2802,12 @@ isOneToOne: false
       } },
 "open_document":
 { Args: { "p_doc": string }; Returns: Json
+                           },
+"payment_simulator_tick":
+{ Args: Record<PropertyKey, never>; Returns: number
+                           },
+"receive_payment_webhook":
+{ Args: { "p_raw_body": string,"p_signature": string }; Returns: Json
                            },
 "reissue_token":
 { Args: { "p_reason"?: string,"p_tranche": string }; Returns: Json
@@ -2962,6 +2998,9 @@ isOneToOne: false
               "city": string,"id": string,"name": string,"verified": boolean,"verticals": (string)[]
             }[]
                            },
+"simulate_payment_attempt":
+{ Args: { "p_attempt": string }; Returns: Json
+                           },
 "simulate_system_transition":
 { Args: { "p_to": Database["public"]['Enums']["tx_status"],"p_tx": string }; Returns: {
               "accepted_at": string | null,
@@ -2977,6 +3016,7 @@ isOneToOne: false
 "expires_at": string | null,
 "id": string,
 "initiator_id": string | null,
+"payer_documents_viewed_at": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,
@@ -3083,6 +3123,7 @@ isOneToOne: false
 "expires_at": string | null,
 "id": string,
 "initiator_id": string | null,
+"payer_documents_viewed_at": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,
@@ -3114,6 +3155,7 @@ isOneToOne: false
 "expires_at": string | null,
 "id": string,
 "initiator_id": string | null,
+"payer_documents_viewed_at": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,
@@ -3178,6 +3220,7 @@ isOneToOne: false
 "expires_at": string | null,
 "id": string,
 "initiator_id": string | null,
+"payer_documents_viewed_at": string | null,
 "plan_type": string | null,
 "provider_id": string | null,
 "provider_name": string | null,

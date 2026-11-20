@@ -33,6 +33,10 @@ export interface PaymentRequest {
   expiresAt?: string;
   /** Prestation confirmée (CONDITIONAL). */
   confirmedAt?: string;
+  /** Lot A (T6) : première ouverture par le payeur (first_viewed_at, mark_received). */
+  firstViewedAt?: string;
+  /** Lot A (T6) : litige non résolu sur la demande (dossier distinct ; le statut financier ne change pas). */
+  disputeOpen?: boolean;
 }
 export type Tranche = PaymentRequest;
 
@@ -70,6 +74,8 @@ export interface Transaction {
   myRoles?: TxRole[];
   /** Lot A (T5) : initiateur de l’opération (initiator_id, à défaut le créateur). */
   initiatorId?: string;
+  /** Lot A (T6) : première consultation d’une pièce de l’opération par son payeur (0034). */
+  payerDocumentsViewedAt?: string;
 }
 
 /** Profil de démonstration : le payeur (diaspora) ou le prestataire. */

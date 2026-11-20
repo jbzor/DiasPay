@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text } from '@/ui/text';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -9,6 +9,7 @@ import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { trancheStatusKey, txStatusKey, useI18n, verticalLabel } from '@/i18n';
 import type { Key } from '@/i18n/messages';
 import { trancheInfo } from '@/features/tx/trancheInfo';
+import { trackingKey, trackingKind, trackingOf } from '@/features/tx/tracking';
 import { api, getCurrentUser } from '@/state/api';
 import { useDemo, useDisputeQuery, useTransactionsQuery } from '@/state/queries';
 import { QueryGate } from '@/ui/states';
@@ -106,6 +107,9 @@ function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boo
     money: (amountMinor) => money({ amountMinor, currency: tx.amount.currency }),
   });
   const info = d.key ? t(d.key as Key, d.params) : '';
+  // Lot A (T6) : libellé de suivi du Dr, et « en retard » à côté.
+  const tracking = trackingOf(tx, tr, new Date());
+  const trackingText = tracking.overdue ? `${t(trackingKey(tracking) as Key)} · ${t('overdue')}` : t(trackingKey(tracking) as Key);
 
   const canPay = place.payer && tx.status === 'ACTIVE' && tr.status === 'SUBMITTED' && !tr.onHold;
   return (
@@ -118,6 +122,7 @@ function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boo
       </View>
       <View style={st.body}>
         <Text style={st.itemTitle}>{t('trancheTitle', { n: tr.seq, amount })}</Text>
+        <View style={{ marginTop: 2 }}><StatusLabel kind={trackingKind(tracking)} label={trackingText} /></View>
         <Text style={st.itemInfo}>{info}</Text>
         {canPay || canDispute ? (
           <View style={st.actions}>
@@ -146,11 +151,21 @@ function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boo
   );
 }
 
+/** Lot A (T6) : demandes que le payeur ouvre pour la première fois (« Reçue par le payeur »). */
+const RECEIVABLE: readonly Tranche['status'][] = ['SUBMITTED', 'INFO_REQUESTED'];
+
 export default function TransactionDetail() {
   const { id, tr: linkedTranche } = useLocalSearchParams<{ id: string; tr?: string }>();
   const { t, locale, money } = useI18n();
   const q = useTransactionsQuery();
   const tx = q.data?.find((x) => x.id === id);
+  // Lot A (T6) : à l’ouverture du détail par le payeur, première ouverture enregistrée (mark_received : une fois, payeur seul).
+  const unseen = tx && placeIn(tx, getCurrentUser()?.id).payer
+    ? tx.tranches.filter((r) => RECEIVABLE.includes(r.status) && !r.firstViewedAt).map((r) => r.id) : [];
+  const unseenKey = unseen.join(',');
+  useEffect(() => {
+    for (const trId of unseenKey ? unseenKey.split(',') : []) void api.markReceived(trId).catch(() => undefined);
+  }, [unseenKey]);
   if (!tx) {
     // Chargement ou erreur sans donnée connue : squelette ou « Réessayer » ; sinon le dossier est introuvable.
     if (q.data === undefined) return <Screen><TopBar title={t('loadingData')} /><QueryGate query={q} rows={4}>{null}</QueryGate></Screen>;

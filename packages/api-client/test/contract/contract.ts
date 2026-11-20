@@ -5,7 +5,7 @@
  * dans docs/supabase-setup.md.
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_MODULES, emptyDraft, isErrorCode } from '@diaspay/domain';
+import { DEFAULT_MODULES, emptyDraft, isErrorCode, trackingLabel } from '@diaspay/domain';
 import type { DisputeOutcome, DraftDocumentInput, NeedDraft, Vertical } from '@diaspay/domain';
 import { isSent, isToPay, newUuid, placeIn } from '../../src';
 import type { Transaction, TransactionApi } from '../../src';
@@ -378,6 +378,23 @@ export function contractSuite(h: Harness): void {
       const seen = (await (await h.as('PAYER')).listTransactions()).find((x) => x.id === sent.id)!;
       expect(placeIn(seen, payerId)).toEqual({ payer: true, initiator: false, provider: false });
       expect((await (await h.as('PAYER')).getTransaction(sent.id)).myRoles).toEqual(['PAYER']);
+    }, t);
+
+    it('lot A (T6) : libellés de suivi : soumise, reçue par le payeur, contestée', async () => {
+      const requester = await h.as('REQUESTER');
+      const tx0 = await submitHealth(requester, { counterpartyPhone: h.phones.PAYER });
+      const label = (x: Transaction) => trackingLabel({ status: x.tranches[0]!.status, txStatus: x.status, amountMinor: x.tranches[0]!.amountMinor,
+        refundedMinor: x.tranches[0]!.refundedMinor, firstViewedAt: x.tranches[0]!.firstViewedAt, payerDocumentsViewedAt: x.payerDocumentsViewedAt,
+        disputeOpen: !!x.tranches[0]!.disputeOpen }, new Date()).label;
+      expect(label(await (await h.as('PAYER')).getTransaction(tx0.id))).toBe('SUBMITTED');
+      await (await h.as('PAYER')).markReceived(tx0.tranches[0]!.id);
+      const seen = (await (await h.as('PAYER')).listTransactions()).find((x) => x.id === tx0.id)!;
+      expect(seen.tranches[0]!.firstViewedAt).toBeTruthy();
+      expect(label(seen)).toBe('RECEIVED');
+      await (await h.as('PAYER')).openDispute(tx0.tranches[0]!.id, 'Montant différent du devis');
+      const disputed = await (await h.as('REQUESTER')).getTransaction(tx0.id);
+      expect(disputed.tranches[0]!.disputeOpen).toBe(true);
+      expect(label(disputed)).toBe('DISPUTED');
     }, t);
 
     it('parcours direct : demande reçue, informations, plan accepté, paiement, reçu', async () => {

@@ -210,6 +210,8 @@ export class MockApi implements TransactionApi {
   private messages: StoredMessage[] = [];
   private creators: Record<string, CreatorRole> = {};
   private viewed: Record<string, string> = {};
+  /** Lot A (T6) : première consultation d’une pièce de l’opération par son payeur (miroir de 0034, non persisté). */
+  private payerDocViews: Record<string, string> = {};
   private failures = new Map<string, number[]>();
   private readonly eqrImage: boolean;
   private readonly hashFile: FileHasher;
@@ -533,7 +535,16 @@ export class MockApi implements TransactionApi {
 
   /** Lot A (T5) : vue d’une opération pour l’utilisateur courant, avec sa place (miroir de transaction_parties). */
   private withPlace(tx: Transaction): Transaction {
-    return { ...tx, myRoles: this.rolesFor(tx), ...(tx.ownerId ? { initiatorId: tx.ownerId } : {}) };
+    const docView = this.payerDocViews[tx.id];
+    return {
+      ...tx, myRoles: this.rolesFor(tx), ...(tx.ownerId ? { initiatorId: tx.ownerId } : {}),
+      ...(docView ? { payerDocumentsViewedAt: docView } : {}),
+      // Lot A (T6) : première ouverture par le payeur, litige non résolu (miroir de first_viewed_at et de disputes).
+      tranches: tx.tranches.map((tr) => ({
+        ...tr, ...(this.viewed[tr.id] ? { firstViewedAt: this.viewed[tr.id] } : {}),
+        disputeOpen: !!this.disputes[tr.id] && this.disputes[tr.id]!.status !== 'RESOLVED',
+      })),
+    };
   }
   private txById(id: string): Transaction {
     const tx = this.txs.find((t) => t.id === id);
@@ -1250,6 +1261,7 @@ export class MockApi implements TransactionApi {
     const hit = this.submittedDocuments().find((x) => x.doc.id === documentId);
     if (!hit || !(this.isParty(hit.tx) || this.isCreatorOf(hit.tx))) throw new DomainError('NOT_FOUND', 'Pièce introuvable');
     this.record(hit.tx.id, 'DOCUMENT_VIEWED', undefined, hit.doc.kind, (this.rolesFor(hit.tx)[0] ?? 'creator').toLowerCase());
+    if (this.rolesFor(hit.tx).includes('PAYER')) this.payerDocViews[hit.tx.id] ??= this.clock().toISOString();
     this.emit();
     return access(hit.doc);
   }

@@ -40,9 +40,10 @@ export default function DisputeTracking() {
   const decided = resolutionAmount(dispute, tr.amountMinor);
   const choices = demoOutcomes(tr);
   const label = (o: DisputeOutcome) => (o === 'FUNDS_RELEASED' ? t('simRelease') : o === 'NO_ACTION' ? t('simNoAction') : t('simRefund'));
+  // Lot A (T7) : sur le serveur, le nom du payeur n’est pas lu (profil d’une autre partie) : le rôle seul, jamais « Payeur (payeur) ».
   const opener = dispute.openedBy === 'PAYER'
-    ? t('openedByPayer', { name: tx.payerName || t('payerWord') })
-    : t('openedByProvider', { name: tx.providerName || t('providerWord') });
+    ? (tx.payerName ? t('openedByPayer', { name: tx.payerName }) : t('payerWord'))
+    : (tx.providerName ? t('openedByProvider', { name: tx.providerName }) : t('providerWord'));
   const rk = reasonKey(dispute.reason);
   const dayTime = (iso: string) => dateTime(iso);
   const fullDate = (iso: string) => `${date(iso)}, ${new Intl.DateTimeFormat(locale === 'fr' ? 'fr-FR' : 'en-GB', { hour: '2-digit', minute: '2-digit' }).format(new Date(iso))}`;

@@ -35,7 +35,7 @@ import { en, fr } from '../src/i18n/messages';
 import { TRACKING_LABELS } from '@diaspay/domain';
 import type { Tranche, Transaction } from '@diaspay/api-client';
 import { deviceAuthMessageKey, verifyDeviceOwner } from '../src/lib/deviceAuth';
-import { apiReleaseReason } from '../src/lib/releaseGuard';
+import { apiReleaseReason, deviceAuthReleaseViolation } from '../src/lib/releaseGuard';
 
 describe('lot A (T6) : libellés de suivi', () => {
   const tr = (over: Partial<Tranche>): Tranche => ({ id: 'r1', seq: 1, label: '', amountMinor: 1000, status: 'SUBMITTED', releaseMode: 'PROVIDER_CONFIRM',
@@ -170,5 +170,16 @@ describe('lot A (T8b) : état vide de l’accueil', () => {
     expect(home).toMatch(/label=\{t\('newNeed'\)\} onPress=\{newNeed\}/);
     expect(src('app/(tabs)/alerts.tsx')).toMatch(/<EmptyState fill/);
     expect(fr.homeEmptyTitle).toBe('Aucune transaction pour le moment');
+  });
+});
+
+describe('lot A (T10) : garde de publication de EXPO_PUBLIC_WEB_SKIP_DEVICE_AUTH', () => {
+  it('bloque un build de production qui le définit, sauf développement ou build interne déclaré', () => {
+    expect(deviceAuthReleaseViolation({ dev: false, skip: '1' })).toBe(true);
+    expect(deviceAuthReleaseViolation({ dev: false, skip: '1', allow: '1' })).toBe(false);
+    expect(deviceAuthReleaseViolation({ dev: true, skip: '1' })).toBe(false);
+    expect(deviceAuthReleaseViolation({ dev: false })).toBe(false);
+    expect(src('app/_layout.tsx')).toMatch(/deviceAuthReleaseViolation\(\{/);
+    expect(fr.deviceAuthInReleaseText).toMatch(/EXPO_PUBLIC_WEB_SKIP_DEVICE_AUTH=1/);
   });
 });

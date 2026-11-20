@@ -23,7 +23,7 @@ import { OfflineBanner } from '@/ui/states';
 import { API_MODE, MISSING_CONFIG } from '@/state/backend';
 import { bootstrap, useSession } from '@/state/auth';
 import { canSetup, canUseApp } from '@/lib/flow';
-import { apiReleaseReason, apiReleaseViolation, demoReleaseViolation } from '@/lib/releaseGuard';
+import { apiReleaseReason, apiReleaseViolation, demoReleaseViolation, deviceAuthReleaseViolation } from '@/lib/releaseGuard';
 import { useI18n } from '@/i18n';
 
 // L’écran de lancement natif reste affiché tant que la police n’est pas chargée.
@@ -37,7 +37,12 @@ const API_IN_RELEASE = apiReleaseViolation({
   dev: __DEV__, api: process.env.EXPO_PUBLIC_API, allow: process.env.EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE,
 });
 const API_REASON = apiReleaseReason(process.env.EXPO_PUBLIC_API);
-const BLOCKED_IN_RELEASE: 'demo' | 'api' | null = DEMO_IN_RELEASE ? 'demo' : API_IN_RELEASE ? 'api' : null;
+// Lot A (T10) : export qui laisse payer sans vérification de l’appareil dans un navigateur : même blocage.
+const DEVICE_AUTH_IN_RELEASE = deviceAuthReleaseViolation({
+  dev: __DEV__, skip: process.env.EXPO_PUBLIC_WEB_SKIP_DEVICE_AUTH, allow: process.env.EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE,
+});
+type BlockReason = 'demo' | 'api' | 'deviceAuth';
+const BLOCKED_IN_RELEASE: BlockReason | null = DEMO_IN_RELEASE ? 'demo' : API_IN_RELEASE ? 'api' : DEVICE_AUTH_IN_RELEASE ? 'deviceAuth' : null;
 
 // Mode Supabase : le cache des requêtes est conservé sur l’appareil (dernières données connues hors connexion).
 // Le simulateur a sa propre persistance ; son cache n’est pas conservé.
@@ -67,18 +72,21 @@ function DataLifecycle() {
 }
 
 /** Build de production avec le mode démonstration, ou sans le serveur (lot X-C, T9) : écran bloquant. */
-function DemoInReleaseBlocked({ reason }: { reason: 'demo' | 'api' }) {
+function DemoInReleaseBlocked({ reason }: { reason: BlockReason }) {
   const { t } = useI18n();
   useEffect(() => {
     console.error(reason === 'demo'
       ? '[DiasPay] Anomalie de build : EXPO_PUBLIC_DEMO=1 dans un build de production. Application bloquée.'
-      : '[DiasPay] Anomalie de build : EXPO_PUBLIC_API absente ou différente de « supabase » dans un build de production. Application bloquée.');
+      : reason === 'deviceAuth'
+        ? '[DiasPay] Anomalie de build : EXPO_PUBLIC_WEB_SKIP_DEVICE_AUTH=1 dans un build de production. Application bloquée.'
+        : '[DiasPay] Anomalie de build : EXPO_PUBLIC_API absente ou différente de « supabase » dans un build de production. Application bloquée.');
   }, [reason]);
   return (
     <View style={st.blocked} accessibilityRole="alert">
       <Text style={st.blockedTitle}>{t('demoInReleaseTitle')}</Text>
       <Text style={st.blockedText}>
         {reason === 'demo' ? t('demoInReleaseText')
+          : reason === 'deviceAuth' ? t('deviceAuthInReleaseText')
           : t(`apiInReleaseText_${API_REASON}`, { value: (process.env.EXPO_PUBLIC_API ?? '').trim() })}
       </Text>
     </View>

@@ -83,7 +83,8 @@ if (!process.argv.includes('--no-build')) {
   console.log('Export web relié au projet Supabase de développement…');
   const base = { ...process.env, EXPO_PUBLIC_DEMO: '', EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE: '', EXPO_PUBLIC_WEB_SKIP_DEVICE_AUTH: '' };
   // Lot A (T8b) : le navigateur ne peut pas vérifier le propriétaire (biométrie ou code) ; l’export de test le déclare.
-  exportWeb(DIST, { ...base, EXPO_PUBLIC_WEB_SKIP_DEVICE_AUTH: '1', EXPO_PUBLIC_API: 'supabase', EXPO_PUBLIC_SUPABASE_URL: URL, EXPO_PUBLIC_SUPABASE_ANON_KEY: KEY });
+  // Export interne déclaré (ALLOW_DEMO_IN_RELEASE) : sinon la garde de publication bloque ce réglage (deviceAuthReleaseViolation).
+  exportWeb(DIST, { ...base, EXPO_PUBLIC_WEB_SKIP_DEVICE_AUTH: '1', EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE: '1', EXPO_PUBLIC_API: 'supabase', EXPO_PUBLIC_SUPABASE_URL: URL, EXPO_PUBLIC_SUPABASE_ANON_KEY: KEY });
   console.log('Export web sans configuration…');
   // EXPO_NO_DOTENV : aucun fichier .env lu ; variables vidées.
   const unconfigured = { ...base, EXPO_NO_DOTENV: '1', EXPO_PUBLIC_API: '', EXPO_PUBLIC_SUPABASE_URL: '', EXPO_PUBLIC_SUPABASE_ANON_KEY: '' };

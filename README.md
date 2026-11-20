@@ -17,6 +17,28 @@ pnpm --filter @diaspay/mobile ios       # ouvre directement le simulateur iOS
 pnpm --filter @diaspay/mobile exec expo export --platform web
 ```
 
+## Lancer l’application sur le projet de développement (lot A)
+Supabase est le serveur de l’application en usage normal. Sans configuration, l’application affiche « Configuration
+manquante » et nomme les variables à renseigner ; elle ne bascule jamais en silence sur le simulateur.
+
+1. Copier `apps/mobile/.env.example` en `apps/mobile/.env.local` et y mettre `EXPO_PUBLIC_API=supabase`, l’URL du projet
+   de développement et sa clé **publique** (Project Settings > API). Un ancien `.env.local` qui contient
+   `EXPO_PUBLIC_API=mock` lance le simulateur : le corriger.
+2. `pnpm --filter @diaspay/mobile start`, puis i, a ou w.
+3. Se connecter avec un compte de démonstration du projet (indicatif `+33`, code fixe **123456**) : payeur
+   **6 39 98 00 01**, demandeur **6 39 98 00 02**, prestataire **6 39 98 00 03** (`docs/supabase-setup.md` §5). Les
+   numéros 11 à 13 sont réservés aux tests automatisés (contrat, bout en bout), qui effacent leurs données.
+4. Payer une demande : elle passe « paiement en cours », puis « payée » en quelques secondes. C’est le simulateur du
+   partenaire **côté serveur** qui répond (tâche planifiée, mock_mode du projet seulement), par le même chemin signé que les
+   événements réels ; aucun mode démonstration n’est nécessaire (voir `docs/supabase-setup.md`, « Simulateur du partenaire »).
+
+Simulateur sur l’appareil (données de démonstration, sans serveur) : uniquement avec `EXPO_PUBLIC_API=mock` écrit
+explicitement, pour les tests et la démonstration.
+
+**Vérification avant paiement** (lot A, décision A-7) : biométrie, sinon code du téléphone ; un téléphone sans aucun
+verrouillage ne peut pas payer (message qui explique comment l’activer). Dans un navigateur, payer et confirmer une
+prestation sont refusés, sauf en développement (`expo start`) et dans l’export web des tests de bout en bout.
+
 ## Parcours de démarrage (lot 1)
 | Situation | Parcours |
 |---|---|
@@ -36,7 +58,7 @@ pnpm --filter @diaspay/mobile exec expo export --platform web
 - **Garde de production** : un build de production (`!__DEV__`) avec `EXPO_PUBLIC_DEMO=1` affiche un écran bloquant « Build non conforme » et journalise l’anomalie. Un build interne de démonstration ou de captures le déclare explicitement avec `EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE=1` (jamais pour les stores : voir `docs/release-checklist.md`).
 
 ```
-EXPO_PUBLIC_DEMO=1 EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE=1 pnpm --filter @diaspay/mobile exec expo export --platform web
+EXPO_PUBLIC_API=mock EXPO_PUBLIC_DEMO=1 EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE=1 pnpm --filter @diaspay/mobile exec expo export --platform web
 ```
 
 **Réinitialisation** : « Réinitialiser les données de démonstration » remplace transactions, alertes, journal, litiges et brouillons par le jeu initial et efface l’instantané enregistré.
@@ -46,7 +68,7 @@ En dehors de ces cas, le profil de démonstration suit le rôle choisi à l'insc
 ## Variables d’environnement
 | Variable | Rôle | Défaut |
 |---|---|---|
-| `EXPO_PUBLIC_API` | `mock` : simulateur sur l’appareil ; `supabase` : projet Supabase (lot 4) | `mock` |
+| `EXPO_PUBLIC_API` | `supabase` : projet Supabase (fonctionnement normal) ; `mock` : simulateur sur l’appareil (tests, démonstration), toujours explicite | aucun : écran « Configuration manquante » |
 | `EXPO_PUBLIC_SUPABASE_URL` | URL du projet Supabase (mode `supabase`) | vide |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Clé **publique** du projet (`sb_publishable_…`). Jamais la clé `service_role` : l’application la refuse | vide |
 | `EXPO_PUBLIC_DEMO` | `1` : outils de démonstration (voir « Mode démonstration ») ; le rappel du code OTP s’affiche aussi en développement | absent |
@@ -58,8 +80,8 @@ En dehors de ces cas, le profil de démonstration suit le rôle choisi à l'insc
 
 Mise en place complète : `docs/supabase-setup.md`. Codes d’erreur : `docs/error-codes.md`. Contrôles avant publication : `docs/release-checklist.md`.
 
-- **Choix à la racine** : `EXPO_PUBLIC_API=supabase` dans `apps/mobile/.env.local` (copier `.env.example`). Les écrans ne connaissent que `TransactionApi` / `AuthApi` ; supabase-js n’est importé que dans `packages/api-client/src/supabase/`.
-- **Serveur** : migrations `supabase/migrations/0001` à `0031` (état actuel et statuts v2 : `supabase/README.md`, section « État actuel ») ; 0005 a ajouté codes d’erreur stables, brouillons serveur (`save_draft`), invitations, prestataires, limites des pièces, notifications, reçu, litige, démonstration (`mock_mode` seulement) et pg_cron.
+- **Choix à la racine** : `EXPO_PUBLIC_API=supabase` dans `apps/mobile/.env.local` (copier `apps/mobile/.env.example`). Les écrans ne connaissent que `TransactionApi` / `AuthApi` ; supabase-js n’est importé que dans `packages/api-client/src/supabase/`.
+- **Serveur** : migrations `supabase/migrations/0001` à `0033` (état actuel et statuts v2 : `supabase/README.md`, section « État actuel ») ; 0005 a ajouté codes d’erreur stables, brouillons serveur (`save_draft`), invitations, prestataires, limites des pièces, notifications, reçu, litige, démonstration (`mock_mode` seulement) et pg_cron.
 - **Authentification** : SMS (code de 6 chiffres, 300 s). Session chiffrée sur l’appareil (clé AES dans SecureStore, session chiffrée dans AsyncStorage). Supabase ne verrouille pas après 3 codes erronés : décision D5 (le simulateur fait de même depuis le lot X-C).
 - **Données** : crochets react-query (`apps/mobile/src/state/queries.ts`) communs au simulateur et à Supabase ; temps réel (Realtime, RLS) qui invalide les requêtes ; cache conservé hors connexion avec bandeau « Hors connexion » ; brouillons tamponnés sur l’appareil et synchronisés à chaque étape.
 - **Pièces** : bucket privé `dossiers`, chemin `<tx>/<type>/<uuid>.<ext>`, envoi par URL signée avec progression, consultation par URL signée de 60 s.

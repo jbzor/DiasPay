@@ -94,6 +94,9 @@ Origine : **D** règle du domaine (`@diaspay/domain`, appliquée aussi par le si
 | `UNKNOWN_REFERENCE` | D, S | Référence d’eQR inconnue, ou d’un dossier dont l’utilisateur n’est pas partie : même réponse, pour ne pas révéler l’existence de la référence (lot X). `resolve_reference_info` renvoie `null` dans ces deux cas, que le client traduit par ce code |
 | `TOKEN_REVOKED` | D, S | eQR révoqué par l’initiateur ou un administrateur, ou après rejet de la demande (lot X) ; lot X-C (T7) : paiement refusé quand la demande n’a pas de jeton actif |
 | `NOT_REVOCABLE` | D, S | Tranche déjà payée : seul un administrateur non partie révoque ou réémet son jeton (lot X) |
+| `CONFIG_MISSING` | C | Application mobile sans configuration du serveur : `EXPO_PUBLIC_API` absente (ni `supabase` ni `mock`), ou URL et clé publique du projet manquantes. Écran « Configuration manquante », aucun repli sur le simulateur (lot A, T4) |
+| `SIMULATOR_DISABLED` | S | Simulateur du partenaire de paiement désactivé : serveur hors `mock_mode`, ou clé du simulateur absente. Fonctions réservées au propriétaire de la base (lot A, T3, 0033) |
+| `REQUEST_CLOSED` | D, S | Demande terminée (payée en `DIRECT`, rejetée, expirée, annulée, remboursée ; en `CONDITIONAL`, payée dont les fonds ne sont plus bloqués) : aucun jeton ne peut être réémis, y compris par un administrateur non partie. La réémission reste permise pendant la confirmation en `CONDITIONAL` (lot A, T2, 0032) |
 | `TOO_MANY_ATTEMPTS` | D, S | Plus de 10 résolutions de référence échouées par l’utilisateur dans l’heure ; événement `SUSPICIOUS_ACTIVITY` dans `security_events` (lot X) |
 | `TOKEN_USED` | D, S | EQR déjà utilisé |
 | `TOKEN_EXPIRED` | D, S | EQR expiré |

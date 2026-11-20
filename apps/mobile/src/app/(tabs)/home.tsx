@@ -1,12 +1,12 @@
 import { StyleSheet, View } from 'react-native';
 import { Text } from '@/ui/text';
 import { router } from 'expo-router';
-import { currentTrancheIndex, lockedFunds, nextPayment, trancheCount } from '@diaspay/api-client';
+import { currentTrancheIndex, isToPay, lockedFunds, nextPayment, trancheCount } from '@diaspay/api-client';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { txStatusKey, useI18n, verticalLabel } from '@/i18n';
 import { usePersona } from '@/state/api';
 import { useTransactionsQuery } from '@/state/queries';
-import { QueryGate } from '@/ui/states';
+import { EmptyState, QueryGate } from '@/ui/states';
 import { useSession } from '@/state/auth';
 import { countryKey, initials } from '@/lib/format';
 import { startNewNeed } from '@/state/needWizard';
@@ -18,10 +18,13 @@ export default function Home() {
   const txs = q.data ?? [];
   const persona = usePersona();
   const funds = lockedFunds(txs);
-  const next = nextPayment(txs);
   const { session } = useSession();
+  // Lot A (T5) : « À faire » ne propose que les demandes dont l’utilisateur est le payeur (parties du dossier).
+  const next = nextPayment(txs.filter((tx) => isToPay(tx, session?.userId)));
   const fullName = session?.profile?.fullName ?? '';
   const name = fullName.split(' ')[0] ?? '';
+  const canCreate = session?.profile?.primaryRole !== 'PROVIDER';
+  const newNeed = () => { startNewNeed(); router.push('/need/type'); };
   return (
     <Screen refreshing={q.isRefetching} onRefresh={() => void q.refetch()}>
       <View style={st.header}>
@@ -60,6 +63,12 @@ export default function Home() {
 
       <H2>{t('myTx')}</H2>
       <QueryGate query={q} rows={3}>
+      {/* Lot A (T8b) : aucune transaction (données chargées) : état vide, avec « Nouveau besoin » si l’utilisateur peut en créer. */}
+      {q.data !== undefined && txs.length === 0 ? (
+        <EmptyState title={t('homeEmptyTitle')} text={t(canCreate ? 'homeEmptyText' : 'homeEmptyTextProvider')}>
+          {canCreate ? <Button tone="accent" label={t('newNeed')} onPress={newNeed} /> : null}
+        </EmptyState>
+      ) : null}
       <View>
         {/* La transaction déjà présentée sous « À faire » n’est pas répétée (maquette B1). */}
         {txs.filter((tx) => tx.id !== next?.tx.id).slice(0, 3).map((tx) => {
@@ -80,9 +89,7 @@ export default function Home() {
         })}
       </View>
       </QueryGate>
-      {session?.profile?.primaryRole !== 'PROVIDER' ? (
-        <Button tone="accent" label={t('newNeed')} onPress={() => { startNewNeed(); router.push('/need/type'); }} />
-      ) : null}
+      {canCreate && txs.length > 0 ? <Button tone="accent" label={t('newNeed')} onPress={newNeed} /> : null}
     </Screen>
   );
 }

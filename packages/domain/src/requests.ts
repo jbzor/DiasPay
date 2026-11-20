@@ -67,6 +67,17 @@ export function tokenRevocationError(status: TrancheStatus, who: { isCreator: bo
   return null;
 }
 
+/**
+ * Lot A (T2, 0032) : demande terminée, aucun jeton ne peut être réémis (miroir de reissue_token) : rejetée, expirée,
+ * annulée, remboursée ; en DIRECT aussi payée ; en CONDITIONAL, payée dont les fonds ne sont plus bloqués. La réémission
+ * reste permise pendant la confirmation (CONDITIONAL, payée, fonds HELD).
+ */
+export function tokenReissueClosed(status: TrancheStatus, settlementMode: 'DIRECT' | 'CONDITIONAL', fundsState: string): boolean {
+  if (status === 'REJECTED' || status === 'EXPIRED' || status === 'CANCELLED' || status === 'REFUNDED') return true;
+  if (status === 'PAID') return settlementMode !== 'CONDITIONAL' || fundsState !== 'HELD';
+  return false;
+}
+
 /** Plus de 10 résolutions de référence échouées par utilisateur et par heure : refus (miroir de _reference_guard). */
 export const REFERENCE_FAILURE_LIMIT = 10;
 export const REFERENCE_FAILURE_WINDOW_MS = 3_600_000;

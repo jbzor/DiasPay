@@ -24,3 +24,4 @@ Les valeurs ci-dessous ne sont pas fournies par le client, le partenaire de paie
 | `app_config.payment_provider` | `SIMULATED` | TrustPayWay quand l’adaptateur réel existera |
 | `app_config.kyc_simulated_result` | `APPROVED` (mock_mode seulement) | résultat de l’adaptateur KYC simulé ; absent en production, où l’adaptateur réel (à choisir) appelle `apply_kyc_result` |
 | `app_config.limits_when_missing` | absent (REFUSE) | ALLOW seulement par décision explicite (ligne 1) |
+| `app_config.sim_payment_scenario`, `sim_payment_delay_seconds`, `sim_payment_late_seconds` | `SUCCESS`, `5`, `60` (mock_mode seulement, 0033) | simulateur du partenaire côté serveur (lot A, `docs/supabase-setup.md` §10) ; absents en production |

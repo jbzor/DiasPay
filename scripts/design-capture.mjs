@@ -5,7 +5,7 @@
  *   pnpm capture            # construit l’export web de démonstration, puis capture
  *   pnpm capture --no-build # réutilise apps/mobile/dist
  *
- * - Export web interne (EXPO_PUBLIC_DEMO=1, EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE=1), servi localement.
+ * - Export web interne sur le simulateur (EXPO_PUBLIC_API=mock, EXPO_PUBLIC_DEMO=1, EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE=1), servi localement.
  * - Chrome installé sur la machine, piloté par playwright-core (aucun navigateur téléchargé) ;
  *   CHROME_PATH permet d’indiquer un autre exécutable.
  * - 390 × 844 points, facteur 2 (780 × 1688 pixels, comme la maquette).
@@ -30,7 +30,7 @@ if (!process.argv.includes('--no-build')) {
   console.log('Export web de démonstration…');
   const r = spawnSync('pnpm', ['exec', 'expo', 'export', '--platform', 'web'], {
     cwd: APP, stdio: 'inherit',
-    env: { ...process.env, EXPO_PUBLIC_DEMO: '1', EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE: '1' },
+    env: { ...process.env, EXPO_PUBLIC_API: 'mock', EXPO_PUBLIC_DEMO: '1', EXPO_PUBLIC_ALLOW_DEMO_IN_RELEASE: '1' },   // simulateur : explicite (lot A)
   });
   if (r.status !== 0) process.exit(r.status ?? 1);
 }

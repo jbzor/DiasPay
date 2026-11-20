@@ -7,9 +7,12 @@ import { useIsFocused } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fontSize, palette, semantic, spacing, touchTarget } from '@diaspay/ui-tokens';
 import { trancheStatusKey, useI18n } from '@/i18n';
-import { api, usePersona } from '@/state/api';
+import { api, getCurrentUser } from '@/state/api';
+import { placeIn } from '@diaspay/api-client';
 import { assertOnline } from '@/state/queries';
-import { biometric } from '@/lib/biometric';
+import { verifyOwner } from '@/lib/biometric';
+import { deviceAuthMessageKey } from '@/lib/deviceAuth';
+import type { DeviceAuthResult } from '@/lib/deviceAuth';
 import { initialScanState, scanReducer } from '@/features/scan/reducer';
 import { Banner, Button, Field, Icon, Row, StatusLabel } from '@/ui';
 
@@ -30,7 +33,6 @@ function Corners() {
 
 export default function Scan() {
   const { t, errorText, money } = useI18n();
-  const persona = usePersona();
   const focused = useIsFocused();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
@@ -39,7 +41,7 @@ export default function Scan() {
   const [torch, setTorch] = useState(false);
   const [manualOpen, setManualOpen] = useState(Platform.OS === 'web');
   const [manual, setManual] = useState('');
-  const [bioError, setBioError] = useState(false);
+  const [bioError, setBioError] = useState<Exclude<DeviceAuthResult, 'OK'> | null>(null);
 
   useEffect(() => { dispatch({ type: 'START' }); }, []);
 
@@ -54,17 +56,23 @@ export default function Scan() {
   useEffect(() => {
     if (s.phase !== 'resolving' || !s.reference) return;
     let alive = true;
+    // Lot A (T5) : prestataire de l’opération scannée (parties du dossier), et non rôle principal du profil.
     api.resolveReference(s.reference).then(
-      (info) => { if (alive) dispatch({ type: 'RESOLVED', info, now: Date.now(), isProvider: persona === 'PROVIDER' }); },
+      async (info) => {
+        const tx = await api.getTransaction(info.txId).catch(() => null);
+        const isProvider = !!tx && placeIn(tx, getCurrentUser()?.id).provider;
+        if (alive) dispatch({ type: 'RESOLVED', info, now: Date.now(), isProvider });
+      },
       (e) => { if (alive) dispatch({ type: 'FAILED', code: (e as { code?: string })?.code }); },
     );
     return () => { alive = false; };
-  }, [s.phase, s.reference, persona]);
+  }, [s.phase, s.reference]);
 
   const confirm = useCallback(async () => {
     if (s.phase !== 'ready' || !s.reference) return;
-    setBioError(false);
-    if (!(await biometric(t('bioReasonConfirm')))) { setBioError(true); return; }
+    setBioError(null);
+    const auth = await verifyOwner(t('bioReasonConfirm'));
+    if (auth !== 'OK') { setBioError(auth); return; }
     dispatch({ type: 'CONFIRM' });
     try {
       assertOnline(); // la confirmation hors connexion (file d’attente signée) arrive en vague 2
@@ -160,7 +168,7 @@ export default function Scan() {
                 <Row label={t('purpose')} value={s.info.purpose} />
                 <Row label={t('status')} value={t(trancheStatusKey(s.info.status))} />
               </View>
-              {bioError ? <Banner tone="error" text={t('bioFailed')} /> : null}
+              {bioError ? <Banner tone="error" text={t(deviceAuthMessageKey(bioError))} /> : null}
               <Button label={s.phase === 'confirming' ? t('confirmingMsg') : t('confirmService')} onPress={confirm} disabled={s.phase === 'confirming'} />
               <Text style={st.sheetMuted}>{t('contestNote', { hours: s.info.contestHours })}</Text>
               {s.phase === 'ready' ? <Button tone="text" label={t('cancel')} onPress={() => dispatch({ type: 'RESET' })} /> : null}

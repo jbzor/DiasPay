@@ -5,7 +5,7 @@
 import { BENEFICIARY_MODES, DISPUTE_OUTCOMES, DISPUTE_STATUSES, ENROLMENT_LEVELS, PAYMENT_METHODS, MODULE_CODE_RE, PLATFORM_REVIEWS, TRANCHE_STATUSES, TX_STATUSES } from '@diaspay/domain';
 import type {
   Currency, DisputeOutcome, DisputeStatus, DocumentKind, DraftDocument, FundsState, ModuleCode, ModuleDocument, SettlementMode, NeedDraft, PlanType, PlatformReview, ReleaseMode, RequestMessageKind, RequestModule, TrancheStatus,
-  TxStatus, EnrolmentCaseStatus, EnrolmentLevel, KycResult, PaymentMethod, BeneficiaryMode,
+  TxRole, TxStatus, EnrolmentCaseStatus, EnrolmentLevel, KycResult, PaymentMethod, BeneficiaryMode,
 } from '@diaspay/domain';
 import { ApiError } from '../need';
 import type { ProviderSummary } from '../need';
@@ -28,9 +28,23 @@ type TokenRef = Pick<TokenRow, 'reference' | 'revoked_at'>;
 export type TxWithRelations = TxRow & {
   tranches: Array<TrancheRow & { tranche_tokens: TokenRef | TokenRef[] | null }>;
   documents: DocumentRow[];
+  disputes?: Array<{ tranche_id: string; status: string }> | null;
+  /** Lot A (T5) : les seules lignes de l’utilisateur connecté (filtre sur transaction_parties.user_id), rôle et identifiant. */
+  transaction_parties?: Array<{ role: string; user_id: string | null }> | null;
 };
 // Lot X : une tranche peut avoir des jetons révoqués ; seul le jeton actif compte, et seul le payeur le lit (RLS).
-export const TX_SELECT = '*, tranches(*, tranche_tokens(reference, revoked_at)), documents(id, tranche_id, deleted_at)';
+// Lot A (T5) : colonnes nommées, jamais « * » : draft_data (saisie de l’initiateur) contient les numéros des autres parties
+// (counterpartyPhone, provider.invitedPhone) et n’est lu que par get_draft, pour le seul créateur du brouillon.
+const TX_COLUMNS = 'id, vertical, settlement_mode, accepted_at, purpose, amount_minor, currency, status, provider_name, beneficiary_name, '
+  + 'beneficiary_reference, created_at, plan_type, reject_reason, created_by, initiator_id, payer_documents_viewed_at';
+// Lot A (T6) : litiges (demande et statut seulement) pour le libellé « Contestée » de la liste.
+export const TX_SELECT = `${TX_COLUMNS}, tranches(*, tranche_tokens(reference, revoked_at)), documents(id, tranche_id, deleted_at), disputes(tranche_id, status)`;
+/**
+ * Lot A (T5) : même lecture, avec la place de l’utilisateur dans l’opération. Seuls le rôle et l’identifiant sont lus, et
+ * seulement ses propres lignes (filtre sur la table liée, voir SupabaseApi) : jamais le numéro d’une autre partie.
+ */
+export const TX_SELECT_WITH_PLACE = `${TX_SELECT}, transaction_parties(role, user_id)`;
+const PARTY_ROLES: readonly string[] = ['PAYER', 'REQUESTER', 'PROVIDER'];
 
 const CURRENCIES: readonly string[] = ['EUR', 'USD', 'XAF'];
 const RELEASE_MODES: readonly string[] = ['PROVIDER_CONFIRM', 'PAYER_CONFIRM', 'EVIDENCE_REVIEW', 'AUTO'];
@@ -97,7 +111,7 @@ export function toIso(v: string | null | undefined): string | undefined {
   return d.toISOString();
 }
 
-export function toTranche(row: TxWithRelations['tranches'][number], documents: DocumentRow[]): Tranche {
+export function toTranche(row: TxWithRelations['tranches'][number], documents: DocumentRow[], disputes: ReadonlyArray<{ tranche_id: string; status: string }> = []): Tranche {
   const toks = Array.isArray(row.tranche_tokens) ? row.tranche_tokens : row.tranche_tokens ? [row.tranche_tokens] : [];
   const tok = toks.find((k) => !k.revoked_at);
   return {
@@ -119,6 +133,8 @@ export function toTranche(row: TxWithRelations['tranches'][number], documents: D
     refundedMinor: toMinor(row.refunded_minor, 'montant remboursé'),
     expiresAt: toIso(row.expires_at),
     confirmedAt: toIso(row.confirmed_at),
+    firstViewedAt: toIso(row.first_viewed_at),
+    disputeOpen: disputes.some((d) => d.tranche_id === row.id && d.status !== 'RESOLVED'),
   };
 }
 
@@ -138,12 +154,17 @@ export function toTransaction(row: TxWithRelations): Transaction {
     providerName: row.provider_name ?? '',
     beneficiaryName: row.beneficiary_name ?? '',
     ...(row.beneficiary_reference ? { beneficiaryReference: row.beneficiary_reference } : {}),
-    tranches: [...(row.tranches ?? [])].sort((a, b) => a.seq - b.seq).map((t) => toTranche(t, docs)),
+    tranches: [...(row.tranches ?? [])].sort((a, b) => a.seq - b.seq).map((t) => toTranche(t, docs, row.disputes ?? [])),
     createdAt: toIso(row.created_at),
     planType: row.plan_type === null ? undefined : oneOf<PlanType>(row.plan_type, PLAN_TYPES, 'type de plan'),
     documentCount: docs.filter((d) => d.tranche_id === null && !d.deleted_at).length,
     rejectionReason: opt(row.reject_reason),
     ownerId: row.created_by,
+    initiatorId: row.initiator_id ?? row.created_by,
+    ...(row.payer_documents_viewed_at ? { payerDocumentsViewedAt: toIso(row.payer_documents_viewed_at) } : {}),
+    ...(row.transaction_parties ? {
+      myRoles: [...new Set(row.transaction_parties.map((p) => p.role).filter((r): r is TxRole => PARTY_ROLES.includes(r)))],
+    } : {}),
   };
 }
 

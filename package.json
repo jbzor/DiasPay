@@ -10,7 +10,8 @@
     "db:test": "scripts/db.sh test",
     "test:supabase": "set -a && . apps/mobile/.env.local && set +a && SUPABASE_TEST_URL=$EXPO_PUBLIC_SUPABASE_URL SUPABASE_TEST_ANON_KEY=$EXPO_PUBLIC_SUPABASE_ANON_KEY pnpm --filter @diaspay/api-client exec vitest run test/contract",
     "build": "turbo run build",
-    "dev:web": "pnpm --filter @diaspay/web dev"
+    "dev:web": "pnpm --filter @diaspay/web dev",
+    "test:e2e:supabase": "set -a && . apps/mobile/.env.local && set +a && SUPABASE_TEST_URL=$EXPO_PUBLIC_SUPABASE_URL SUPABASE_TEST_ANON_KEY=$EXPO_PUBLIC_SUPABASE_ANON_KEY node scripts/e2e-supabase.mjs"
   },
   "devDependencies": {
     "playwright-core": "1.65.0",

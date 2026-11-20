@@ -5,9 +5,9 @@
  * dans docs/supabase-setup.md.
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_MODULES, emptyDraft, isErrorCode } from '@diaspay/domain';
+import { DEFAULT_MODULES, emptyDraft, isErrorCode, trackingLabel } from '@diaspay/domain';
 import type { DisputeOutcome, DraftDocumentInput, NeedDraft, Vertical } from '@diaspay/domain';
-import { newUuid } from '../../src';
+import { isSent, isToPay, newUuid, placeIn } from '../../src';
 import type { Transaction, TransactionApi } from '../../src';
 
 export type ContractApi = TransactionApi & {
@@ -356,6 +356,46 @@ export function contractSuite(h: Harness): void {
     }, t);
 
     // ——— Lot X version 2 : parcours par défaut (règlement direct) et litiges ———
+
+    // Lot A (T5) : la place vient des parties de chaque opération, pas du rôle principal du profil.
+    it('lot A (T5) : un même utilisateur, initiateur dans une opération et payeur dans une autre', async () => {
+      const requester = await h.as('REQUESTER');
+      const me = await h.userId('REQUESTER');
+      const sent = await submitHealth(requester, { counterpartyPhone: h.phones.PAYER });
+      const own = await submitHealth(requester, { creatorRole: 'PAYER' });
+      const mine = await (await h.as('REQUESTER')).listTransactions();
+      const s1 = mine.find((x) => x.id === sent.id)!;
+      const s2 = mine.find((x) => x.id === own.id)!;
+      expect(placeIn(s1, me)).toEqual({ payer: false, initiator: true, provider: false });
+      expect(isSent(s1, me) && !isToPay(s1, me)).toBe(true);
+      expect(placeIn(s2, me).payer).toBe(true);
+      expect(isToPay(s2, me)).toBe(true);
+      // Les règles du serveur suivent la même place : payer est refusé dans la première, permis dans la seconde.
+      expect(await code((await h.as('REQUESTER')).payTranche(s1.tranches[0]!.id, newUuid()))).toBe('PAYER_ONLY');
+      expect((await (await h.as('REQUESTER')).payTranche(s2.tranches[0]!.id, newUuid())).tranches[0]!.status).not.toBe('SUBMITTED');
+      // Le payeur désigné voit l’opération envoyée comme « à payer », sans en être l’initiateur.
+      const payerId = await h.userId('PAYER');
+      const seen = (await (await h.as('PAYER')).listTransactions()).find((x) => x.id === sent.id)!;
+      expect(placeIn(seen, payerId)).toEqual({ payer: true, initiator: false, provider: false });
+      expect((await (await h.as('PAYER')).getTransaction(sent.id)).myRoles).toEqual(['PAYER']);
+    }, t);
+
+    it('lot A (T6) : libellés de suivi : soumise, reçue par le payeur, contestée', async () => {
+      const requester = await h.as('REQUESTER');
+      const tx0 = await submitHealth(requester, { counterpartyPhone: h.phones.PAYER });
+      const label = (x: Transaction) => trackingLabel({ status: x.tranches[0]!.status, txStatus: x.status, amountMinor: x.tranches[0]!.amountMinor,
+        refundedMinor: x.tranches[0]!.refundedMinor, firstViewedAt: x.tranches[0]!.firstViewedAt, payerDocumentsViewedAt: x.payerDocumentsViewedAt,
+        disputeOpen: !!x.tranches[0]!.disputeOpen }, new Date()).label;
+      expect(label(await (await h.as('PAYER')).getTransaction(tx0.id))).toBe('SUBMITTED');
+      await (await h.as('PAYER')).markReceived(tx0.tranches[0]!.id);
+      const seen = (await (await h.as('PAYER')).listTransactions()).find((x) => x.id === tx0.id)!;
+      expect(seen.tranches[0]!.firstViewedAt).toBeTruthy();
+      expect(label(seen)).toBe('RECEIVED');
+      await (await h.as('PAYER')).openDispute(tx0.tranches[0]!.id, 'Montant différent du devis');
+      const disputed = await (await h.as('REQUESTER')).getTransaction(tx0.id);
+      expect(disputed.tranches[0]!.disputeOpen).toBe(true);
+      expect(label(disputed)).toBe('DISPUTED');
+    }, t);
 
     it('parcours direct : demande reçue, informations, plan accepté, paiement, reçu', async () => {
       const requester = await h.as('REQUESTER');

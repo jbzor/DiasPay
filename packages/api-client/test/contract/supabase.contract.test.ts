@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { SupabaseApi, SupabaseAuth, createDiasPayClient, newUuid } from '../../src';
+import { SupabaseApi, SupabaseAuth, convert, createDiasPayClient, newUuid } from '../../src';
+const { TX_SELECT_WITH_PLACE } = convert;
 import type { DiasPayClient } from '../../src';
 import { contractSuite, healthDraft } from './contract';
 import type { ContractApi, Who } from './contract';
@@ -60,11 +61,67 @@ if (URL && KEY) {
     timeout: 30_000,
   });
 
-  // Lot X-C (T2) : hors démonstration, aucune erreur DEMO_DISABLED ; la tentative reste en cours jusqu’à
-  // l’événement du partenaire. Propre à Supabase : le simulateur joue lui-même le partenaire (écart documenté,
-  // docs/supabase-setup.md §9).
-  describe('lot X-C (T2) : paiement hors démonstration', () => {
-    it('la tentative reste en cours (demande ACCEPTED), rejouable ; l’événement simulé la confirme ensuite', async () => {
+  // Lot A (T5) : la place de l’utilisateur est lue sans exposer les autres parties (ni leur ligne, ni un numéro).
+  describe('lot A (T5) : lecture de la place dans l’opération', () => {
+    it('seules les lignes de l’utilisateur, rôle et identifiant, sans numéro', async () => {
+      const requester = await signedIn('REQUESTER');
+      const id = newUuid();
+      await requester.saveDraft(healthDraft(id, { counterpartyPhone: PHONES.PAYER.phone }));
+      await requester.attachDocument(id, file('QUOTE'));
+      await requester.submitNeed(id);
+      const sb = clients.get('REQUESTER')!;
+      const uid = (await sb.auth.getSession()).data.session!.user.id;
+      const { data, error } = await sb.from('transactions').select(TX_SELECT_WITH_PLACE).eq('transaction_parties.user_id', uid).eq('id', id).single();
+      expect(error).toBeNull();
+      const parties = (data as unknown as { transaction_parties: Array<Record<string, unknown>> }).transaction_parties;
+      expect(parties.length).toBeGreaterThan(0);
+      for (const p of parties) {
+        expect(Object.keys(p).sort()).toEqual(['role', 'user_id']);
+        expect(p.user_id).toBe(uid);
+      }
+      // Aucun numéro d’une autre partie (payeur désigné, prestataire invité), ni dans les parties ni ailleurs (draft_data non lu).
+      expect(JSON.stringify(data)).not.toContain(PHONES.PAYER.phone.slice(1));
+      expect(JSON.stringify(data)).not.toContain('237699000001');
+      expect(Object.keys(data as object)).not.toContain('draft_data');
+      // Même règle par l’API de l’application, côté payeur.
+      const seen = await (await signedIn('PAYER')).getTransaction(id);
+      expect(JSON.stringify(seen)).not.toContain('237699000001');
+      expect(JSON.stringify(seen)).not.toContain(PHONES.REQUESTER.phone.slice(1));
+    }, 30_000);
+  });
+
+  // Lot A (T8b, migration 0035) : draft_data n’est lisible par aucune partie, initiateur compris ; l’initiateur relit
+  // son brouillon par get_draft. Cahier des charges §5.3.
+  describe('lot A (T8b) : draft_data illisible par les parties', () => {
+    it('payeur partie : refusé ; initiateur : seulement par get_draft', async () => {
+      const requester = await signedIn('REQUESTER');
+      const id = newUuid();
+      await requester.saveDraft(healthDraft(id, { counterpartyPhone: PHONES.PAYER.phone }));
+      await signedIn('PAYER');
+      for (const who of ['PAYER', 'REQUESTER'] as const) {
+        const sb = clients.get(who)!;
+        const direct = await sb.from('transactions').select('id, draft_data').eq('id', id);
+        expect(direct.error).not.toBeNull();
+        expect(direct.data).toBeNull();
+        const star = await sb.from('transactions').select('*').eq('id', id);
+        expect(star.error).not.toBeNull();
+      }
+      // Le payeur, déjà partie du brouillon, lit la ligne par les colonnes autorisées.
+      const payerRow = await clients.get('PAYER')!.from('transactions').select('id, status').eq('id', id);
+      expect(payerRow.error).toBeNull();
+      expect(payerRow.data).toEqual([{ id, status: 'DRAFT' }]);
+      const draft = await requester.getDraft(id);
+      expect(draft.counterpartyPhone).toBe(PHONES.PAYER.phone);
+      await requester.deleteDraft(id);
+    }, 30_000);
+  });
+
+  // Lot A (T3) : hors démonstration, la tentative est en cours (ACCEPTED), rejouable, puis le simulateur du partenaire
+  // (tâche planifiée du serveur, scénario SUCCESS par défaut) la confirme par le chemin des événements signés :
+  // la demande passe « payée » sans aucun appel de démonstration. Propre à Supabase : le simulateur de l’appareil
+  // confirme aussitôt (écart documenté, docs/supabase-setup.md).
+  describe('lot A (T3) : paiement hors démonstration, confirmé par le simulateur du serveur', () => {
+    it('ACCEPTED, rejouable, puis PAID par la tâche planifiée', async () => {
       const requester = await signedIn('REQUESTER');
       const id = newUuid();
       await requester.saveDraft(healthDraft(id, { counterpartyPhone: PHONES.PAYER.phone }));
@@ -76,12 +133,18 @@ if (URL && KEY) {
       const key = newUuid();
       const after = await payer.payTranche(tr.id, key);
       expect(after.tranches[0]).toMatchObject({ status: 'ACCEPTED', fundsState: 'NONE' }); // en cours, pas PAID
-      // Rejeu de la même clé : même tentative, toujours en cours, aucun nouveau paiement.
-      expect((await payer.payTranche(tr.id, key)).tranches[0]!.status).toBe('ACCEPTED');
-      // En démonstration, la même clé retrouve la tentative et le partenaire simulé la confirme (nettoyage inclus).
-      const demo = await signedIn('PAYER');
-      expect((await demo.payTranche(tr.id, key)).tranches[0]!.status).toBe('PAID');
-    }, 30_000);
+      // Rejeu de la même clé : même tentative, aucun nouveau paiement.
+      expect(['ACCEPTED', 'PAID']).toContain((await payer.payTranche(tr.id, key)).tranches[0]!.status);
+      // Délai du simulateur (sim_payment_delay_seconds) + période de la tâche (10 s) : moins d’une minute.
+      let status = '';
+      for (let i = 0; i < 30 && status !== 'PAID'; i++) {
+        await new Promise((r) => setTimeout(r, 2_000));
+        status = (await payer.getTranche(tr.id)).tranche.status;
+      }
+      expect(status).toBe('PAID');
+      const receipt = await payer.getReceipt(tr.id);
+      expect(receipt.amountMinor).toBe(tr.amountMinor);
+    }, 90_000);
   });
 
   // Nettoyage : dossiers, journal et alertes des comptes de test (demo_reset, permis en mock_mode uniquement).

@@ -1,10 +1,11 @@
 import { useSyncExternalStore } from 'react';
 import { MockApi } from '@diaspay/api-client';
+import { DomainError } from '@diaspay/domain';
 import type { Persona, Transaction, TransactionApi } from '@diaspay/api-client';
 import type { DisputeOutcome } from '@diaspay/domain';
 
 import { contentHasher } from '@/lib/contentHash';
-import { API_MODE, getSupabaseApi } from './backend';
+import { API_MODE, CONFIGURED, getSupabaseApi } from './backend';
 import { asyncDraftStore } from './drafts';
 import { asyncStateStore } from './simState';
 
@@ -16,15 +17,21 @@ export interface DemoOps {
 }
 export type AppApi = TransactionApi & DemoOps;
 
-// Simulateur sur l’appareil (mode « mock », défaut). Échec d’envoi simulé désactivé par défaut ;
+// Simulateur sur l’appareil : créé seulement avec EXPO_PUBLIC_API=mock (lot A, T4). En usage normal (Supabase), il
+// n’existe pas : aucun jeu de démonstration n’est chargé ni persisté. Échec d’envoi simulé désactivé par défaut ;
 // EXPO_PUBLIC_UPLOAD_FAILURE_RATE (0 à 1) l’active pour tester la reprise.
 const failureRate = Number(process.env.EXPO_PUBLIC_UPLOAD_FAILURE_RATE ?? '0');
-export const mockApi = new MockApi(undefined, undefined, {
+export const mockApi: MockApi | null = API_MODE === 'mock' ? new MockApi(undefined, undefined, {
   drafts: asyncDraftStore,
   state: asyncStateStore,
   uploadDelayMs: 250,
   uploadFailureRate: Number.isFinite(failureRate) ? Math.min(1, Math.max(0, failureRate)) : 0,
   hashFile: contentHasher,   // lot X (X4) : même empreinte que le serveur
+}) : null;
+
+/** Configuration incomplète : toute opération échoue (CONFIG_MISSING) ; l’écran « Configuration manquante » s’affiche. */
+const unconfigured = new Proxy({} as AppApi, {
+  get: () => () => Promise.reject(new DomainError('CONFIG_MISSING', 'Configuration du serveur manquante')),
 });
 
 /** Après chaque écriture, les requêtes sont invalidées (branché par queries.ts, sans dépendance circulaire). */
@@ -46,7 +53,7 @@ function withInvalidation<T extends object>(target: T): T {
 }
 
 /** L’API de l’application : simulateur ou Supabase, choisie à la racine par EXPO_PUBLIC_API. */
-export const api: AppApi = withInvalidation<AppApi>(API_MODE === 'supabase' ? getSupabaseApi() : mockApi);
+export const api: AppApi = withInvalidation<AppApi>(mockApi ?? (CONFIGURED ? getSupabaseApi() : unconfigured));
 
 // ——— Utilisateur courant et profil de démonstration ———
 
@@ -57,13 +64,13 @@ export function setCurrentUser(u: CurrentUser | null): void {
   currentUser = u;
   // Simulateur : le compte de démonstration est déjà enrôlé (N2 : il peut aussi initier en prestataire). Sur Supabase, le
   // niveau vient du serveur (profiles.enrolment_level, X4 v2).
-  mockApi.setUser(u && { ...u, enrolmentLevel: 'N2' });
+  mockApi?.setUser(u && { ...u, enrolmentLevel: 'N2' });
 }
 
 let persona: Persona = 'PAYER';
 let personaVersion = 0;
 const pl = new Set<() => void>();
-export function setPersona(p: Persona) { persona = p; mockApi.setPersona(p); personaVersion++; pl.forEach((f) => f()); }
+export function setPersona(p: Persona) { persona = p; mockApi?.setPersona(p); personaVersion++; pl.forEach((f) => f()); }
 export function usePersona(): Persona {
   useSyncExternalStore((f) => { pl.add(f); return () => pl.delete(f); }, () => personaVersion);
   return persona;

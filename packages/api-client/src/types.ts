@@ -1,5 +1,5 @@
 import type {
-  CreatorRole, Currency, DisputeOutcome, DisputeStatus, DraftDocument, DraftDocumentInput, FundsState, ModuleCode, Money, NeedDraft, PlanType, ReleaseMode,
+  CreatorRole, Currency, TxRole, DisputeOutcome, DisputeStatus, DraftDocument, DraftDocumentInput, FundsState, ModuleCode, Money, NeedDraft, PlanType, ReleaseMode,
   RequestMessageKind, RequestModule, SettlementMode, TrancheStatus, TxStatus,
   EnrolmentCaseStatus, EnrolmentDocumentInput, EnrolmentLevel, KycResult, FxQuote, PaymentMethod,
 } from '@diaspay/domain';
@@ -33,6 +33,10 @@ export interface PaymentRequest {
   expiresAt?: string;
   /** Prestation confirmée (CONDITIONAL). */
   confirmedAt?: string;
+  /** Lot A (T6) : première ouverture par le payeur (first_viewed_at, mark_received). */
+  firstViewedAt?: string;
+  /** Lot A (T6) : litige non résolu sur la demande (dossier distinct ; le statut financier ne change pas). */
+  disputeOpen?: boolean;
 }
 export type Tranche = PaymentRequest;
 
@@ -63,6 +67,15 @@ export interface Transaction {
   submittedAt?: string;
   /** Mock uniquement : profils de démonstration parties à la transaction (absent = tous). Sert à tester NOT_A_PARTY. */
   parties?: Persona[];
+  /**
+   * Lot A (T5) : rôles de l’utilisateur connecté dans cette opération (ses seules lignes de parties : rôle, jamais le
+   * numéro d’une autre partie). Décide des actions affichées, à la place du rôle principal du profil.
+   */
+  myRoles?: TxRole[];
+  /** Lot A (T5) : initiateur de l’opération (initiator_id, à défaut le créateur). */
+  initiatorId?: string;
+  /** Lot A (T6) : première consultation d’une pièce de l’opération par son payeur (0034). */
+  payerDocumentsViewedAt?: string;
 }
 
 /** Profil de démonstration : le payeur (diaspora) ou le prestataire. */

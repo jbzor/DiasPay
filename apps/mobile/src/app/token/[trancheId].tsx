@@ -3,10 +3,11 @@ import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Text } from '@/ui/text';
 import { useLocalSearchParams } from 'expo-router';
 import { encodeEqr, formatReference } from '@diaspay/domain';
+import { placeIn } from '@diaspay/api-client';
 import type { Tranche, TrancheToken, Transaction } from '@diaspay/api-client';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { useI18n, verticalLabel } from '@/i18n';
-import { api, usePersona } from '@/state/api';
+import { api, getCurrentUser } from '@/state/api';
 import { useTransactions } from '@/state/queries';
 import { tokenState } from '@/lib/expiry';
 import { useNoScreenCapture } from '@/lib/screenCapture';
@@ -40,7 +41,6 @@ function useNow(): Date {
 export default function TokenScreen() {
   const { trancheId } = useLocalSearchParams<{ trancheId: string }>();
   const { t, locale, dateTime } = useI18n();
-  const persona = usePersona();
   const txs = useTransactions(); // se rafraîchit quand la tranche change (paiement, confirmation)
   const now = useNow();
   const { width } = useWindowDimensions();
@@ -58,7 +58,8 @@ export default function TokenScreen() {
           if (alive) setLoad({ kind: 'direct', tx, tranche });
           return;
         }
-        if (persona !== 'PAYER' || tranche.status !== 'PAID' || tranche.fundsState !== 'HELD' || tranche.confirmedAt) {
+        // Lot A (T5) : payeur de cette opération (parties du dossier), et non rôle principal du profil.
+        if (!placeIn(tx, getCurrentUser()?.id).payer || tranche.status !== 'PAID' || tranche.fundsState !== 'HELD' || tranche.confirmedAt) {
           if (alive) setLoad({ kind: 'unavailable', tx, tranche });
           return;
         }
@@ -70,7 +71,7 @@ export default function TokenScreen() {
       }
     })();
     return () => { alive = false; };
-  }, [trancheId, attempt, txs, persona]);
+  }, [trancheId, attempt, txs]);
 
   const retry = useCallback(() => { setLoad({ kind: 'loading' }); setAttempt((n) => n + 1); }, []);
 

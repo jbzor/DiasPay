@@ -5,7 +5,7 @@ import {
   otherDossiersWithHash,
   formatReference, isAutoReleasable, messageError, normalizeReference, paymentOutcome, rejectRequestDecision, requestInfoDecision,
   resolveDisputeDecision, shouldActivateTranche, shouldCloseOperation, toIsoDate, tokenRevocationError, tooManyAttempts, transitionOperation,
-  transitionPaymentRequest, validateNeed, verifyChain, validatorDecisionError,
+  transitionPaymentRequest, tokenReissueClosed, validateNeed, verifyChain, validatorDecisionError,
   SimulatedKycAdapter, applyKycResult, checkBeneficiary, isAllowedKind, checkEnrolmentSubmission, checkInitiation, enrolmentRoute, checkLimits, DEV_ENROLMENT_LIMITS,
 } from '@diaspay/domain';
 import type {
@@ -210,6 +210,8 @@ export class MockApi implements TransactionApi {
   private messages: StoredMessage[] = [];
   private creators: Record<string, CreatorRole> = {};
   private viewed: Record<string, string> = {};
+  /** Lot A (T6) : première consultation d’une pièce de l’opération par son payeur (miroir de 0034, non persisté). */
+  private payerDocViews: Record<string, string> = {};
   private failures = new Map<string, number[]>();
   private readonly eqrImage: boolean;
   private readonly hashFile: FileHasher;
@@ -531,12 +533,26 @@ export class MockApi implements TransactionApi {
     this.emit();
   }
 
-  async listTransactions() { return this.visible; }
-  async getTransaction(id: string) {
+  /** Lot A (T5) : vue d’une opération pour l’utilisateur courant, avec sa place (miroir de transaction_parties). */
+  private withPlace(tx: Transaction): Transaction {
+    const docView = this.payerDocViews[tx.id];
+    return {
+      ...tx, myRoles: this.rolesFor(tx), ...(tx.ownerId ? { initiatorId: tx.ownerId } : {}),
+      ...(docView ? { payerDocumentsViewedAt: docView } : {}),
+      // Lot A (T6) : première ouverture par le payeur, litige non résolu (miroir de first_viewed_at et de disputes).
+      tranches: tx.tranches.map((tr) => ({
+        ...tr, ...(this.viewed[tr.id] ? { firstViewedAt: this.viewed[tr.id] } : {}),
+        disputeOpen: !!this.disputes[tr.id] && this.disputes[tr.id]!.status !== 'RESOLVED',
+      })),
+    };
+  }
+  private txById(id: string): Transaction {
     const tx = this.txs.find((t) => t.id === id);
     if (!tx) throw new DomainError('TX_NOT_FOUND', 'Transaction introuvable');
     return tx;
   }
+  async listTransactions() { return this.visible.map((tx) => this.withPlace(tx)); }
+  async getTransaction(id: string) { return this.withPlace(this.txById(id)); }
   /**
    * Paiement simulé (lot X, X5 ; v2 : devis puis acceptation), par le même chemin que le partenaire : devis dans la devise de la
    * demande (get_quote), puis accepter et payer (accept_and_pay), le partenaire simulé répondant par des événements signés,
@@ -671,7 +687,7 @@ export class MockApi implements TransactionApi {
   paymentLedger(): PaymentEngine { return this.payments; }
   async getTranche(trancheId: string) {
     const { tx, tr } = this.find(trancheId);
-    return { tx, tranche: tr };
+    return { tx: this.withPlace(tx), tranche: tr };
   }
   /** Lot X : jeton actif, lisible par le payeur seulement (miroir de la RLS de tranche_tokens). */
   async getToken(trancheId: string): Promise<TrancheToken> {
@@ -849,7 +865,7 @@ export class MockApi implements TransactionApi {
    */
   async cancelOperation(txId: string, reason?: string): Promise<Transaction> {
     const user = this.requireUser();
-    const tx = await this.getTransaction(txId);
+    const tx = this.txById(txId);
     if (tx.ownerId && tx.ownerId !== user.id) throw new ApiError('TX_NOT_FOUND', 'Transaction introuvable');
     transitionOperation(tx.status, 'CANCELLED', { kind: 'USER', roles: this.rolesFor(tx), isValidator: false, isCreator: this.isCreatorOf(tx) });
     for (const tr of tx.tranches) if (tr.status === 'DRAFT' || tr.status === 'SUBMITTED' || tr.status === 'INFO_REQUESTED') tr.status = 'CANCELLED';
@@ -1070,7 +1086,7 @@ export class MockApi implements TransactionApi {
    * Approbation : ACTIVE, demandes dues soumises (TX_VALIDATED). Rejet : CANCELLED avec motif (TX_REJECTED).
    */
   async simulateReview(txId: string, decision: { approved: boolean; reason?: string }): Promise<Transaction> {
-    const tx = await this.getTransaction(txId);
+    const tx = this.txById(txId);
     const invalid = validatorDecisionError({ approved: decision.approved, amountChecked: true, reason: decision.reason });
     if (invalid) throw new ApiError(invalid, 'Décision incomplète');
     if (tx.status !== 'PENDING_REVIEW' && tx.status !== 'IN_REVIEW') throw new ApiError('NOT_IN_REVIEW', 'Le dossier n’est pas en validation');
@@ -1121,6 +1137,8 @@ export class MockApi implements TransactionApi {
   async reissueToken(trancheId: string, reason = 'Réémission du jeton'): Promise<void> {
     const { tx, tr } = this.manageToken(trancheId);
     if (tr.status === 'DRAFT') throw new DomainError('NO_TOKEN', 'Demande pas encore soumise : aucun jeton');
+    // Lot A (T2, 0032) : demande terminée, aucune réémission.
+    if (tokenReissueClosed(tr.status, tx.settlementMode, tr.fundsState)) throw new DomainError('REQUEST_CLOSED', 'Demande terminée : aucun jeton ne peut être réémis');
     if (messageError(reason) === 'REASON_REQUIRED') throw new DomainError('REASON_REQUIRED', 'Motif de réémission obligatoire');
     this.withdrawToken(tx, tr, reason);
     this.withdrawn.delete(tr.id);
@@ -1202,7 +1220,7 @@ export class MockApi implements TransactionApi {
   /** Payeur : accepte le principe du plan, une fois (idempotent) ; n’autorise aucun paiement à l’avance (K6). */
   async acceptPlan(txId: string): Promise<Transaction> {
     this.requireUser();
-    const tx = await this.getTransaction(txId);
+    const tx = this.txById(txId);
     if (!this.isParty(tx) && !this.isCreatorOf(tx)) throw new DomainError('TX_NOT_FOUND', 'Transaction introuvable');
     if (!this.rolesFor(tx).includes('PAYER')) throw new DomainError('PAYER_ONLY', 'Réservé au payeur');
     if (tx.status !== 'ACTIVE' && tx.status !== 'SUSPENDED') throw new DomainError('TX_NOT_ACTIVE', 'L’opération n’est pas active');
@@ -1243,6 +1261,7 @@ export class MockApi implements TransactionApi {
     const hit = this.submittedDocuments().find((x) => x.doc.id === documentId);
     if (!hit || !(this.isParty(hit.tx) || this.isCreatorOf(hit.tx))) throw new DomainError('NOT_FOUND', 'Pièce introuvable');
     this.record(hit.tx.id, 'DOCUMENT_VIEWED', undefined, hit.doc.kind, (this.rolesFor(hit.tx)[0] ?? 'creator').toLowerCase());
+    if (this.rolesFor(hit.tx).includes('PAYER')) this.payerDocViews[hit.tx.id] ??= this.clock().toISOString();
     this.emit();
     return access(hit.doc);
   }

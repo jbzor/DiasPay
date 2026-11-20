@@ -115,7 +115,9 @@ describe('MockApi', () => {
   it('demande échue : plus payable, même avant le passage d’expiration (lot X-C, T6)', async () => {
     const { api, advance } = make();
     const tx = await school(api);
-    (await school(api)).tranches[1]!.expiresAt = iso(1 * HOUR);   // posée comme _submit_request (durée du module)
+    // Posée comme _submit_request (durée du module), dans l’état interne : depuis le lot A (T5, T6), les lectures renvoient
+    // une vue (place de l’utilisateur, libellés de suivi), plus l’objet interne.
+    (api as unknown as { txs: Transaction[] }).txs.find((x) => x.id === tx.id)!.tranches[1]!.expiresAt = iso(1 * HOUR);
     advance(2);
     expect(await code(api.getQuote(tx.tranches[1]!.id))).toBe('REQUEST_EXPIRED');
     expect(await code(api.payTranche(tx.tranches[1]!.id))).toBe('REQUEST_EXPIRED');

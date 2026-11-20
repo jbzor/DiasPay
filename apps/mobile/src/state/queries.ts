@@ -49,7 +49,7 @@ export const qk = {
 export function invalidateAll(): void { void queryClient.invalidateQueries({ queryKey: ['diaspay'] }); }
 onApiWrite(invalidateAll);
 // Le simulateur notifie ses changements (minuteries, actions) : il passe par les mêmes crochets.
-mockApi.subscribe(() => { if (API_MODE === 'mock') invalidateAll(); });
+mockApi?.subscribe(() => invalidateAll());
 
 // ——— Connexion et premier plan ———
 

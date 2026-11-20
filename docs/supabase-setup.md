@@ -133,13 +133,46 @@ Lot X-C (17 novembre 2026) : les lignes du modèle v1 remplacées par une ligne 
 | Exécution manuelle d’un remboursement (lot X v2, X5) | `PaymentEngine.markRefundExecuted` (sans écran, pas d’administrateur dans l’API) | `mark_refund_executed`, administrateur non partie |
 | Bénéficiaire et pièces (lot X v2, X6) | `checkBeneficiary` à l’enregistrement et à la soumission, `isAllowedKind` à l’envoi d’une pièce ; aucun journal de consultation des pièces (pas de stockage) | `save_draft`, `submit_operation`, `_documents_guard` ; consultation d’une pièce sensible journalisée sans nom de fichier ni chemin |
 
-> **Paiement hors démonstration sur le projet de développement (lot X-C).** Sans `EXPO_PUBLIC_DEMO=1`, l’application ne
-> demande plus au partenaire simulé de confirmer : un paiement reste **en cours** (tentative `INITIATED`, demande
-> `ACCEPTED`) tant qu’aucun événement du partenaire n’arrive. Sur le projet de développement, rien n’envoie cet événement
-> tant que le simulateur de scénarios (X9, passe 3) n’existe pas : pour voir un paiement aboutir, lancer l’application en
-> démonstration (`EXPO_PUBLIC_DEMO=1`, serveur en `mock_mode`). Ce n’est pas un défaut : c’est le chemin réel, en attente
-> de TrustPayWay.
+> **Paiement hors démonstration sur le projet de développement (lot X-C, puis lot A).** Sans `EXPO_PUBLIC_DEMO=1`,
+> l’application ne demande plus au partenaire simulé de confirmer : un paiement reste **en cours** (tentative `INITIATED`,
+> demande `ACCEPTED`) jusqu’à l’événement du partenaire. Depuis le lot A, le simulateur du partenaire côté serveur envoie
+> cet événement en quelques secondes sur le projet de développement (section 10) : aucun mode démonstration n’est
+> nécessaire pour voir un paiement aboutir.
 >
 > **Saisie du code SMS (D5, lot X-C T9).** Le simulateur suit désormais Supabase : un code erroné répond `OTP_WRONG`, sans
 > nombre d’essais restants ni verrouillage par numéro. L’écart avec le cahier (US-01 : 3 essais, 15 minutes) est
 > commun aux deux implémentations et reste décrit par D5.
+
+## 10. Simulateur du partenaire de paiement (lot A)
+
+Sur le projet de développement (`mock_mode = 'true'`), un paiement est confirmé par le **même chemin que les événements
+réels** de TrustPayWay (0033, décision A-2) :
+
+1. l’application appelle `accept_and_pay` : la tentative est `INITIATED`, la demande `ACCEPTED` (« Paiement en cours ») ;
+2. la tâche planifiée `diaspay-payment-simulator` (toutes les 10 secondes) appelle `payment_simulator_tick`, qui signe
+   l’événement du partenaire (HMAC-SHA256, clé `dev_only` de `payment_partner_keys`, illisible par l’API) ;
+3. `receive_payment_webhook` vérifie la signature et remet l’événement à `apply_payment_event` : la demande passe
+   `PAID`, le temps réel prévient l’application.
+
+| Réglage (`app_config`, `dev_only`) | Défaut | Effet |
+|---|---|---|
+| `sim_payment_scenario` | `SUCCESS` | `FAILURE` (la demande revient à « Soumise »), `LATE` (« en attente » puis succès), `DUPLICATE` (succès envoyé deux fois), `OUT_OF_ORDER` (succès puis « en attente » périmé) |
+| `sim_payment_delay_seconds` | `5` | délai avant la première réponse |
+| `sim_payment_late_seconds` | `60` | délai du succès en scénario `LATE` |
+
+Hors `mock_mode`, la tâche ne fait rien et l’appel direct répond `SIMULATOR_DISABLED`. En production : ni tâche, ni clé,
+ni réglage du simulateur (`scripts/prod-readiness.sql`, point 44 de `docs/release-checklist.md`).
+
+## 11. Données lisibles par l’application (lot A)
+
+- **`transactions.draft_data`** (saisie brute de l’assistant, avec les numéros des autres parties) n’est lisible par
+  aucun rôle de l’API : droits par colonne (0035, décision A-6). L’initiateur relit son brouillon par `get_draft` et
+  `get_drafts`. Une requête `select('*')` sur `transactions` est refusée : nommer les colonnes (`TX_COLUMNS`,
+  `packages/api-client/src/supabase/convert.ts`). Une colonne ajoutée à `transactions` doit être accordée explicitement
+  (`grant select (colonne) on transactions to anon, authenticated`).
+- **Parties d’une opération** : l’application ne lit que ses propres lignes de `transaction_parties` (rôle et identifiant),
+  jamais le numéro d’une autre partie (décision A-4).
+
+Tests du lot A sur le projet de développement (20 novembre 2026) : `scripts/db.sh test` (08_lota : 80 vérifications),
+`pnpm test:supabase` (45 tests), `pnpm test:e2e:supabase` (16 étapes : application mobile exportée pour le web, contre
+le serveur ; la biométrie, la caméra et le stockage sécurisé restent à tester sur téléphone).

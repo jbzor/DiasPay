@@ -35,6 +35,10 @@ manquante » et nomme les variables à renseigner ; elle ne bascule jamais en si
 Simulateur sur l’appareil (données de démonstration, sans serveur) : uniquement avec `EXPO_PUBLIC_API=mock` écrit
 explicitement, pour les tests et la démonstration.
 
+**Vérification avant paiement** (lot A, décision A-7) : biométrie, sinon code du téléphone ; un téléphone sans aucun
+verrouillage ne peut pas payer (message qui explique comment l’activer). Dans un navigateur, payer et confirmer une
+prestation sont refusés, sauf en développement (`expo start`) et dans l’export web des tests de bout en bout.
+
 ## Parcours de démarrage (lot 1)
 | Situation | Parcours |
 |---|---|

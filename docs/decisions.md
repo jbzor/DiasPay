@@ -409,3 +409,56 @@ Source : état des lieux du 16 novembre 2026 (`docs/etat-des-lieux/ETAT-DES-LIEU
   - Déclaration orpheline `Stack.Screen name="t/[reference]"` retirée.
   - `MockAuth` aligné sur D5 : `OTP_WRONG` sans compteur ni verrouillage, comme Supabase. L’écart avec le cahier (US-01) est désormais commun aux deux implémentations.
   - `scripts/prod-readiness.sql` (lecture seule) : réglages dangereux pour une production ; points 44 à 46 de `docs/release-checklist.md`.
+
+---
+
+# Lot A — Application branchée sur le serveur (18 au 20 novembre 2026)
+
+## A-1 — Révocation du TrustToken dès le paiement en mode direct (livrable 7)
+
+- **Date** : 18 novembre 2026 (T0, T2)
+- **Choisi** : la version validée de la spécification du TrustToken est celle qui révoque le jeton **dès que la demande est payée** en mode direct (`docs/sources-client.md`). `reissue_token` refuse toute demande terminée (`REQUEST_CLOSED`, 0032), y compris pour un administrateur non partie ; la réémission reste permise pendant la confirmation en mode conditionnel (fonds bloqués). Miroir du domaine : `tokenReissueClosed`.
+
+## A-2 — Simulateur du partenaire de paiement côté serveur
+
+- **Date** : 18 novembre 2026 (T3, 0033)
+- **Choisi** : le projet de développement confirme les paiements par le **même chemin que les événements réels** : événement signé (HMAC-SHA256), vérifié par `receive_payment_webhook`, puis `apply_payment_event`. Aucun second chemin ne marque une demande payée. Tâche planifiée `diaspay-payment-simulator` (10 s), clé `dev_only` et réglages `sim_payment_*` posés seulement en `mock_mode` ; hors `mock_mode`, rien ne s’exécute (`SIMULATOR_DISABLED`). Contrôles de production : `scripts/prod-readiness.sql`, point 44 de la liste de contrôle.
+
+## A-3 — Supabase par défaut, simulateur de l’appareil sur demande explicite
+
+- **Date** : 19 novembre 2026 (T4)
+- **Choisi** : sans `EXPO_PUBLIC_API`, l’application affiche « Configuration manquante » (`CONFIG_MISSING`) au lieu de basculer en silence sur le simulateur. Le simulateur (`MockApi`, `MockAuth`, jeu de démonstration) n’est créé qu’avec `EXPO_PUBLIC_API=mock` écrit explicitement. Son code reste dans le bundle de l’application : voir A-8.
+
+## A-4 — Rôle tiré de l’opération, pas du profil
+
+- **Date** : 19 novembre 2026 (T5)
+- **Choisi** : les actions (Payer, QR, scan, « À faire ») dépendent de la place de l’utilisateur dans l’opération (`placeIn`, lignes de `transaction_parties` de l’utilisateur seulement : rôle et identifiant, jamais un numéro). `profiles.primary_role` ne sert plus qu’à la préférence de création. Corrige « Payer » proposé à l’initiateur sur ses propres demandes. Le rôle principal reste affiché sur l’accueil jusqu’à la refonte du profil (lot B).
+
+## A-5 — Libellés de suivi du Dr (livrable 6)
+
+- **Date** : 19 et 20 novembre 2026 (T6, T8b)
+- **Choisi** : `trackingLabel` (domaine) calcule le libellé à partir des statuts et d’événements datés (`first_viewed_at`, `payer_documents_viewed_at`, 0034). « En retard » est un indicateur, jamais un statut ; « Remboursée partiellement » a son libellé.
+- **« Programmée »** (T8b) : une échéance encore en brouillon d’une opération soumise (en revue ou active), qui attend sa soumission automatique (`activation_lead_days` avant sa date, ou après le jalon précédent), s’affiche « Programmée » / « Scheduled ». Une échéance d’une opération encore en brouillon reste « Brouillon ».
+- **« Acceptée » fusionnée avec « Paiement en cours »** (à signaler au Dr) : accepter et payer sont **une seule action** (`accept_and_pay`). Le serveur ne garde une demande `ACCEPTED` qu’avec une tentative en cours ; un échec la ramène à `SUBMITTED`. « Acceptée » ne peut donc jamais s’afficher seule : le libellé existe dans le domaine (`attemptInProgress: false`) mais aucune donnée ne le produit.
+- **Non calculables** : « Notification envoyée » (aucun canal externe avant le lot 6 : la demande reste « Soumise ») ; « En cours de vérification » n’est atteint qu’une fois que le payeur consulte une pièce, ce que l’écran de consultation du lot C permettra.
+
+## A-6 — `draft_data` réservé à l’initiateur (cahier §5.3)
+
+- **Date** : 20 novembre 2026 (T8b, 0035)
+- **Constat** : `draft_data` (saisie brute de l’assistant) contient les numéros des autres parties (`counterpartyPhone`, `provider.invitedPhone`). La politique `tx_read` laisse chaque partie lire la ligne de l’opération, et les droits par défaut de Supabase donnaient toutes les colonnes : un payeur pouvait lire ces numéros par l’API, même si l’application ne demandait plus la colonne depuis T5.
+- **Choisi** : droits par colonne sur `transactions` : `anon` et `authenticated` lisent toutes les colonnes **sauf** `draft_data` ; `select *` est refusé. L’initiateur relit son brouillon par `get_draft` et `get_drafts` (SECURITY DEFINER, réservées au créateur, aucun droit pour `anon`). La publication temps réel n’envoie plus `draft_data`.
+- **Conséquence** : une colonne ajoutée plus tard à `transactions` n’est **pas** lisible par l’application tant qu’elle n’est pas accordée explicitement (`grant select (colonne) on transactions to anon, authenticated`). Le test `08_lota` (T8b) échoue si une colonne autre que `draft_data` n’est pas lisible.
+
+## A-7 — Vérification de l’appareil avant paiement (cahier §5.2)
+
+- **Date** : 20 novembre 2026 (T8b)
+- **Constat** : sans biométrie disponible (pas de matériel ou rien d’enregistré), `biometric()` autorisait le paiement sans aucune vérification. C’est contraire à la validation biométrique du dossier institutionnel.
+- **Choisi** (`apps/mobile/src/lib/deviceAuth.ts`) : biométrie, sinon code de l’appareil (repli du système activé, `disableDeviceFallback: false`). **Aucun verrouillage** (ni biométrie ni code) : paiement refusé, avec un message qui explique comment l’activer (iPhone : Réglages > Face ID et code ; Android : Paramètres > Sécurité > Verrouillage de l’écran). Toute erreur imprévue refuse (échec fermé). Même règle pour la confirmation d’une prestation par le prestataire (scan).
+- **Navigateur** : aucune vérification possible, l’action est refusée (« Cette action se fait depuis l’application DiasPay sur votre téléphone »), sauf en développement et dans l’export web des tests de bout en bout, qui le déclare (`EXPO_PUBLIC_WEB_SKIP_DEVICE_AUTH=1`). Ce réglage n’a aucun effet sur iOS ni Android.
+- **Plus tard** : le repli par code SMS, pour un appareil sans verrouillage, relève de l’authentification selon le risque (lot C).
+
+## A-8 — Code du simulateur dans le bundle de l’application
+
+- **Date** : 20 novembre 2026 (T9)
+- **Constat** : `@diaspay/api-client` exporte depuis le même point d’entrée `SupabaseApi`, `MockApi`, `MockAuth` et le jeu de démonstration. Un build relié à Supabase ne les exécute pas (A-3), mais leur code part dans le bundle.
+- **Choisi** : accepté pour le lot A, condition de publication (point 47 de `docs/release-checklist.md`). La restructuration de l’export de `@diaspay/api-client` (point d’entrée séparé pour le simulateur) est prévue au lot 6.

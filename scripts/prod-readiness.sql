@@ -20,6 +20,11 @@ select 'simulateur du partenaire (réglages)', string_agg(key || ' = ' || value,
        'aucun réglage sim_payment_* en production (valeurs dev_only, lot A, T3)'
   from app_config where key like 'sim\_payment\_%' having count(*) > 0
 union all
+select 'draft_data lisible', r.rolname,
+       'aucune lecture de transactions.draft_data par l’application (lot A, T8b, 0035 ; décision A-6)'
+  from pg_roles r where r.rolname in ('anon', 'authenticated')
+   and has_column_privilege(r.rolname, 'public.transactions', 'draft_data', 'SELECT')
+union all
 select 'require_staff_mfa', coalesce((select value from app_config where key = 'require_staff_mfa'), '(absent)'),
        'doit valoir true en production (second facteur du personnel, D7)'
  where coalesce((select value from app_config where key = 'require_staff_mfa'), '') <> 'true'

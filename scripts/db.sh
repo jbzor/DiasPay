@@ -52,7 +52,8 @@ case "${1:-}" in
     for f in supabase/tests/[0-9][0-9]_*_editor.sql; do
       echo "== $f"
       out="$("$PSQL" "$POOLER" -q -f "$f" 2>&1 || true)"
-      if printf '%s\n' "$out" | grep -q "RESULTAT :"; then printf '%s\n' "$out" | grep -o "RESULTAT :.*"
+      # Pas de grep -q : il s’arrête au premier résultat, printf reçoit SIGPIPE et pipefail fait échouer un test réussi.
+      if printf '%s\n' "$out" | grep "RESULTAT :" > /dev/null; then printf '%s\n' "$out" | grep -o "RESULTAT :.*"
       else status=1; printf '%s\n' "$out" | grep -E "ECHEC|ERROR" | tail -5; fi
     done
     exit $status ;;

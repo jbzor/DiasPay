@@ -242,14 +242,14 @@ select t.check((select count(*) from ledger_journals where attempt_id = (t.attem
 select t.check((select simulate_payment_attempt((t.attempt('sOk')).id) ->> 'step') = 'DONE' and t.events('sOk') = 1,
   'T3 : tentative terminée : le simulateur ne renvoie plus rien');
 
--- ---------- FAILURE ----------
+-- ---------- Scénario FAILURE : refus du partenaire ----------
 update app_config set value = 'FAILURE' where key = 'sim_payment_scenario';
 select t.start_pay('fda10000-0000-4000-8000-000000000012', 'sKo');
-select simulate_payment_attempt((t.attempt('sKo')).id);
-select t.check((t.attempt('sKo')).status = 'FAILED' and (t.attempt('sKo')).error_code = 'SIMULATED_DECLINE', 'T3 : FAILURE : tentative FAILED (SIMULATED_DECLINE)');
+insert into t.res select 'rKo', simulate_payment_attempt((t.attempt('sKo')).id);
+select t.check((t.attempt('sKo')).status = 'FAILED' and (t.attempt('sKo')).error_code = 'SIMULATED_DECLINE', 'T3 : refus du partenaire : tentative refusée (SIMULATED_DECLINE)');
 select t.check(t.req_status('sKo') <> 'PAID' and not exists (select 1 from audit_log where tranche_id = (select v from t.ids where k = 'tr_sKo') and event = 'REQUEST_PAID')
            and not exists (select 1 from ledger_journals where attempt_id = (t.attempt('sKo')).id),
-  'T3 : FAILURE : demande non payée, aucune écriture financière');
+  'T3 : refus du partenaire : demande non payée, aucune écriture financière');
 
 -- ---------- LATE : « en attente », puis succès après le délai ----------
 update app_config set value = 'LATE' where key = 'sim_payment_scenario';

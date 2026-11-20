@@ -23,7 +23,9 @@ describe('X1 : TrustLink jamais partagé', () => {
     expect(token).toMatch(/useNoScreenCapture/);
     // Lot X v2 : QR seulement en déblocage conditionnel, au payeur, pour une demande payée aux fonds bloqués, non confirmée.
     expect(token).toMatch(/tx\.settlementMode !== 'CONDITIONAL'/);
-    expect(token).toMatch(/persona !== 'PAYER' \|\| tranche\.status !== 'PAID' \|\| tranche\.fundsState !== 'HELD'/);
+    // Lot A (T5) : payeur de cette opération (parties du dossier), et non rôle principal du profil.
+    expect(token).toMatch(/!placeIn\(tx, getCurrentUser\(\)\?\.id\)\.payer \|\| tranche\.status !== 'PAID' \|\| tranche\.fundsState !== 'HELD'/);
+    expect(token).not.toMatch(/usePersona|primaryRole/);
   });
   it('aucune route ni aucun code ne traite une adresse /t/<référence>', () => {
     expect(existsSync(join(src, 'app', 't'))).toBe(false);

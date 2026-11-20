@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
-import { MockAuth } from '@diaspay/api-client';
-import { API_MODE, createAuthApi } from './backend';
+import { DomainError } from '@diaspay/domain';
+import { API_MODE, CONFIGURED, createAuthApi } from './backend';
 import type { AuthApi, Persona, PrimaryRole, Profile, Session } from '@diaspay/api-client';
 import { applyLocale } from '../i18n';
 import { getCurrentUser, mockApi, setCurrentUser, setPersona } from './api';
@@ -13,8 +13,11 @@ export interface AuthState {
   onboardingSeen: boolean;
 }
 
-// Implémentation choisie à la racine (EXPO_PUBLIC_API) : MockAuth ou SupabaseAuth, derrière AuthApi.
-let authApi: AuthApi = new MockAuth();
+// Implémentation choisie à la racine (EXPO_PUBLIC_API) : MockAuth ou SupabaseAuth, derrière AuthApi (bootstrap).
+// Avant, ou sans configuration complète : toute opération échoue (CONFIG_MISSING), jamais de repli sur le simulateur.
+let authApi: AuthApi = new Proxy({} as AuthApi, {
+  get: () => () => Promise.reject(new DomainError('CONFIG_MISSING', 'Configuration du serveur manquante')),
+});
 
 let state: AuthState = { ready: false, session: null, onboardingSeen: false };
 const listeners = new Set<() => void>();
@@ -47,9 +50,11 @@ let booting: Promise<void> | null = null;
 /** Charge la session, la langue et le drapeau de présentation. Idempotent. */
 export function bootstrap(): Promise<void> {
   booting ??= (async () => {
-    // L’état de la simulation (dossiers soumis, alertes, journal) est rechargé avant le premier écran.
-    const [cached, onboardingSeen, locale] = await Promise.all([loadSession(), loadOnboardingSeen(), loadLocale(), mockApi.hydrate().catch(() => false)]);
+    // Simulateur seulement (EXPO_PUBLIC_API=mock) : son état (dossiers soumis, alertes, journal) est rechargé avant le
+    // premier écran. En mode Supabase, rien du simulateur n’est chargé (lot A, T4).
+    const [cached, onboardingSeen, locale] = await Promise.all([loadSession(), loadOnboardingSeen(), loadLocale(), mockApi?.hydrate().catch(() => false)]);
     if (locale) applyLocale(locale);
+    if (!CONFIGURED) { set({ ready: true, session: null, onboardingSeen }); return; }
     authApi = createAuthApi(cached);
     let session = cached;
     if (API_MODE === 'supabase') {

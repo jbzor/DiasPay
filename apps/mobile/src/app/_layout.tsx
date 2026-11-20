@@ -20,7 +20,7 @@ import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persi
 import { mockApi } from '@/state/api';
 import { queryClient, useOnline, useRealtime } from '@/state/queries';
 import { OfflineBanner } from '@/ui/states';
-import { API_MODE } from '@/state/backend';
+import { API_MODE, MISSING_CONFIG } from '@/state/backend';
 import { bootstrap, useSession } from '@/state/auth';
 import { canSetup, canUseApp } from '@/lib/flow';
 import { apiReleaseViolation, demoReleaseViolation } from '@/lib/releaseGuard';
@@ -81,6 +81,22 @@ function DemoInReleaseBlocked({ reason }: { reason: 'demo' | 'api' }) {
   );
 }
 
+/**
+ * Lot A (T4) : configuration incomplète (EXPO_PUBLIC_API absente, ou URL et clé publique du projet manquantes) : écran
+ * bloquant qui nomme les variables manquantes (jamais leur valeur), au lieu de basculer en silence sur le simulateur.
+ */
+function ConfigMissing({ missing }: { missing: readonly string[] }) {
+  const { t } = useI18n();
+  useEffect(() => { console.error(`[DiasPay] Configuration manquante : ${missing.join(', ')}.`); }, [missing]);
+  return (
+    <View style={st.blocked} accessibilityRole="alert">
+      <Text style={st.blockedTitle}>{t('configMissingTitle')}</Text>
+      <Text style={st.blockedText}>{t('configMissingText')}</Text>
+      <Text style={st.blockedText}>{missing.join('\n')}</Text>
+    </View>
+  );
+}
+
 export default function RootLayout() {
   const { session } = useSession();
   const [fontsLoaded, fontError] = useFonts([{
@@ -99,9 +115,10 @@ export default function RootLayout() {
     void bootstrap();
     // Équivalent du job serveur release_due_tranches() : débloque les tranches dont le délai de contestation est écoulé.
     // En mode Supabase, ce sont les tâches pg_cron du serveur (release_due_tranches, activate_due_tranches).
-    if (API_MODE !== 'mock') return;
-    mockApi.runTimers();
-    const id = setInterval(() => mockApi.runTimers(), 30_000);
+    if (!mockApi) return;
+    const sim = mockApi;
+    sim.runTimers();
+    const id = setInterval(() => sim.runTimers(), 30_000);
     return () => clearInterval(id);
   }, []);
 
@@ -111,6 +128,7 @@ export default function RootLayout() {
 
   if (BLOCKED_IN_RELEASE) return <DemoInReleaseBlocked reason={BLOCKED_IN_RELEASE} />;
   if (!fontsReady) return null;
+  if (MISSING_CONFIG.length > 0) return <ConfigMissing missing={MISSING_CONFIG} />;
 
   // Garde d’accès : un écran dont la garde est fausse est inaccessible, y compris par lien profond ;
   // Expo Router redirige alors vers l’écran de lancement (index), qui oriente selon l’état.

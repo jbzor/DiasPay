@@ -1,7 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 import { Text } from '@/ui/text';
 import { router } from 'expo-router';
-import { currentTrancheIndex, lockedFunds, nextPayment, trancheCount } from '@diaspay/api-client';
+import { currentTrancheIndex, isToPay, lockedFunds, nextPayment, trancheCount } from '@diaspay/api-client';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { txStatusKey, useI18n, verticalLabel } from '@/i18n';
 import { usePersona } from '@/state/api';
@@ -18,8 +18,9 @@ export default function Home() {
   const txs = q.data ?? [];
   const persona = usePersona();
   const funds = lockedFunds(txs);
-  const next = nextPayment(txs);
   const { session } = useSession();
+  // Lot A (T5) : « À faire » ne propose que les demandes dont l’utilisateur est le payeur (parties du dossier).
+  const next = nextPayment(txs.filter((tx) => isToPay(tx, session?.userId)));
   const fullName = session?.profile?.fullName ?? '';
   const name = fullName.split(' ')[0] ?? '';
   return (

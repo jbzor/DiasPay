@@ -531,12 +531,17 @@ export class MockApi implements TransactionApi {
     this.emit();
   }
 
-  async listTransactions() { return this.visible; }
-  async getTransaction(id: string) {
+  /** Lot A (T5) : vue d’une opération pour l’utilisateur courant, avec sa place (miroir de transaction_parties). */
+  private withPlace(tx: Transaction): Transaction {
+    return { ...tx, myRoles: this.rolesFor(tx), ...(tx.ownerId ? { initiatorId: tx.ownerId } : {}) };
+  }
+  private txById(id: string): Transaction {
     const tx = this.txs.find((t) => t.id === id);
     if (!tx) throw new DomainError('TX_NOT_FOUND', 'Transaction introuvable');
     return tx;
   }
+  async listTransactions() { return this.visible.map((tx) => this.withPlace(tx)); }
+  async getTransaction(id: string) { return this.withPlace(this.txById(id)); }
   /**
    * Paiement simulé (lot X, X5 ; v2 : devis puis acceptation), par le même chemin que le partenaire : devis dans la devise de la
    * demande (get_quote), puis accepter et payer (accept_and_pay), le partenaire simulé répondant par des événements signés,
@@ -671,7 +676,7 @@ export class MockApi implements TransactionApi {
   paymentLedger(): PaymentEngine { return this.payments; }
   async getTranche(trancheId: string) {
     const { tx, tr } = this.find(trancheId);
-    return { tx, tranche: tr };
+    return { tx: this.withPlace(tx), tranche: tr };
   }
   /** Lot X : jeton actif, lisible par le payeur seulement (miroir de la RLS de tranche_tokens). */
   async getToken(trancheId: string): Promise<TrancheToken> {
@@ -849,7 +854,7 @@ export class MockApi implements TransactionApi {
    */
   async cancelOperation(txId: string, reason?: string): Promise<Transaction> {
     const user = this.requireUser();
-    const tx = await this.getTransaction(txId);
+    const tx = this.txById(txId);
     if (tx.ownerId && tx.ownerId !== user.id) throw new ApiError('TX_NOT_FOUND', 'Transaction introuvable');
     transitionOperation(tx.status, 'CANCELLED', { kind: 'USER', roles: this.rolesFor(tx), isValidator: false, isCreator: this.isCreatorOf(tx) });
     for (const tr of tx.tranches) if (tr.status === 'DRAFT' || tr.status === 'SUBMITTED' || tr.status === 'INFO_REQUESTED') tr.status = 'CANCELLED';
@@ -1070,7 +1075,7 @@ export class MockApi implements TransactionApi {
    * Approbation : ACTIVE, demandes dues soumises (TX_VALIDATED). Rejet : CANCELLED avec motif (TX_REJECTED).
    */
   async simulateReview(txId: string, decision: { approved: boolean; reason?: string }): Promise<Transaction> {
-    const tx = await this.getTransaction(txId);
+    const tx = this.txById(txId);
     const invalid = validatorDecisionError({ approved: decision.approved, amountChecked: true, reason: decision.reason });
     if (invalid) throw new ApiError(invalid, 'Décision incomplète');
     if (tx.status !== 'PENDING_REVIEW' && tx.status !== 'IN_REVIEW') throw new ApiError('NOT_IN_REVIEW', 'Le dossier n’est pas en validation');
@@ -1204,7 +1209,7 @@ export class MockApi implements TransactionApi {
   /** Payeur : accepte le principe du plan, une fois (idempotent) ; n’autorise aucun paiement à l’avance (K6). */
   async acceptPlan(txId: string): Promise<Transaction> {
     this.requireUser();
-    const tx = await this.getTransaction(txId);
+    const tx = this.txById(txId);
     if (!this.isParty(tx) && !this.isCreatorOf(tx)) throw new DomainError('TX_NOT_FOUND', 'Transaction introuvable');
     if (!this.rolesFor(tx).includes('PAYER')) throw new DomainError('PAYER_ONLY', 'Réservé au payeur');
     if (tx.status !== 'ACTIVE' && tx.status !== 'SUSPENDED') throw new DomainError('TX_NOT_ACTIVE', 'L’opération n’est pas active');

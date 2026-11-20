@@ -12,7 +12,7 @@ import type {
 } from '../types';
 import type { Database, Json } from './database.types';
 import {
-  TX_SELECT, draftFromServer, draftToServer, storagePath, storagePathOf, toAuditEntry, toDispute, toMessage, toModule, toNotification, toProvider,
+  TX_SELECT_WITH_PLACE, draftFromServer, draftToServer, storagePath, storagePathOf, toAuditEntry, toDispute, toMessage, toModule, toNotification, toProvider,
   toReceipt, toReferenceInfo, toToken, toTransaction, toEnrolment, toEnrolmentCase, toQuote,
 } from './convert';
 import type { TxWithRelations } from './convert';
@@ -82,13 +82,18 @@ export class SupabaseApi implements TransactionApi {
 
   // ——— Transactions ———
 
+  // Lot A (T5) : les lignes de parties lues sont celles de l’utilisateur connecté (rôle et identifiant seulement).
   async listTransactions(): Promise<Transaction[]> {
-    const rows = unwrap(await this.sb.from('transactions').select(TX_SELECT).neq('status', 'DRAFT').order('created_at', { ascending: false }), 'listTransactions');
+    const uid = await this.userId();
+    const rows = unwrap(await this.sb.from('transactions').select(TX_SELECT_WITH_PLACE).eq('transaction_parties.user_id', uid)
+      .neq('status', 'DRAFT').order('created_at', { ascending: false }), 'listTransactions');
     return (rows as unknown as TxWithRelations[]).map(toTransaction);
   }
 
   async getTransaction(id: string): Promise<Transaction> {
-    const row = unwrapMaybe(await this.sb.from('transactions').select(TX_SELECT).eq('id', id).maybeSingle(), 'getTransaction');
+    const uid = await this.userId();
+    const row = unwrapMaybe(await this.sb.from('transactions').select(TX_SELECT_WITH_PLACE).eq('transaction_parties.user_id', uid)
+      .eq('id', id).maybeSingle(), 'getTransaction');
     if (!row) throw new ApiError('TX_NOT_FOUND', 'Transaction introuvable');
     return toTransaction(row as unknown as TxWithRelations);
   }

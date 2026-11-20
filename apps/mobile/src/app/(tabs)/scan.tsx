@@ -7,7 +7,8 @@ import { useIsFocused } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fontSize, palette, semantic, spacing, touchTarget } from '@diaspay/ui-tokens';
 import { trancheStatusKey, useI18n } from '@/i18n';
-import { api, usePersona } from '@/state/api';
+import { api, getCurrentUser } from '@/state/api';
+import { placeIn } from '@diaspay/api-client';
 import { assertOnline } from '@/state/queries';
 import { biometric } from '@/lib/biometric';
 import { initialScanState, scanReducer } from '@/features/scan/reducer';
@@ -30,7 +31,6 @@ function Corners() {
 
 export default function Scan() {
   const { t, errorText, money } = useI18n();
-  const persona = usePersona();
   const focused = useIsFocused();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
@@ -54,12 +54,17 @@ export default function Scan() {
   useEffect(() => {
     if (s.phase !== 'resolving' || !s.reference) return;
     let alive = true;
+    // Lot A (T5) : prestataire de l’opération scannée (parties du dossier), et non rôle principal du profil.
     api.resolveReference(s.reference).then(
-      (info) => { if (alive) dispatch({ type: 'RESOLVED', info, now: Date.now(), isProvider: persona === 'PROVIDER' }); },
+      async (info) => {
+        const tx = await api.getTransaction(info.txId).catch(() => null);
+        const isProvider = !!tx && placeIn(tx, getCurrentUser()?.id).provider;
+        if (alive) dispatch({ type: 'RESOLVED', info, now: Date.now(), isProvider });
+      },
       (e) => { if (alive) dispatch({ type: 'FAILED', code: (e as { code?: string })?.code }); },
     );
     return () => { alive = false; };
-  }, [s.phase, s.reference, persona]);
+  }, [s.phase, s.reference]);
 
   const confirm = useCallback(async () => {
     if (s.phase !== 'ready' || !s.reference) return;

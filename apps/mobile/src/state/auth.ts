@@ -24,13 +24,16 @@ const listeners = new Set<() => void>();
 const subscribe = (f: () => void) => { listeners.add(f); return () => listeners.delete(f); };
 const getState = () => state;
 
-/** Payeur → PAYER, prestataire → PROVIDER, demandeur → PAYER pour l’instant (pas encore d’écrans dédiés). */
+/**
+ * Simulateur seulement (démonstration) : profil de démonstration initial d’après le rôle principal. Lot A (T5) : les
+ * écrans décident d’après la place de l’utilisateur dans chaque opération (placeIn), jamais d’après ce rôle.
+ */
 export const personaForRole = (role: PrimaryRole): Persona => (role === 'PROVIDER' ? 'PROVIDER' : 'PAYER');
 
 function set(patch: Partial<AuthState>) {
   state = { ...state, ...patch };
   const role = state.session?.profile?.primaryRole;
-  if (role) setPersona(personaForRole(role));
+  if (role && mockApi) setPersona(personaForRole(role));
   // La simulation filtre les brouillons par utilisateur : à la déconnexion, plus aucun brouillon n’est visible.
   const s = state.session;
   const u = getCurrentUser();

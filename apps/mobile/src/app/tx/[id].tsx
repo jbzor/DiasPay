@@ -3,13 +3,13 @@ import { StyleSheet, View } from 'react-native';
 import { Text } from '@/ui/text';
 import { router, useLocalSearchParams } from 'expo-router';
 import { canOpenDispute } from '@diaspay/domain';
-import type { TxRole } from '@diaspay/domain';
+import { placeIn } from '@diaspay/api-client';
 import type { Tranche, Transaction } from '@diaspay/api-client';
 import { fontSize, palette, spacing } from '@diaspay/ui-tokens';
 import { trancheStatusKey, txStatusKey, useI18n, verticalLabel } from '@/i18n';
 import type { Key } from '@/i18n/messages';
 import { trancheInfo } from '@/features/tx/trancheInfo';
-import { api, getCurrentUser, usePersona } from '@/state/api';
+import { api, getCurrentUser } from '@/state/api';
 import { useDemo, useDisputeQuery, useTransactionsQuery } from '@/state/queries';
 import { QueryGate } from '@/ui/states';
 import { Banner, Button, Divider, Field, Icon, Row, Screen, StatusLabel, TopBar, txStatusKind } from '@/ui';
@@ -33,7 +33,7 @@ function ReviewPanel({ tx }: { tx: Transaction }) {
   const rejected = tx.status === 'CANCELLED' && !!tx.rejectionReason;
   const me = getCurrentUser();
   // Initiateur seulement ; pas pendant un paiement en cours (ACCEPTED), que l’annulation ne peut pas interrompre.
-  const canCancel = tx.status === 'ACTIVE' && !!me && tx.ownerId === me.id && !tx.tranches.some((r) => r.status === 'ACCEPTED');
+  const canCancel = tx.status === 'ACTIVE' && placeIn(tx, me?.id).initiator && !tx.tranches.some((r) => r.status === 'ACCEPTED');
   const run = async (fn: () => Promise<unknown>) => { setError(null); try { await fn(); } catch (e) { setError(errorText(e)); } };
 
   if (!inReview && !rejected && !canCancel && tx.status !== 'SUSPENDED') return null;
@@ -87,8 +87,9 @@ const DISPUTABLE: readonly Tranche['status'][] = ['SUBMITTED', 'INFO_REQUESTED',
 
 function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boolean }) {
   const { t, shortDate: date, dateTime, money, errorText } = useI18n();
-  const persona = usePersona();
-  const roles: TxRole[] = persona === 'PAYER' ? ['PAYER'] : ['PROVIDER'];
+  // Lot A (T5) : place de l’utilisateur dans cette opération (parties du dossier), jamais le rôle principal du profil.
+  const place = placeIn(tx, getCurrentUser()?.id);
+  const roles = tx.myRoles ?? [];
   const dq = useDisputeQuery(DISPUTABLE.includes(tr.status) || tr.onHold ? tr.id : undefined);
   const dispute = dq.data ?? null;
   const disputeOpen = !!dispute && dispute.status !== 'RESOLVED';
@@ -106,7 +107,7 @@ function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boo
   });
   const info = d.key ? t(d.key as Key, d.params) : '';
 
-  const canPay = persona === 'PAYER' && tx.status === 'ACTIVE' && tr.status === 'SUBMITTED' && !tr.onHold;
+  const canPay = place.payer && tx.status === 'ACTIVE' && tr.status === 'SUBMITTED' && !tr.onHold;
   return (
     <View style={st.item}>
       <View style={st.rail}>
@@ -125,7 +126,7 @@ function TrancheItem({ tx, tr, last }: { tx: Transaction; tr: Tranche; last: boo
           </View>
         ) : null}
         {/* Déblocage conditionnel seulement : QR à présenter, confirmation par le payeur, déblocage anticipé. */}
-        {persona === 'PAYER' && held && !disputeOpen ? (
+        {place.payer && held && !disputeOpen ? (
           <View style={st.actions}>
             {!tr.confirmedAt && tr.releaseMode === 'PROVIDER_CONFIRM'
               ? <Button small tone="secondary" label={t('showQr')} onPress={() => router.push(`/token/${tr.id}`)} /> : null}

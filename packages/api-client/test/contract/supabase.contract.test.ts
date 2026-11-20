@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { SupabaseApi, SupabaseAuth, createDiasPayClient, newUuid } from '../../src';
+import { SupabaseApi, SupabaseAuth, convert, createDiasPayClient, newUuid } from '../../src';
+const { TX_SELECT_WITH_PLACE } = convert;
 import type { DiasPayClient } from '../../src';
 import { contractSuite, healthDraft } from './contract';
 import type { ContractApi, Who } from './contract';
@@ -58,6 +59,35 @@ if (URL && KEY) {
     phones: { PAYER: PHONES.PAYER.phone, REQUESTER: PHONES.REQUESTER.phone, OTHER: PHONES.OTHER.phone },
     userId: async (who) => (await signedIn(who) as unknown as { userId(): Promise<string> }).userId(),
     timeout: 30_000,
+  });
+
+  // Lot A (T5) : la place de l’utilisateur est lue sans exposer les autres parties (ni leur ligne, ni un numéro).
+  describe('lot A (T5) : lecture de la place dans l’opération', () => {
+    it('seules les lignes de l’utilisateur, rôle et identifiant, sans numéro', async () => {
+      const requester = await signedIn('REQUESTER');
+      const id = newUuid();
+      await requester.saveDraft(healthDraft(id, { counterpartyPhone: PHONES.PAYER.phone }));
+      await requester.attachDocument(id, file('QUOTE'));
+      await requester.submitNeed(id);
+      const sb = clients.get('REQUESTER')!;
+      const uid = (await sb.auth.getSession()).data.session!.user.id;
+      const { data, error } = await sb.from('transactions').select(TX_SELECT_WITH_PLACE).eq('transaction_parties.user_id', uid).eq('id', id).single();
+      expect(error).toBeNull();
+      const parties = (data as unknown as { transaction_parties: Array<Record<string, unknown>> }).transaction_parties;
+      expect(parties.length).toBeGreaterThan(0);
+      for (const p of parties) {
+        expect(Object.keys(p).sort()).toEqual(['role', 'user_id']);
+        expect(p.user_id).toBe(uid);
+      }
+      // Aucun numéro d’une autre partie (payeur désigné, prestataire invité), ni dans les parties ni ailleurs (draft_data non lu).
+      expect(JSON.stringify(data)).not.toContain(PHONES.PAYER.phone.slice(1));
+      expect(JSON.stringify(data)).not.toContain('237699000001');
+      expect(Object.keys(data as object)).not.toContain('draft_data');
+      // Même règle par l’API de l’application, côté payeur.
+      const seen = await (await signedIn('PAYER')).getTransaction(id);
+      expect(JSON.stringify(seen)).not.toContain('237699000001');
+      expect(JSON.stringify(seen)).not.toContain(PHONES.REQUESTER.phone.slice(1));
+    }, 30_000);
   });
 
   // Lot A (T3) : hors démonstration, la tentative est en cours (ACCEPTED), rejouable, puis le simulateur du partenaire

@@ -173,6 +173,8 @@ Le passage d’une phase à l’autre ne change rien pour l’utilisateur : les 
 
 ## À valider par le Dr et paramètres ouverts
 
+**Validé par écrit par le Dr Dongmo le 19 novembre 2026** (« je suis d’accord avec ces analyses qui suivent la logique du projet initial »). Les choix ci-dessous sont retenus ; les valeurs listées restent à fournir.
+
 **Trois choix de notre part demandent l’accord du Dr ; quatre valeurs restent à fixer avant la production.** Aucune valeur n’a été inventée : sans elles, les réglages sûrs s’appliquent.
 
 ### Choix à valider

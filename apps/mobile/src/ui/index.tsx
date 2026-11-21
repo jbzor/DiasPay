@@ -4,6 +4,7 @@ import { Text, TextInput } from './text';
 import type { StyleProp, TextInputProps, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
+import { svgA11y } from './svgA11y';
 import { router } from 'expo-router';
 import { chips, fontSize, neutralTint, palette, radius, semantic, spacing, statusDot, touchTarget } from '@diaspay/ui-tokens';
 import { setLocale, useI18n } from '../i18n';
@@ -55,7 +56,7 @@ export const ICONS = {
 export function Icon({ name, size = 24, color = palette.ink, accessibilityLabel }: { name: keyof typeof ICONS; size?: number; color?: string; accessibilityLabel?: string }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"
-      accessible={!!accessibilityLabel} accessibilityLabel={accessibilityLabel} accessibilityRole={accessibilityLabel ? 'image' : undefined}>
+      {...svgA11y(accessibilityLabel)}>
       <Path d={ICONS[name]} />
     </Svg>
   );

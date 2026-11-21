@@ -1,5 +1,6 @@
 import Svg, { Circle, G, Path, Rect } from 'react-native-svg';
 import { palette } from '@diaspay/ui-tokens';
+import { svgA11y } from './svgA11y';
 
 /**
  * Logo DiasPayQR, repris de assets/logo.svg (et logo-inverse.svg avec `inverse`).
@@ -10,8 +11,7 @@ export function Logo({ size = 72, inverse = false, accessibilityLabel }: { size?
   const stroke = inverse ? palette.green : palette.yellow;
   const fill = inverse ? palette.green : '#FFFFFF';
   return (
-    <Svg width={size} height={size} viewBox="0 0 160 160"
-      accessible={!!accessibilityLabel} accessibilityLabel={accessibilityLabel} accessibilityRole={accessibilityLabel ? 'image' : undefined}>
+    <Svg width={size} height={size} viewBox="0 0 160 160" {...svgA11y(accessibilityLabel)}>
       <Rect width={160} height={160} rx={36} fill={bg} />
       <G fill="none" stroke={stroke} strokeWidth={7}>
         <Rect x={24} y={24} width={36} height={36} rx={6} />

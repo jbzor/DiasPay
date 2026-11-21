@@ -1,10 +1,11 @@
 import Svg, { Circle, G, Path, Rect } from 'react-native-svg';
 import { palette } from '@diaspay/ui-tokens';
+import { svgA11y } from './svgA11y';
 
 // Illustrations de la présentation (240 × 200) : traits verts et jaunes, détails rouges. Décoratives.
 const W = 240;
 const H = 200;
-const hidden = { accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' as const };
+const hidden = svgA11y();   // décoratives : masquées aux lecteurs d’écran (attributs ARIA sur le web)
 
 function Check({ cx, cy, r = 22 }: { cx: number; cy: number; r?: number }) {
   return (
